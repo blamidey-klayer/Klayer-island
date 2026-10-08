@@ -31,6 +31,7 @@ enum SessionRosterTests {
             ("a_failure_without_text_has_none", aFailureWithoutTextHasNone),
             ("a_request_is_named_after_its_session", aRequestIsNamedAfterItsSession),
             ("a_new_prompt_folds_only_its_own_finished_view", aNewPromptFoldsOnlyItsOwnFinishedView),
+            ("every_view_string_is_a_real_island_view", everyViewStringIsARealIslandView),
         ]
         for (name, run) in cases {
             run()
@@ -449,4 +450,23 @@ enum SessionRosterTests {
         precondition(!FinishPresentation.newPromptFoldsFinished(expanded: true, view: "finished",
                                                                 finishedSessionId: nil, promptSessionId: "A"))
     }
+
+    /// FinishPresentation decides on raw strings, as HookServer passes `state.view.rawValue`:
+    /// renaming an IslandView case would silently change the rule. Each string must name a case.
+    static func everyViewStringIsARealIslandView() {
+        for raw in FinishPresentation.replaceableViews {
+            precondition(IslandView(rawValue: raw) != nil, "\(raw) is not an IslandView case")
+        }
+        // The finished view a new prompt folds.
+        precondition(IslandView.finished.rawValue == "finished")
+        // The lists these tests use name real views too, so they cannot rot either.
+        for raw in restingViews + viewsInUse + cardViews {
+            precondition(IslandView(rawValue: raw) != nil, "\(raw) is not an IslandView case")
+        }
+        precondition(Set(restingViews) == FinishPresentation.replaceableViews)
+    }
 }
+
+/// IslandTypes.swift (compiled here for `IslandView`) names `EyeShape`, which BotEngine.swift
+/// defines with SwiftUI. This stand-in lets it build with Foundation only.
+enum EyeShape: Equatable {}
