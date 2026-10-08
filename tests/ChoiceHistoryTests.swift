@@ -2,7 +2,8 @@ import Foundation
 
 /// The history of what Claude asked and what the user answered from the island: the last 20
 /// answers, newest first, kept in a local JSON file that survives a restart and never crashes
-/// the app when it is missing or damaged, and the rules deciding what an answer records.
+/// the app when it is missing or damaged, the rules deciding what an answer records, and the
+/// row the open island shows for a choice.
 /// Tests use a temporary folder, never the real Application Support.
 @main
 enum ChoiceHistoryTests {
@@ -19,6 +20,8 @@ enum ChoiceHistoryTests {
             ("labels_for_each_decision", labelsForEachDecision),
             ("multi_select_is_flattened_in_question_order", multiSelectIsFlattenedInQuestionOrder),
             ("empty_answers_record_nothing", emptyAnswersRecordNothing),
+            ("row_time_is_hh_mm_in_the_given_time_zone", rowTimeIsHHmmInTheGivenTimeZone),
+            ("row_prompt_is_one_line_session_and_answer_kept", rowPromptIsOneLineSessionAndAnswerKept),
         ]
         for (name, run) in cases {
             run()
@@ -190,5 +193,43 @@ enum ChoiceHistoryTests {
         precondition(ChoiceRecord.question(questions, answers: ["Une autre question": "Oui"],
                                            session: "Klayer", date: when) == nil,
                      "an answer to a question that was not asked records nothing")
+    }
+
+    // MARK: - Row of the open island
+
+    static let utc = TimeZone(identifier: "UTC")!
+
+    static func rowTimeIsHHmmInTheGivenTimeZone() {
+        let r = ChoiceRecord(date: when, session: "Klayer", kind: .permission, prompt: "npm test", answer: "Autorisé")
+        // 1_700_000_000 is 22:13:20 UTC, 23:13:20 in Paris (UTC+1 in November).
+        precondition(r.row(in: utc).time == "22:13", "hours and minutes, no seconds, got \(r.row(in: utc).time)")
+        let paris = r.row(in: TimeZone(identifier: "Europe/Paris")!).time
+        precondition(paris == "23:13", "the time is read in the given zone, got \(paris)")
+
+        // Zero padded on 24 hours: midnight and a morning time.
+        let midnight = ChoiceRecord(date: Date(timeIntervalSince1970: 1_700_006_425), session: "Klayer",
+                                    kind: .question, prompt: "Quel moteur ?", answer: "Postgres")
+        precondition(midnight.row(in: utc).time == "00:00", "got \(midnight.row(in: utc).time)")
+        let morning = ChoiceRecord(date: Date(timeIntervalSince1970: 1_800_000_000 + 65 * 60), session: "Klayer",
+                                   kind: .question, prompt: "Quel moteur ?", answer: "Postgres")
+        precondition(morning.row(in: utc).time == "09:05", "got \(morning.row(in: utc).time)")
+    }
+
+    static func rowPromptIsOneLineSessionAndAnswerKept() {
+        let r = ChoiceRecord(date: when, session: "Projet A", kind: .permission,
+                             prompt: "git add .\n\tgit commit -m \"fix\"\r\n\n  git push  ", answer: "Toujours")
+        let row = r.row(in: utc)
+        precondition(row.prompt == "git add . git commit -m \"fix\" git push",
+                     "line breaks and tabs become one space and the ends are trimmed, got \(row.prompt)")
+        precondition(row.session == "Projet A" && row.answer == "Toujours", "the session and the answer are kept")
+        precondition(row == ChoiceRecord.Row(time: "22:13", session: "Projet A",
+                                             prompt: "git add . git commit -m \"fix\" git push", answer: "Toujours"))
+
+        let blank = ChoiceRecord(date: when, session: "Projet A", kind: .question, prompt: "", answer: "Oui")
+        precondition(blank.row(in: utc).prompt.isEmpty, "an empty prompt stays empty")
+        // The view cuts a long prompt itself (one line, truncated): the row keeps it whole.
+        let long = String(repeating: "x", count: 300)
+        let longRow = ChoiceRecord(date: when, session: "Projet A", kind: .permission, prompt: long, answer: "Refusé")
+        precondition(longRow.row(in: utc).prompt == long, "the row does not cut the prompt")
     }
 }

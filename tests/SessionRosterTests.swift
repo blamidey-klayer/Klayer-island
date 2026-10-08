@@ -2,7 +2,8 @@ import Foundation
 
 /// The roster of running Claude sessions (spec §6, one row per session): newest activity
 /// first, the last action kept and capped, rows removed when the session ends and pruned by
-/// age without a timer, and what a finished session does to an island that may be in use.
+/// age without a timer, what a finished session does to an island that may be in use, and what a
+/// row of the open island says and opens.
 /// Tests pass explicit dates, never the wall clock.
 @main
 enum SessionRosterTests {
@@ -18,6 +19,10 @@ enum SessionRosterTests {
             ("finish_only_badges_while_a_card_waits", finishOnlyBadgesWhileACardWaits),
             ("finish_never_replaces_a_view_in_use", finishNeverReplacesAViewInUse),
             ("finish_replaces_a_resting_view_unless_pinned", finishReplacesARestingViewUnlessPinned),
+            ("phase_labels_in_plain_french", phaseLabelsInPlainFrench),
+            ("host_kept_when_nil_and_replaced_when_given", hostKeptWhenNilAndReplacedWhenGiven),
+            ("session_host_is_the_routed_terminal_else_the_bundle", sessionHostIsTheRoutedTerminalElseTheBundle),
+            ("row_opens_its_running_host_else_the_claude_app", rowOpensItsRunningHostElseTheClaudeApp),
         ]
         for (name, run) in cases {
             run()
@@ -255,5 +260,77 @@ enum SessionRosterTests {
         // A view this code does not know is treated as in use: nothing is destroyed by surprise.
         precondition(FinishPresentation.decide(expanded: true, view: "somethingNew", pinned: false,
                                                requestPending: false) == .badgeOnly)
+    }
+
+    // MARK: - A row of the open island
+
+    static func phaseLabelsInPlainFrench() {
+        let expected: [(SessionPhase, String)] = [
+            (.idle, "En attente"), (.thinking, "Réfléchit"), (.working, "Travaille"),
+            (.approval, "Attend ton accord"), (.question, "Te pose une question"),
+            (.ratelimit, "Limite atteinte"), (.error, "Erreur"), (.finished, "Terminé"),
+        ]
+        precondition(Set(expected.map(\.0)) == Set(SessionPhase.allCases), "every phase has a label")
+        for (phase, label) in expected {
+            precondition(phase.label == label, "\(phase) reads « \(label) », got « \(phase.label) »")
+            precondition(!phase.label.contains("\u{2014}"), "no em dash in a label")
+        }
+    }
+
+    static func hostKeptWhenNilAndReplacedWhenGiven() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+                      lastAction: "x", hostBundleId: "dev.warp.Warp-Stable", at: at(minutes: 0))
+        precondition(roster.rows[0].hostBundleId == "dev.warp.Warp-Stable", "the row holds the host of its session")
+
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .finished,
+                      lastAction: "Fini", at: at(minutes: 1))
+        precondition(roster.rows[0].hostBundleId == "dev.warp.Warp-Stable",
+                     "an event that names no host keeps the one the session had")
+
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+                      lastAction: nil, hostBundleId: "com.apple.Terminal", at: at(minutes: 2))
+        precondition(roster.rows[0].hostBundleId == "com.apple.Terminal", "a new host replaces the old one")
+
+        // Each session keeps its own host: two sessions of the same pill in two terminals.
+        roster.update(sessionId: "b", pillId: "integration_claude", title: "B", phase: .working,
+                      lastAction: nil, hostBundleId: "com.googlecode.iterm2", at: at(minutes: 3))
+        roster.update(sessionId: "c", pillId: "integration_claude", title: "C", phase: .idle,
+                      lastAction: nil, at: at(minutes: 4))
+        let hosts = roster.rows.map(\.hostBundleId)
+        precondition(hosts == [nil, "com.googlecode.iterm2", "com.apple.Terminal"],
+                     "a new session without host has none, the others keep theirs, got \(hosts)")
+    }
+
+    static func sessionHostIsTheRoutedTerminalElseTheBundle() {
+        precondition(SessionRoster.host(routed: "dev.warp.Warp-Stable", bundleId: "") == "dev.warp.Warp-Stable",
+                     "a terminal found from TERM_PROGRAM is the host")
+        precondition(SessionRoster.host(routed: "com.mitchellh.ghostty", bundleId: "com.example.other")
+                     == "com.mitchellh.ghostty", "the routed terminal wins over the bundle id")
+        precondition(SessionRoster.host(routed: nil, bundleId: "com.microsoft.VSCode") == "com.microsoft.VSCode",
+                     "an editor session has its bundle id as host")
+        precondition(SessionRoster.host(routed: nil, bundleId: "") == nil, "no host known: nil")
+        precondition(SessionRoster.host(routed: nil, bundleId: "  \n") == nil, "a blank bundle id is no host")
+    }
+
+    static func rowOpensItsRunningHostElseTheClaudeApp() {
+        func row(_ pillId: String, host: String?) -> SessionRow {
+            SessionRow(id: "s", pillId: pillId, title: "P", phase: .finished, lastAction: "",
+                       updatedAt: t0, hostBundleId: host)
+        }
+        let running: Set<String> = ["dev.warp.Warp-Stable", "com.microsoft.VSCode", "com.anthropic.claudefordesktop"]
+
+        precondition(row("integration_claude", host: "dev.warp.Warp-Stable").openTarget(running: running)
+                     == .host(bundleId: "dev.warp.Warp-Stable"),
+                     "a Claude Code session brings its own terminal forward")
+        precondition(row("integration_claude", host: "com.microsoft.VSCode").openTarget(running: running)
+                     == .host(bundleId: "com.microsoft.VSCode"), "or its editor")
+        precondition(row("integration_claude", host: "com.apple.Terminal").openTarget(running: running) == .claudeApp,
+                     "a host that is not running any more falls back to the Claude app")
+        precondition(row("integration_claude", host: nil).openTarget(running: running) == .claudeApp,
+                     "no host known: the Claude app")
+        precondition(row(HookRouting.desktopPillId, host: "com.anthropic.claudefordesktop")
+                     .openTarget(running: running) == .claudeApp,
+                     "a session of the Claude app opens the Claude app, whatever its host")
     }
 }

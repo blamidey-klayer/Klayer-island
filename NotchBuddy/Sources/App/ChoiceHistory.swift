@@ -52,6 +52,33 @@ extension ChoiceRecord {
     }
 }
 
+// MARK: - What the open island shows
+
+extension ChoiceRecord {
+    /// One row of the last choices on the open island (spec §6): the time as "HH:mm", the
+    /// session, the prompt on one line and the answer. The view truncates the prompt.
+    struct Row: Equatable {
+        let time: String
+        let session: String
+        let prompt: String
+        let answer: String
+    }
+
+    /// The row of this choice, its time read in `timeZone` on 24 hours. Line breaks and tabs of
+    /// the prompt become one space and its ends are trimmed; nothing is cut.
+    func row(in timeZone: TimeZone = .current) -> Row {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        let time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        let oneLine = prompt.split(whereSeparator: { $0.isNewline || $0 == "\t" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return Row(time: time, session: session, prompt: oneLine, answer: answer)
+    }
+}
+
 /// The last 20 choices the user made from the island, newest first, kept in a local JSON file
 /// so they survive a restart. Nothing leaves the Mac: no network, no logging of the prompts.
 /// A missing or damaged file loads as empty and the next `record` writes a valid one again.
