@@ -76,6 +76,20 @@ jobs:
             -project NotchBuddy/NotchBuddy.xcodeproj \
             -scheme NotchBuddy \
             -configuration Release \
+            -derivedDataPath build \
             build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
+
+      - name: Package the app (ad-hoc signed, for internal testing)
+        run: |
+          APP="build/Build/Products/Release/KlayerIsland.app"
+          codesign --force --deep --sign - "$APP"
+          ditto -c -k --keepParent "$APP" KlayerIsland-macOS.zip
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: KlayerIsland-macOS
+          path: KlayerIsland-macOS.zip
+          retention-days: 14
