@@ -748,7 +748,8 @@ final class HookServer: @unchecked Sendable {
             return
         }
 
-        let command = toolInput["command"] as? String ?? tool
+        // What the card shows and the history records: the command, file, URL or argument (ApprovalSummary).
+        let command = ApprovalSummary.text(tool: tool, input: toolInput, cwd: cwd)
 
         // A question card on screen is never swapped for this permission under the pointer: the
         // permission waits behind it, badged, and shows once the question is answered.

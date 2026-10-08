@@ -49,6 +49,9 @@ jobs:
       - name: Test pending request
         run: bash scripts/test-pending-request.sh
 
+      - name: Test approval summary
+        run: bash scripts/test-approval-summary.sh
+
       - name: Test choice history
         run: bash scripts/test-choice-history.sh
 

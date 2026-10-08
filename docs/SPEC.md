@@ -76,7 +76,7 @@ Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, cen
 |---|---|---|---|---|
 | `overview` | 220 | 68, 58 | carte gauche 322 de large : maison (conversations en cours, derniers choix), ou carte GitHub ou Spotify ; carte droite : pastilles | 03 |
 | `empty` | 150 | 70, 62 | « Rien ne tourne pour l'instant. » + bouton « Demander à Claude » | 16 |
-| `approval` | 206 | 62, 56 | agent + « Claude Code veut lancer une commande », bloc code, Refuser (N), Toujours autoriser, Autoriser (Y) | 04 |
+| `approval` | 206 | 62, 56 | projet de la session + « needs permission », bloc code avec la demande (`ApprovalSummary` : la commande d'un Bash ; l'outil et le fichier, relatif au projet, pour Write, Edit, MultiEdit, NotebookEdit, Read ; l'adresse de WebFetch, la requête de WebSearch, le motif et le chemin de Grep et Glob ; « serveur · outil » et un argument court pour un outil MCP ; sinon le JSON compact, coupé à 200 caractères), Refuser, Autoriser, Toujours (estompés 0,6 s, règle 12) | 04 |
 | `question` | 196 | 62, 56 | agent + question (1/N) + options en boutons (single-select ou multi-select) + « Reply in terminal » ; bouton Send/Next pour multi-select ou multi-questions ; « Other… » → saisie libre | 05 |
 | `error` | 190 | 62, 58 | agent + outil, titre, détail en rouge `#FF8D97`, Relancer, Ouvrir | 06 |
 | `finished` | 170 | 62, 58 | agent + résumé, Voir le terminal, OK | 07 |
