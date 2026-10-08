@@ -26,19 +26,19 @@ claude (terminal, VS Code, app Claude)
 | Hook | Effet dans l'app |
 |---|---|
 | `SessionStart` | crée la tâche (nom = dossier), état `idle` |
-| `UserPromptSubmit` | état `thinking`, ligne du défilé = début du prompt |
+| `UserPromptSubmit` | état `thinking`, dernière action de la session = début du prompt |
 | `PreToolUse` | état `working`, ligne = outil + cible (« Edit Invoice.swift », « Bash npm test ») |
 | `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; un échec reste `working` |
 | `PermissionRequest` | alerte `approval` (voir plus bas) |
 | `Notification` | selon le type : attente d'entrée → `question` si une question est posée, sinon rien ; limite d'usage → `ratelimit` |
 | `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette session, que sa pastille ait le focus ou non. Sauf si une autorisation ou une question attend, ou si l'île déjà ouverte sert à autre chose (chat, mail, envoi de fichier, résultat, réglages) ou est épinglée avec ⌘P : la pastille reçoit alors seulement un badge et la ligne du registre est mise à jour (`FinishPresentation`) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
 | `StopFailure` (si présent dans la doc) | alerte `error`, même règle d'ouverture que `Stop` (badge seul si une carte attend, si l'île sert à autre chose ou est épinglée) |
-| `SubagentStart` / `SubagentStop` | afficher « + sous-agent » dans le défilé |
+| `SubagentStart` / `SubagentStop` | étape « + sous-agent » sur la pastille, la ligne de la session ne change pas |
 | `SessionEnd` | retire la tâche |
 
 Vérifier dans la doc la liste exacte des événements et leurs champs.
 
-**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase, dernière action (80 caractères au plus). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes est retirée, toute autre depuis 2 heures, sauf `approval` et `question`. Le ménage se fait à chaque événement, jamais sur minuterie.
+**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase, dernière action (80 caractères au plus) et app où tourne la session (le terminal reconnu, sinon le `bundle_id` du hook : un éditeur, l'app Claude). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes est retirée, toute autre depuis 2 heures, sauf `approval` et `question`. Le ménage se fait à chaque événement et quand la maison de l'île s'affiche, jamais sur minuterie. La maison montre les 3 lignes les plus récentes (voir `docs/SPEC.md`, Maison) ; un clic ouvre l'app Claude pour une session de l'app, l'app où tourne une session Claude Code si elle est ouverte, sinon l'app Claude (`claude://`).
 
 ### Approuver depuis le notch
 - Sur `PermissionRequest`, `nb-hook` **attend** la décision de l'app (défaut 110 s, réglable) puis écrit sur stdout le JSON de décision du hook (d'après la doc actuelle : `hookSpecificOutput` avec `decision.behavior` = `allow` ou `deny`). Timeout du hook dans settings.json : décision + 10 s.
@@ -64,7 +64,7 @@ Vérifier dans la doc la liste exacte des événements et leurs champs.
 |---|---|
 | `TERM_PROGRAM=Apple_Terminal` + tty | AppleScript Terminal : sélectionner l'onglet dont le `tty` correspond, activer |
 | `TERM_PROGRAM=iTerm.app` + `ITERM_SESSION_ID` | AppleScript iTerm : sélectionner la session, activer |
-| `TERM_PROGRAM=vscode` | ouvrir le dossier `cwd` dans VS Code ou Cursor (selon `__CFBundleIdentifier`) |
+| `TERM_PROGRAM=vscode` | activer l'éditeur où tourne la session (selon `__CFBundleIdentifier`) |
 | Ghostty, Warp, autre | activer l'app |
 | rien (app Claude) | activer l'app Claude |
 Demande l'autorisation Automatisation la première fois (normal).
@@ -116,26 +116,9 @@ Réglages → Agents → Plan usage → **Uninstall relay**. Remet l'objet `stat
 
 ---
 
-## 1ter. Diff en direct (live diff)
+## 1ter. Fin de session
 
-Sur `PostToolUse` pour `Edit`, `MultiEdit` et `Write` (Claude Code), l'app calcule un diff ligne à ligne et l'affiche dans le fil de l'île.
-
-**Données**
-- `Edit` : `old_string → new_string`
-- `MultiEdit` : liste `edits`, chaque entrée `old_string → new_string`
-- `Write` : `content` — tout le contenu est compté en ajout (on ne lit jamais le fichier sur le disque)
-- Le diff est calculé localement (Foundation, jamais de lecture sur le disque).
-- Limite : 200 Ko de texte combiné ou 4 000 lignes combinées → bilan seul, "Diff too large".
-- Mémoire : 50 diffs max par session, les plus anciens sont oubliés ; tout effacé à la fin de la session (`SessionEnd`) ou après une heure sans activité.
-
-**Fil (TickerView)** — les étapes de modification affichent le nom du fichier, `+N` en vert `#22C55E` et `−M` en rouge `#F4505E`, petits et monospacés.
-
-**Carte diff** — un clic sur une étape de modification ouvre la carte diff dans la vue principale :
-- En-tête : nom du fichier + bilan + bouton ↗ (ouvre dans VS Code via `code -g fichier:ligne`, sinon `NSWorkspace`)
-- Lignes en monospace 10,5 pt, fond vert ou rouge à 12 %, symbole +/− en marge, 3 lignes de contexte
-- Défilement vertical ; Échap ou clic sur l'en-tête pour revenir au fil
-
-**Vue Terminé (FinishedView)** — affiche le projet et la dernière phrase de la session qui a fini (`AppState.finishedSession`, posée par le `Stop` qui ouvre la vue ; « Open Claude » ou « Open terminal » selon sa pastille). Sans elle, repli sur la pastille en focus : dernière ligne utile (`finalLine` → dernière étape non-diff → "Session finished"). Sur une ligne (`.lineLimit(1).truncationMode(.tail)`). Pas de liste de fichiers.
+**Vue Terminé (FinishedView)** : affiche le projet et la dernière phrase de la session qui a fini (`AppState.finishedSession`, posée par le `Stop` qui ouvre la vue ; « Open Claude » ou « Open terminal » selon sa pastille). « Open terminal » ramène l'app où tourne cette session (terminal ou éditeur, gardée sur sa ligne du registre), puis un terminal connu, puis Terminal. Sans `finishedSession`, repli sur la pastille en focus : dernière ligne utile (`finalLine`, puis dernière étape, puis "Session finished"). Sur une ligne (`.lineLimit(1).truncationMode(.tail)`). La dernière phrase vient de `last_assistant_message`, nettoyée du Markdown par `ChatMarkdown.toOneLine` (premier paragraphe utile). Plus de diff ni de compteurs +N −M : ils ont été retirés avec les cartes de diff (spec refonte §6).
 
 ---
 

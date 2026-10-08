@@ -39,14 +39,14 @@ Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUD
 | Event | Effect |
 |---|---|
 | `SessionStart` | Creates the pill (if absent), sets state to idle |
-| `UserPromptSubmit` | State → thinking; prompt shown in ticker |
-| `PreToolUse` | State → working; tool label shown in ticker |
+| `UserPromptSubmit` | State → thinking; the prompt becomes the session's last action on the home |
+| `PreToolUse` | State → working; the tool label becomes the session's last action on the home |
 | `PostToolUse` / `PostToolUseFailure` | State → working |
 | `Notification` | Rate-limit or question state if applicable |
 | `Stop` | State → finished for 5 s; active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
 | `StopFailure` | State → error |
 | `SessionEnd` | Active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
-| `SubagentStart` / `SubagentStop` | Step added to ticker |
+| `SubagentStart` / `SubagentStop` | Step added to the pill; the session's row is unchanged |
 
 ## Declared pills
 
@@ -54,7 +54,7 @@ A **declared pill** is a catalog entry (`PillCatalog.swift`) that has been enabl
 
 A catalog pill that is not checked in Settings gets an automatic pill when a session starts, and that pill is removed when the session ends.
 
-Claude Desktop (`agent_claude-desktop`) is in the catalog: declare it to keep it after the session ends. Cursor (`agent_cursor`) is there as a workspace pill that can be declared and set as the main pill; the sessions that run in Cursor appear on the Claude Code pill.
+Claude Desktop (`agent_claude-desktop`) is in the catalog: declare it to keep it after the session ends. Editors have no pill: the sessions that run in VS Code or Cursor appear on the Claude Code pill, like terminal sessions.
 
 ## Other tools
 

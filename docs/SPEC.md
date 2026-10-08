@@ -47,7 +47,7 @@ Bouton Granola (île `compact` uniquement, jamais en `hidden` ni en `expanded`) 
 5. **Clic sur l'île fermée ou réduite** → rien : l'île ne s'ouvre jamais au clic. Seule exception, le bouton Granola de l'île réduite : son clic ouvre Granola sans ouvrir l'île, sans passer par la machine d'états et sans démarrer un glisser de Klay. Dans l'île ouverte, les clics gardent leur rôle (boutons, chat) ; un clic sur Klay le claque (émote agacé), le glisser l'installe sur le bureau ou l'attache à une fenêtre.
 6. **Fermeture** : une île ouverte au survol se replie en `compact` 0,6 s après la sortie de la souris ; revenir avant annule. Après un clic dedans, elle se replie une fois la souris sortie, après le délai **Close after** des réglages (15 s par défaut), pour pouvoir écrire dans le chat la souris ailleurs. Une île que l'app ou un raccourci ouvre alors qu'elle était fermée (alerte, fin de session, chat, pastille) n'a aucun minuteur : elle reste ouverte jusqu'au prochain survol suivi d'une sortie, ou jusqu'à un clic ailleurs. Un raccourci sur une île déjà ouverte compte comme un clic dedans. Pendant les 10 dernières secondes du délai, un trait de 2 pt en bas au centre (160 pt → 0, blanc 35 %) montre le compte à rebours.
 7. **Clic hors de l'île ouverte** → l'île se referme (`hidden`), son `close`. Un clic gauche ou droit dans une autre app, ou dans une autre fenêtre de Klayer Island (Réglages, menu), compte ; un clic sur l'île elle-même ou sur Klay posé sur le bureau ne compte pas. Si une autorisation ou une question est en attente, l'île se replie en `compact` : Klay garde son badge et l'île se rouvre au survol sur la demande. Seule une île épinglée avec ⌘P, sans demande en attente, reste ouverte. Les moniteurs de clic n'existent que tant que l'île est ouverte.
-8. **Échap** → comme un clic ailleurs, sauf si la vue qui a le focus le traite d'abord (la carte diff, par exemple, se ferme). Tapé dans une autre app, Échap ne ferme pas une île épinglée (autorisation ou question en attente, ⌘P).
+8. **Échap** → comme un clic ailleurs, sauf si la vue qui a le focus le traite d'abord (le détail GitHub, par exemple, se ferme). Tapé dans une autre app, Échap ne ferme pas une île épinglée (autorisation ou question en attente, ⌘P).
 9. **Louis absent** (aucun mouvement de souris depuis 3 min, réglable) → `hidden`, même avec des tâches. Au premier mouvement → retour `compact` si des tâches tournent.
 10. **Alertes** (permission, question, erreur) : l'île s'ouvre seule sur la vue de l'alerte, **même si Louis est absent**. Une autorisation ou une question en attente tient l'île ouverte jusqu'à la réponse, y compris quand elle arrive alors que l'île est déjà ouverte ou pendant le salut de lancement : aucun minuteur ni aucune sortie de la souris ne la replie. Un clic ailleurs, Échap, le raccourci de fermeture ou le saut au terminal la replient seulement en `compact`, avec le badge (règle 7). La demande ne quitte l'île qu'à la réponse, au choix « répondre dans le terminal », ou quand la connexion du hook se ferme ou expire : changer de vue ou replier l'île ne la renvoie jamais au terminal. Tant qu'une demande attend, les autres alertes ne prennent pas sa place dans l'île ouverte ; sinon elles suivent la règle 6 (île ouverte par l'app).
 11. **Terminé** : l'île s'ouvre sur la vue `finished` et reste ouverte jusqu'au prochain survol suivi d'une sortie, ou jusqu'à un clic ailleurs.
@@ -74,7 +74,7 @@ Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, cen
 
 | Vue | Hauteur | Bonhomme (x, Ø) | Contenu | Capture |
 |---|---|---|---|---|
-| `overview` | 196 | 64, 70 | carte gauche 322 de large : ligne agent + défilé de tâches ; carte droite : pastilles | 03 |
+| `overview` | 220 | 68, 58 | carte gauche 322 de large : maison (conversations en cours, derniers choix), ou carte GitHub ou Spotify ; carte droite : pastilles | 03 |
 | `empty` | 150 | 70, 62 | « Rien ne tourne pour l'instant. » + bouton « Demander à Claude » | 16 |
 | `approval` | 206 | 62, 56 | agent + « Claude Code veut lancer une commande », bloc code, Refuser (N), Toujours autoriser, Autoriser (Y) | 04 |
 | `question` | 196 | 62, 56 | agent + question (1/N) + options en boutons (single-select ou multi-select) + « Reply in terminal » ; bouton Send/Next pour multi-select ou multi-questions ; « Other… » → saisie libre | 05 |
@@ -92,15 +92,19 @@ Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, cen
 
 Centre vertical du bonhomme : 36 + (hauteur − 46) / 2, sauf `result` (y = 86).
 
-### Défilé de tâches (overview)
-- Position x = 112 dans la carte, fenêtre de 96 pt avec masque dégradé haut/bas, 4 lignes de 30 pt (précédente, courante, suivante, suivante+1).
-- Ligne courante : 14 pt medium, texte scintillant (dégradé gris → blanc → gris qui balaie en 2,2 s). Autres : 13 pt `#5F646D`, icône 14 pt.
-- Toutes les 2,8 s, si la tâche en focus travaille : tout monte de 30 pt en 450 ms `cubic-bezier(.3,.9,.3,1)`.
-- Dans l'app réelle, les lignes = les dernières actions de la session (outil + cible : « Edit Invoice.swift », « Bash npm test »).
+### Maison (overview)
 
-### Diff en direct
+Carte gauche de 322 pt, Klay à sa gauche, contenu à partir de x = 108 (spec refonte §6) :
 
-Quand une étape du fil est une modification de fichier (préfixe interne `\u{E001}`), elle s'affiche avec le nom du fichier et le bilan `+N −M` en couleur. Un clic sur la ligne courante ou la ligne précédente ouvre la carte diff (voir DiffCardView) dans la carte gauche de la vue principale, en remplacement du fil — que la pastille soit intégrée (integration_claude, agent_cursor…) ou non. Échap ou le bouton ← de l'en-tête ferme la carte. En fin de tâche (Stop), la ligne courante du fil passe en texte statique (couleur `#C9CDD4`, sans brillance) tant que la tâche n'est pas relancée ; elle est construite à partir du dernier message de l'assistant (champ `last_assistant_message` de l'événement Stop, nettoyé du Markdown par `DiffEngine.toOneLine` — premier paragraphe utile uniquement).
+1. **Conversations en cours** : une ligne par session (`AppState.sessions`, registre `SessionRoster`), la plus récente activité d'abord, 3 au plus, 26 pt chacune. Mini-Klay de Ø 18 sur un disque de la couleur de son état (`StateColor`, §7), titre (dossier du projet, 12 pt semibold), état en clair (11 pt `#8E939C` : « En attente », « Réfléchit », « Travaille », « Attend ton accord », « Te pose une question », « Limite atteinte », « Erreur », « Terminé »), dernière action sur une ligne (10,5 pt `#6B7079`, tronquée). Sans session : « Aucune conversation en cours. » (12 pt `#8E939C`).
+   - Un clic ouvre la session : l'app Claude (`claude://`) pour une session de l'app Claude ; pour une session Claude Code, l'app où elle tourne (terminal ou éditeur, gardée sur sa ligne) si elle est ouverte, sinon l'app Claude.
+   - Une ligne finie, en erreur ou au repos part après 30 min sans activité, toute autre après 2 h, jamais une autorisation ni une question en attente. Le ménage se fait à chaque événement et quand la maison s'affiche (ouverture de l'île, retour à la maison), jamais sur minuterie.
+2. **Derniers choix** : les 5 dernières autorisations et questions répondues depuis l'île (`AppState.recentChoices`, historique local de 20 entrées), en gris `#9398A1` à 55 % d'opacité, 10 pt, une ligne chacune : « HH:mm · session · demande · réponse ». La demande est coupée en bout de ligne, la réponse reste entière (20 caractères au plus). Sans choix, le bloc n'apparaît pas.
+3. **Demande en cours** : une autorisation ou une question en attente a sa vue (`approval`, `question`), qui passe devant la maison.
+
+La maison s'affiche quand la pastille en focus est une pastille Claude (Claude Code, app Claude) ou qu'aucune n'a le focus. Avec GitHub ou Spotify en focus, la carte gauche garde leur carte et son bouton ↗. Hauteur : 220 pt, soit une carte de 168 pt (8 en haut, en-tête de 34, 10 en bas) ; Klay reste centré verticalement sur la carte.
+
+Retirés : pastilles d'éditeurs (VS Code, Cursor), boutons terminal et éditeur, défilé de tâches, cartes de diff et compteurs +N −M. À la fin d'une session (`Stop`), la dernière phrase de l'assistant (`last_assistant_message`, nettoyée du Markdown par `ChatMarkdown.toOneLine`, premier paragraphe utile) devient la dernière action de sa ligne et le texte de la vue `finished`.
 
 ### Pastilles (overview)
 - 132 × 34, rayon 17, fond couleur de l'agent à 13 %, bord à 32 %, mini-bonhomme Ø 24 centré à 17 pt du bord gauche, libellé 12 pt couleur de l'agent éclaircie de 25 %. Deux colonnes, écart 8, centrées verticalement dans la carte droite (qui commence à x = 342).
@@ -108,21 +112,20 @@ Quand une étape du fil est une modification de fichier (préfixe interne `\u{E0
 ### Catalogue de pastilles
 Toutes les pastilles déclarées sont définies dans `PillCatalog.all` (source de vérité unique). Trois catégories :
 
-| Catégorie | Titre | Pastilles | Subtitle (repos) | Subtitle (session) |
-|---|---|---|---|---|
-| `workspace` | Where you code | VS Code, Cursor | Integration | Claude Code / Cursor / Agent |
-| `agent` | Agents | Claude Desktop | Agent | Claude Desktop |
-| `service` | Services | GitHub, Spotify | Integration | — |
+| Catégorie | Titre | Pastilles | Subtitle |
+|---|---|---|---|
+| `workspace` | Where you code | Claude Code | Integration |
+| `agent` | Agents | Claude Desktop | Agent |
+| `service` | Services | GitHub, Spotify | Integration |
 
-Couleurs : Cursor `#C0C4CC`, Claude Desktop `#D97757`.
+Couleurs : Claude Desktop `#D97757`. Les éditeurs n'ont plus de pastille : une session Claude Code s'affiche sur la pastille Claude Code, qu'elle tourne dans un terminal ou un éditeur.
 
 Règles :
-- **`mainPillId`** (défaut `integration_claude`) est la pastille workspace toujours chargée. Elle ne compte pas dans les 4 places. Modifiable via le sélecteur Main dans Settings.
-- Quand `mainPillId != "integration_claude"`, la pastille VS Code est chargée seulement si une session VS Code est active (transient) ou si elle est cochée dans `activeIntegrations`.
+- **`mainPillId`** vaut `integration_claude` (« Claude Code »), la pastille workspace toujours chargée. Elle ne compte pas dans les 4 places. Le sélecteur Main a disparu avec les pastilles d'éditeurs : une valeur enregistrée qui n'existe plus (`agent_cursor`) revient à Claude Code au lancement, et une pastille retirée sort de `activeIntegrations`.
 - Max 4 pastilles autres que `mainPillId` actives à la fois (`activeIntegrations`, persisté).
 - `removeTask` sur `mainPillId` ou une pastille déclarée + active → reset à `.idle` + `pillBadge = nil` + nom du catalogue (pas de suppression). Sinon → suppression normale.
 - `sortTasksByCatalog` : pastilles du catalogue dans l'ordre du catalogue ; pastilles hors catalogue juste après `integration_claude`.
-- Claude Code : `isConfigured` = les hooks de Klayer Island sont dans `~/.claude/settings.json` (`HookServer.claudeHooksInstalled()`). La pastille Cursor suit le même état, et les sessions Claude Code lancées dans Cursor s'affichent sur la pastille Claude Code. Claude Desktop : rien à installer, `isConfigured` est toujours vrai. Les autres agents ne sont plus suivis : leurs événements sont ignorés (pas de pastille) et leurs demandes d'autorisation reçoivent `ask` (voir `docs/AGENTS.md`).
+- Claude Code : ses sessions, lancées dans un éditeur ou un terminal, s'affichent sur cette pastille et dans la maison ; les hooks s'installent dans Réglages → Agents. Claude Desktop : rien à installer. Les pastilles Claude ouvrent la maison, jamais une carte d'état ; seules GitHub et Spotify ont leur carte (`IntegrationCardView`). Les autres agents ne sont plus suivis : leurs événements sont ignorés (pas de pastille) et leurs demandes d'autorisation reçoivent `ask` (voir `docs/AGENTS.md`).
 
 ### Carte GitHub (`GitHubPulseCardView`)
 
@@ -246,7 +249,7 @@ Fichiers `assets/sounds/*.wav` (48 kHz stéréo), rendus depuis le moteur du pro
 | envoi (prompt, mail) / attache fenêtre | `send` / `attach` |
 | émotes | `love`, `pop`, `proud`, `wink`, `yawn`, `sleep` |
 
-Pas de son pour les mises à jour silencieuses (défilé de tâches, mini-bonhommes qui changent d'état sauf alerte).
+Pas de son pour les mises à jour silencieuses (lignes des conversations en cours, mini-bonhommes qui changent d'état sauf alerte).
 
 ## 10. Barre de menus et réglages
 
@@ -260,7 +263,7 @@ Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Sound** : son on/off, volume.
 - **Behavior** : fermeture après N s d'inactivité ; masquage après N min sans mouvement.
 - **Display** : écran de l'island — Screen with the notch (défaut), Main screen (menu bar), Follow the mouse, ou un écran précis par son nom (`NSScreen.localizedName`). Un écran mémorisé mais débranché s'affiche « Saved screen (not connected) ». Voir §1.
-- **Active pills** : pastilles actives (VS Code toujours actif + jusqu'à 4 autres) ; sélecteur de pastille principale (affiché uniquement si une pastille workspace est active) ; liste par catégorie (voir catalogue §5).
+- **Active pills** : pastilles actives (Claude Code toujours active + jusqu'à 4 autres), avec pour chacune son interrupteur et sa palette de couleur ; liste par catégorie (voir catalogue §5).
 - **Hotkey** : raccourci global pour ouvrir le notch.
 - **Startup** : lancer au démarrage (`SMAppService.mainApp`).
 
@@ -386,12 +389,10 @@ Ces raccourcis sont gérés par `NSEvent.addLocalMonitorForEvents`. L'île prend
 | ⌘↓ | Descend dans la liste de la carte active |
 | ⌘↑ | Monte dans la liste de la carte active |
 | ⌘O | Ouvre/développe l'élément sélectionné |
-| ⌘E | Modifier le prompt courant |
 | ⌘↩ | Envoyer le message (vue Prompt) |
 | ⌘K | Nouvelle conversation (vue Prompt) |
 | ⌘, | Ouvrir les Réglages |
 | ⌘P | Copier le dernier message |
-| ⌘⇧D | Afficher/masquer le diff |
 
 ### 14.3 Personnalisation
 

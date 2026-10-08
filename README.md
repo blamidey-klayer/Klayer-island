@@ -27,9 +27,10 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 
 ## Ce que fait l'app
 
-- **Sessions Claude en direct** : Claude Code (VS Code, Cursor ou terminal) et l'app de bureau Claude. Chaque étape (lecture, édition, commande) défile dans l'île ; chaque fichier modifié affiche son +N −M et ouvre le diff au clic.
-- **Autoriser et répondre depuis l'île** : les demandes d'autorisation de Claude Code (Allow, Deny, Always), les questions `AskUserQuestion` à choix simple ou multiple.
-- **Retour au bon terminal** : ouvre la fenêtre de la session concernée.
+- **Conversations en cours** : la maison de l'île liste vos sessions Claude, celles de l'app de bureau Claude comme celles de Claude Code dans un terminal ou un éditeur. Pour chacune : son dossier, son état en clair (« Travaille », « Attend ton accord »…), un mini Klay de la couleur de cet état et sa dernière action. Un clic ouvre la session : l'app Claude, ou le terminal ou l'éditeur où tourne Claude Code.
+- **Derniers choix** : sous les conversations, en gris, les 5 dernières autorisations et questions auxquelles vous avez répondu depuis l'île, avec l'heure et la réponse. L'historique reste sur votre Mac.
+- **Autoriser et répondre depuis l'île** : les demandes d'autorisation de Claude Code (Allow, Deny, Always), les questions `AskUserQuestion` à choix simple ou multiple. Une demande en attente passe devant la maison.
+- **Fin de session** : l'île s'ouvre sur la session qui vient de finir, avec sa dernière phrase et un bouton qui ramène à son terminal ou à l'app Claude.
 - **Chat** : Claude (API Anthropic). La clé reste dans le trousseau du système.
 - **Quotas** : limites 5 heures et hebdomadaires de Claude dans l'en-tête de l'île.
 - **Dépôt de fichier** sur l'île, puis question à Claude ou envoi par email (Mail.app).
@@ -40,7 +41,7 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 - **10 langues**, dont le français.
 - **Aucune télémétrie, aucun compte.** L'app ne parle qu'aux services que vous branchez.
 
-Retirés par rapport à Coucou : widgets, synchronisation entre appareils, versions hors Mac, garde-robe et tenues de Mochi, mode démo, récap hebdomadaire.
+Retirés par rapport à Coucou : widgets, synchronisation entre appareils, versions hors Mac, garde-robe et tenues de Mochi, mode démo, récap hebdomadaire, pastilles d'éditeurs (VS Code, Cursor), boutons terminal et éditeur, cartes de diff et compteurs +N −M.
 
 ## Installer
 
