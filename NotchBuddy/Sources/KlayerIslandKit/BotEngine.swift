@@ -111,6 +111,24 @@ enum StateColor {
         }
     }
 
+    /// Above this luminance a badge fill is light. 0.2 is where white and teal-deep
+    /// contrast equally; every state colour with a badge is above it and gets at least
+    /// 4.6:1 with teal-deep.
+    static let lightFill: CGFloat = 0.2
+
+    /// The colour of a badge's marks (dots, "!", "?"): teal-deep on a light fill, white
+    /// otherwise. Mirror of badgeMarkColor in tools/klay-preview/src/engine.ts.
+    static func mark(on fill: CGColor) -> Color {
+        luminance(fill) > lightFill ? KlayPaint.ink : .white
+    }
+
+    /// Relative luminance (WCAG 2) of a colour.
+    private static func luminance(_ c: CGColor) -> CGFloat {
+        let (r, g, b) = cgColorToTuple(c)
+        func f(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    }
+
     private static func rgb(_ hex: UInt32) -> CGColor {
         CGColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
                 green: CGFloat((hex >> 8) & 0xFF) / 255,
@@ -800,7 +818,7 @@ final class BotEngine: ObservableObject {
 
         // Limbs follow their targets with a quick, springy ease.
         if !isMini {
-            let target = KlayPaint.limbTargets(state: state, t: t, waving: waving ? hands : 0)
+            let target = KlayPaint.limbTargets(state: state, t: t, waving: waving ? hands : 0, look: yaw)
             limbs = limbs.eased(towards: target, CGFloat(1 - pow(0.00002, dt)))
         }
 
@@ -1056,7 +1074,7 @@ final class BotEngine: ObservableObject {
                     let dotR = R * 0.055 * (1 + 0.4 * max(0, sin(phase * .pi * 2)))
                     var dot = Path()
                     dot.addEllipse(in: CGRect(x: (CGFloat(i)-1)*R*0.18 - dotR, y: -dotR, width: dotR*2, height: dotR*2))
-                    ctx.fill(dot, with: .color(.white))
+                    ctx.fill(dot, with: .color(StateColor.mark(on: col)))
                 }
             }
 
@@ -1069,7 +1087,7 @@ final class BotEngine: ObservableObject {
             ctx.fill(inner, with: .color(Color(cgColor: col)))
             if !isMini {
                 let text = badge == .bang(col) ? "!" : "?"
-                ctx.draw(Text(text).font(.system(size: R*0.32, weight: .black)).foregroundColor(.white),
+                ctx.draw(Text(text).font(.system(size: R*0.32, weight: .black)).foregroundColor(StateColor.mark(on: col)),
                          at: CGPoint(x: 0, y: R*0.02))
             }
 

@@ -156,16 +156,4 @@ enum IslandConst {
         for (k, c) in projectColors where key.hasPrefix(k) || key.contains(k) { return c }
         return fallbackColors[abs(name.hashValue) % fallbackColors.count]
     }
-
-    // State card wash colors (radial gradient from bottom)
-    static let washColors: [IslandView: String] = [
-        .approval:  "rgba(245,165,36,0.42)",
-        .question:  "rgba(34,211,238,0.38)",
-        .error:     "rgba(244,80,94,0.55)",
-        .finished:  "rgba(52,211,153,0.5)",
-        .confused:  "rgba(244,114,182,0.55)",
-        .searching: "rgba(99,102,241,0.5)",
-        .result:    "rgba(52,211,153,0.22)",
-        .prompt:    "rgba(99,102,241,0.22)",
-    ]
 }

@@ -229,7 +229,7 @@ struct ApprovalView: View {
 
     var body: some View {
         ZStack {
-            CardBackground(wash: .amber)
+            CardBackground(wash: .approval)
             VStack(alignment: .leading, spacing: 5) {
                 AgentWho(task: state.focusTask, label: "needs permission")
                 CodeBlock(text: approval?.command ?? approval?.tool ?? "…")
@@ -270,7 +270,7 @@ struct QuestionView: View {
 
     var body: some View {
         ZStack {
-            CardBackground(wash: .cyan)
+            CardBackground(wash: .question)
             if let q = question, !q.questions.isEmpty {
                 let qi = min(questionIndex, q.questions.count - 1)
                 let item = q.questions[qi]
@@ -484,7 +484,7 @@ struct ErrorView: View {
 
     var body: some View {
         ZStack {
-            CardBackground(wash: .red)
+            CardBackground(wash: .error)
             VStack(alignment: .leading, spacing: 5) {
                 AgentWho(task: state.focusTask, label: "Failed")
                 Text("Workflow stopped.")
@@ -521,7 +521,7 @@ struct FinishedView: View {
 
     var body: some View {
         ZStack {
-            CardBackground(wash: .green)
+            CardBackground(wash: .finished)
             VStack(alignment: .leading, spacing: 5) {
                 AgentWho(task: state.focusTask, label: "Claude Code finished")
                 Text({
@@ -702,7 +702,7 @@ struct DiffLineRowView: View {
 struct ConfusedView: View {
     var body: some View {
         ZStack {
-            CardBackground(wash: .pink)
+            CardBackground(wash: .dizzy)
             VStack(alignment: .leading, spacing: 5) {
                 Text("Too many hits at once.").font(.system(size: 15, weight: .semibold))
                 Text("Give me a sec — back to work in three seconds.")
@@ -1025,7 +1025,7 @@ struct PromptView: View {
     @State private var dictation = MacDictation()
     var body: some View {
         ZStack(alignment: .leading) {
-            CardBackground(wash: .indigo)
+            CardBackground(wash: .searching)
 
             VStack(alignment: .leading, spacing: 6) {
                 if let ctx = state.promptContext {
@@ -1232,7 +1232,7 @@ struct SearchingView: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            CardBackground(wash: .indigo)
+            CardBackground(wash: .searching)
 
             VStack(alignment: .leading, spacing: 8) {
                 if let ctx = state.promptContext {
@@ -1254,7 +1254,7 @@ struct ResultView: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            CardBackground(wash: .green)
+            CardBackground(wash: .finished)
 
             if let result = state.searchResult {
                 VStack(alignment: .leading, spacing: 7) {
@@ -2588,7 +2588,8 @@ struct ColumnAgentsView: View {
 // MARK: - Card background
 
 struct CardBackground<Content: View>: View {
-    enum Wash { case red, green, pink, amber, cyan, indigo, soft }
+    /// The wash takes the colour of a state (StateColor), like Klay's glow and badge.
+    enum Wash { case error, finished, dizzy, approval, question, searching, soft }
 
     let wash: Wash?
     let content: (() -> Content)?
@@ -2600,14 +2601,14 @@ struct CardBackground<Content: View>: View {
 
     var washColor: Color {
         switch wash {
-        case .red:    return Color(hex: "#F4505E").opacity(0.55)
-        case .green:  return Color(hex: "#34D399").opacity(0.5)
-        case .pink:   return Color(hex: "#F472B6").opacity(0.55)
-        case .amber:  return Color(hex: "#F5A524").opacity(0.42)
-        case .cyan:   return Color(hex: "#22D3EE").opacity(0.38)
-        case .indigo: return Color(hex: "#6366F1").opacity(0.5)
-        case .soft:   return Color.white.opacity(0.08)
-        case nil:     return Color.clear
+        case .error:     return Color(cgColor: StateColor.error).opacity(0.55)
+        case .finished:  return Color(cgColor: StateColor.finished).opacity(0.5)
+        case .dizzy:     return Color(cgColor: StateColor.dizzy).opacity(0.55)
+        case .approval:  return Color(cgColor: StateColor.approval).opacity(0.42)
+        case .question:  return Color(cgColor: StateColor.question).opacity(0.38)
+        case .searching: return Color(cgColor: StateColor.searching).opacity(0.5)
+        case .soft:      return Color.white.opacity(0.08)
+        case nil:        return Color.clear
         }
     }
 

@@ -91,24 +91,32 @@ const HAND_R = 26;
 const FOOT_RX = 32;
 const FOOT_RY = 15;
 /**
- * Binoculars of the searching state, held up in front of the eyes: two rounded
- * teal-deep barrels joined by a bridge, a teal-light lens with a brume rim and a
- * white glint at the front of each barrel.
+ * Binoculars of the searching state, held up over the eyes and seen a little from
+ * above, so the length of the barrels shows: two teal-deep barrels, a narrow
+ * eyepiece tube on top (behind) over a wider objective tube whose end faces the
+ * viewer, with the teal-light glass in a brume rim; a central hinge with a focus
+ * knob joins them. Right side; the left mirrors.
  */
-const BINO_BARREL: P = { x: 56, y: -10 }; // barrel centre (right side; the left mirrors)
-const BINO_BARREL_W = 92;
-const BINO_BARREL_H = 104;
-const BINO_BARREL_R = 34; // corner radius
-const BINO_BRIDGE_W = 40;
-const BINO_BRIDGE_H = 30;
-const BINO_LENS_R = 36;
-const BINO_LENS_RIM = 8;
-const BINO_GLINT: P = { x: -13, y: -13 }; // glint centre, from the lens centre
-const BINO_GLINT_R = 9;
-/** How far the binoculars follow the look sweep: x offset = yaw × this. */
-const BINO_LOOK = 18;
-/** Where both hands hold the barrels (right side; the left mirrors). */
-const BINO_HAND: P = { x: 112, y: 18 };
+const BINO = {
+  /** Barrel axis. */
+  x: 84,
+  /** Eyepiece tube: top, bottom, half width, corner radius; brume ring across it. */
+  eyeTop: -142, eyeBottom: -94, eyeHW: 24, eyeR: 10, ringY: -128, ringH: 8,
+  /** Objective tube: top, half width, top corner radius; its end (ellipse) at objY. */
+  objTop: -104, objY: 0, objHW: 52, objR: 18, objRY: 22,
+  /** Glass in the objective end: half axes, brume rim width. */
+  glassRX: 40, glassRY: 15, glassRim: 8,
+  /** White streak of light on the glass: an arc of a smaller ellipse, angles in π. */
+  shineRX: 28, shineRY: 9, shineFrom: 1.08, shineTo: 1.42, shineW: 6,
+  /** Central hinge, the bridge between the eyepiece tubes, the focus knob on top. */
+  hingeHW: 10, hingeTop: -138, hingeBottom: -36,
+  bridgeHW: 62, bridgeTop: -124, bridgeBottom: -106,
+  knobY: -142, knobHW: 23, knobHH: 13, knobR: 9, knobBand: 8,
+  /** The sweep: x offset = yaw × sweep, rotation = yaw × turn about the pivot. */
+  sweep: 45, turn: 0.13, pivot: { x: 0, y: -60 } as P,
+  /** Where each hand grips the outer side of an objective tube. */
+  hand: { x: 146, y: -52 } as P,
+} as const;
 /** Top and bottom of the whole character (glyph top, soles), relative to the hub. */
 const TOP = -HUB_Y;
 const BOTTOM = FOOT_REST.y + FOOT_RY;
@@ -207,6 +215,24 @@ const mix3 = (a: RGB, b: RGB, t: number): RGB => [
   lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t),
 ];
 
+/** Relative luminance (WCAG 2) of a colour. */
+function luminance(c: RGB): number {
+  const f = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+}
+
+/**
+ * Above this luminance a badge fill is light. 0.2 is where white and teal-deep
+ * contrast equally; every state colour with a badge is above it and gets at least
+ * 4.6:1 with teal-deep.
+ */
+const LIGHT_FILL = 0.2;
+
+/** The colour of a badge's marks (dots, "!", "?"): teal-deep on a light fill, white otherwise. */
+export function badgeMarkColor(fill: RGB): string {
+  return luminance(fill) > LIGHT_FILL ? INK : "#FFFFFF";
+}
+
 function roundRectPath(x: CanvasRenderingContext2D, X: number, Y: number, W: number, H: number, R: number) {
   const r = Math.max(0, Math.min(R, W / 2, H / 2));
   x.beginPath();
@@ -240,7 +266,7 @@ const FONT = `system-ui, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
 
 /** Where the hands and feet want to be for a state, at time `t` (seconds). */
 export function limbTargets(
-  state: BotStateName, t: number, waving: number,
+  state: BotStateName, t: number, waving: number, look = 0,
 ): { lh: P; rh: P; lf: P; rf: P } {
   const rest = (sd: number, dy = 0): P => ({ x: sd * HAND_REST.x, y: HAND_REST.y + dy + Math.sin(t * 1.8 + sd) * 3 });
   let lh = rest(-1);
@@ -263,9 +289,9 @@ export function limbTargets(
       rh = { x: 52 + Math.sin(t * 2) * 3, y: 92 };
       break;
     case "searching":
-      // Both hands hold the binoculars (drawKlayBinoculars) by the barrels.
-      lh = { x: -BINO_HAND.x, y: BINO_HAND.y };
-      rh = { x: BINO_HAND.x, y: BINO_HAND.y };
+      // Both hands grip the binoculars (drawKlayBinoculars) and follow their sweep.
+      lh = binocularsPoint({ x: -BINO.hand.x, y: BINO.hand.y }, look);
+      rh = binocularsPoint(BINO.hand, look);
       break;
     case "approval": {
       // Both arms up, waving for attention.
@@ -392,35 +418,73 @@ export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: str
   x.restore();
 }
 
+/** Where a point of the binoculars (Klay's frame, at rest) is once they follow `look`. */
+export function binocularsPoint(p: P, look: number): P {
+  const k = Math.max(-1, Math.min(1, look));
+  const a = k * BINO.turn;
+  const dx = p.x - BINO.pivot.x;
+  const dy = p.y - BINO.pivot.y;
+  return {
+    x: BINO.pivot.x + dx * Math.cos(a) - dy * Math.sin(a) + k * BINO.sweep,
+    y: BINO.pivot.y + dx * Math.sin(a) + dy * Math.cos(a),
+  };
+}
+
 /**
  * The binoculars Klay holds up in the searching state, over the eyes (which are not
- * drawn meanwhile). `look` is the yaw (−1…1): the binoculars follow the look sweep,
- * x offset = yaw × 18. In Klay's frame. Mirror of KlayPaint.drawBinoculars on the Mac.
+ * drawn meanwhile). `look` is the yaw (−1…1): they follow the look sweep, x offset =
+ * yaw × 45 and a turn of yaw × 0.13 rad about the pivot (±0.08 rad at the scan's
+ * ±0.6). The hands grip them at BINO.hand (limbTargets). In Klay's frame. Mirror of
+ * KlayPaint.drawBinoculars on the Mac.
  */
 export function drawKlayBinoculars(x: CanvasRenderingContext2D, look: number) {
-  const dx = Math.max(-1, Math.min(1, look)) * BINO_LOOK;
+  const k = Math.max(-1, Math.min(1, look));
+  const B = BINO;
   x.save();
-  x.translate(dx, 0);
+  x.translate(B.pivot.x + k * B.sweep, B.pivot.y);
+  x.rotate(k * B.turn);
+  x.translate(-B.pivot.x, -B.pivot.y);
+  // Hinge, bridge and the eyepiece tubes with their brume rings, behind.
   x.fillStyle = INK;
-  x.fillRect(-BINO_BRIDGE_W / 2, BINO_BARREL.y - BINO_BRIDGE_H / 2, BINO_BRIDGE_W, BINO_BRIDGE_H);
+  roundRectPath(x, -B.hingeHW, B.hingeTop, B.hingeHW * 2, B.hingeBottom - B.hingeTop, B.hingeHW);
+  x.fill();
+  x.fillRect(-B.bridgeHW, B.bridgeTop, B.bridgeHW * 2, B.bridgeBottom - B.bridgeTop);
   for (const sd of [-1, 1]) {
-    const cx = sd * BINO_BARREL.x;
-    const cy = BINO_BARREL.y;
     x.fillStyle = INK;
-    roundRectPath(x, cx - BINO_BARREL_W / 2, cy - BINO_BARREL_H / 2, BINO_BARREL_W, BINO_BARREL_H, BINO_BARREL_R);
+    roundRectPath(x, sd * B.x - B.eyeHW, B.eyeTop, B.eyeHW * 2, B.eyeBottom - B.eyeTop, B.eyeR);
+    x.fill();
+    x.fillStyle = BRUME;
+    x.fillRect(sd * B.x - B.eyeHW, B.ringY - B.ringH / 2, B.eyeHW * 2, B.ringH);
+  }
+  // Objective tubes, their ends towards the viewer: glass in a brume rim, a streak of light.
+  for (const sd of [-1, 1]) {
+    const cx = sd * B.x;
+    x.fillStyle = INK;
+    roundRectPath(x, cx - B.objHW, B.objTop, B.objHW * 2, B.objY - B.objTop + B.objR, B.objR);
     x.fill();
     x.beginPath();
-    x.arc(cx, cy, BINO_LENS_R, 0, Math.PI * 2);
+    x.ellipse(cx, B.objY, B.objHW, B.objRY, 0, 0, Math.PI * 2);
+    x.fill();
+    x.beginPath();
+    x.ellipse(cx, B.objY, B.glassRX, B.glassRY, 0, 0, Math.PI * 2);
     x.fillStyle = LENS;
     x.fill();
-    x.lineWidth = BINO_LENS_RIM;
+    x.lineWidth = B.glassRim;
     x.strokeStyle = BRUME;
     x.stroke();
     x.beginPath();
-    x.arc(cx + BINO_GLINT.x, cy + BINO_GLINT.y, BINO_GLINT_R, 0, Math.PI * 2);
-    x.fillStyle = BODY;
-    x.fill();
+    x.ellipse(cx, B.objY, B.shineRX, B.shineRY, 0, Math.PI * B.shineFrom, Math.PI * B.shineTo);
+    x.lineWidth = B.shineW;
+    x.lineCap = "round";
+    x.strokeStyle = BODY;
+    x.stroke();
   }
+  // Focus knob on top of the hinge.
+  roundRectPath(x, -B.knobHW, B.knobY - B.knobHH, B.knobHW * 2, B.knobHH * 2, B.knobR);
+  x.fillStyle = INK;
+  x.fill();
+  x.fillStyle = BRUME;
+  x.fillRect(-B.knobHW, B.knobY - B.knobBand / 2, B.knobHW * 2, B.knobBand);
   x.restore();
 }
 
@@ -1040,7 +1104,7 @@ export class BotEngine {
     this.col = mix3(this.col, this.colT, 1 - Math.pow(0.002, dt));
 
     // Limbs follow their targets with a quick, springy ease.
-    const lt = limbTargets(this.state, t, waving ? this.hands : 0);
+    const lt = limbTargets(this.state, t, waving ? this.hands : 0, this.yaw);
     const kLimb = 1 - Math.pow(0.00002, dt);
     for (const key of ["lh", "rh", "lf", "rf"] as const) {
       this[key] = {
@@ -1277,6 +1341,7 @@ export class BotEngine {
     x.translate(bx, by);
     x.scale(bs, bs);
     const col = rgba(badge.color);
+    const mark = badgeMarkColor(badge.color);
 
     if (badge.kind === "dots") {
       if (this.isMini) {
@@ -1299,7 +1364,7 @@ export class BotEngine {
         for (let i = 0; i < 3; i++) {
           const phase = (((t * 2.4 - i * 0.22) % 1) + 1) % 1;
           const dotR = R * 0.055 * (1 + 0.4 * Math.max(0, Math.sin(phase * Math.PI * 2)));
-          x.fillStyle = "#fff";
+          x.fillStyle = mark;
           x.beginPath();
           x.arc((i - 1) * R * 0.18, 0, dotR, 0, Math.PI * 2);
           x.fill();
@@ -1315,7 +1380,7 @@ export class BotEngine {
       x.arc(0, 0, R * 0.23, 0, Math.PI * 2);
       x.fill();
       if (!this.isMini) {
-        x.fillStyle = "#fff";
+        x.fillStyle = mark;
         x.font = `900 ${R * 0.32}px ${FONT}`;
         x.textAlign = "center";
         x.textBaseline = "middle";
