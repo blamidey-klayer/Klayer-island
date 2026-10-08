@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Ignore SIGPIPE — prevents crash when nb-hook closes socket before we write response
         signal(SIGPIPE, SIG_IGN)
+        // Once per cleanup version: the secrets, recap history and preferences that removed
+        // features left on the Mac. Never what the app still uses.
+        RemovedFeatureCleanup.runIfNeeded(defaults: .standard, supportDir: HookServer.supportDir,
+                                          deleteSecret: Keychain.delete(key:))
         // Warm up Keychain cache on main thread BEFORE any poller or view touches it
         _ = KeychainStore.shared
         NSApp.setActivationPolicy(.accessory)

@@ -88,6 +88,9 @@ jobs:
       - name: Claude settings file tests
         run: bash scripts/test-claude-settings.sh
 
+      - name: Removed feature cleanup tests
+        run: bash scripts/test-removed-feature-cleanup.sh
+
       - name: Build
         run: |
           xcodebuild \

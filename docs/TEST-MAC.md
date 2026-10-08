@@ -183,6 +183,7 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 - [ ] Réglages, Active pills. Attendu : plus de sélecteur Main. « Claude Code » est marqué Main. Claude Desktop, GitHub et Spotify ont un interrupteur et une palette de couleur.
 - [ ] ⌘E dans l'île. Attendu : rien. Réglages, Shortcuts : plus de ligne ⌘E.
 - [ ] ⌃⌥T avec une session ouverte. Attendu : le terminal ou l'éditeur de la session la plus récente passe devant (l'app Claude si c'est une session de l'app). Sans session ou terminal fermé : le terminal de la pastille en focus, puis Terminal.
+- [ ] (facultatif, ancien build avec des intégrations retirées) Après le premier lancement de cette build : `ls ~/Library/Application\ Support/NotchBuddy/recap.json` ne trouve rien, `defaults read ai.klayer.island recapEnabled` dit que la clé n'existe pas, et l'app Trousseau n'a plus d'élément `ai.klayer.island` pour `stripe-api-key` ni `openai-api-key`. La clé Anthropic et le jeton GitHub sont toujours là.
 - [ ] (facultatif, ancien build) Quittez l'app, faites `defaults write ai.klayer.island mainPill agent_cursor`, relancez. Attendu : l'app démarre sur Claude Code, la clé `mainPill` disparaît, `activeIntegrations` ne contient plus `agent_cursor`.
 
 ### 2.9 Performance (2 min, plus l'attente)
