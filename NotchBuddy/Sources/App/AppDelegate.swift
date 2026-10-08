@@ -8,8 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         HotKeyCenter.shared.unregisterAll()
-        // The chat's Claude Code process does not outlive the island.
+        // The Claude Code processes of the chat and of a Gmail draft do not outlive the island.
         ChatSession.shared.stop()
+        GmailDraftJob.stop()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
