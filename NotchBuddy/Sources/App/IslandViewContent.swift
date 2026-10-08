@@ -2537,10 +2537,10 @@ struct SendButtonStyle: ButtonStyle {
 struct SettingsIslandView: View {
     @ObservedObject var state: AppState
 
-    /// Klayer Island's own hooks, never a hook of the user's whose path says "NotchBuddy".
-    private var claudeConnected: Bool {
-        HookServer.claudeHooksInstalled()
-    }
+    /// Klayer Island's own hooks in ~/.claude/settings.json (`HookServer.claudeHooksInstalled()`),
+    /// read when this view comes on screen, never on each render: the view stays in the tree
+    /// while another one shows.
+    @State private var claudeConnected = false
 
     private var apiConnected: Bool {
         KeychainStore.shared.get("anthropic-api-key") != nil
@@ -2606,6 +2606,10 @@ struct SettingsIslandView: View {
             .padding(.leading, 84)
             .padding(.trailing, 16)
             .padding(.vertical, 14)
+        }
+        .onAppear { if state.view == .settings { claudeConnected = HookServer.claudeHooksInstalled() } }
+        .onChange(of: state.view) { _, view in
+            if view == .settings { claudeConnected = HookServer.claudeHooksInstalled() }
         }
     }
 }
