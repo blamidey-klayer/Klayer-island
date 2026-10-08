@@ -535,6 +535,14 @@ final class HookServer: @unchecked Sendable {
             if let prompt = payload["prompt"] as? String, !prompt.isEmpty {
                 appendStep(id: agentId, step: String(prompt.prefix(60)))
             }
+            // The finished view of this very session is stale now that it works again: it folds,
+            // unless the pointer is on the island or the user clicked in it (state machine).
+            if FinishPresentation.newPromptFoldsFinished(expanded: state.mode == .expanded,
+                                                         view: state.view.rawValue,
+                                                         finishedSessionId: state.finishedSession?.id,
+                                                         promptSessionId: sessionId) {
+                NotificationCenter.default.post(name: .finishedSessionMovedOn, object: nil)
+            }
             if state.isPresent { expandIfNeeded(to: .overview) }
 
         case "PreToolUse":

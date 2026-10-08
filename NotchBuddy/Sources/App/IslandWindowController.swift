@@ -851,6 +851,13 @@ final class IslandWindowController: NSWindowController {
             self?.collapse()
         }
 
+        // The session of the finished view on screen started a new turn: an untouched view folds.
+        NotificationCenter.default.addObserver(forName: .finishedSessionMovedOn, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.state.mode == .expanded, self.state.view == .finished else { return }
+            self.fsm.externalViewWentStale()
+            if self.state.mode != .expanded { self.window?.resignKey() }
+        }
+
         // .botDizzy — posted by BotEngine.slap() on 3rd hit; show confused view + recover after 3.3s
         NotificationCenter.default.addObserver(forName: .botDizzy, object: nil, queue: .main) { [weak self] _ in
             self?.handleDizzy()
@@ -1343,6 +1350,7 @@ extension Notification.Name {
     static let islandActivateCardSelection = Notification.Name("notchBuddy.islandActivateCardSelection")
     static let openFullSettings    = Notification.Name("notchBuddy.openFullSettings")
     static let hookReveal       = Notification.Name("notchBuddy.hookReveal")
+    static let finishedSessionMovedOn = Notification.Name("notchBuddy.finishedSessionMovedOn")
     static let spotifyReveal    = Notification.Name("notchBuddy.spotifyReveal")
     // Greeting ↔ IslandWindowController
     static let greetComplete    = Notification.Name("notchBuddy.greetComplete")

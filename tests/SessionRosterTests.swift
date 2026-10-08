@@ -30,6 +30,7 @@ enum SessionRosterTests {
             ("a_failure_says_the_error_claude_shows", aFailureSaysTheErrorClaudeShows),
             ("a_failure_without_text_has_none", aFailureWithoutTextHasNone),
             ("a_request_is_named_after_its_session", aRequestIsNamedAfterItsSession),
+            ("a_new_prompt_folds_only_its_own_finished_view", aNewPromptFoldsOnlyItsOwnFinishedView),
         ]
         for (name, run) in cases {
             run()
@@ -428,5 +429,24 @@ enum SessionRosterTests {
         precondition(SessionRoster.title(of: "gone", in: roster.rows, fallback: "Claude Desktop") == "Claude Desktop",
                      "a session without a row falls back to the pill's name")
         precondition(SessionRoster.title(of: nil, in: roster.rows, fallback: "Session") == "Session")
+    }
+
+    // MARK: - A finished view that went stale (review M5)
+
+    static func aNewPromptFoldsOnlyItsOwnFinishedView() {
+        precondition(FinishPresentation.newPromptFoldsFinished(expanded: true, view: "finished",
+                                                               finishedSessionId: "A", promptSessionId: "A"),
+                     "the session that finished starts a new turn: its finished view is stale")
+        precondition(!FinishPresentation.newPromptFoldsFinished(expanded: true, view: "finished",
+                                                                finishedSessionId: "A", promptSessionId: "B"),
+                     "another session's prompt leaves it")
+        precondition(!FinishPresentation.newPromptFoldsFinished(expanded: true, view: "overview",
+                                                                finishedSessionId: "A", promptSessionId: "A"),
+                     "only the finished view")
+        precondition(!FinishPresentation.newPromptFoldsFinished(expanded: false, view: "finished",
+                                                                finishedSessionId: "A", promptSessionId: "A"),
+                     "a folded island has nothing to fold")
+        precondition(!FinishPresentation.newPromptFoldsFinished(expanded: true, view: "finished",
+                                                                finishedSessionId: nil, promptSessionId: "A"))
     }
 }

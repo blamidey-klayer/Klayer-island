@@ -216,6 +216,15 @@ final class IslandStateMachine {
         state = .home
     }
 
+    /// The view the app opened went stale (the session of a finished view started a new turn):
+    /// it folds to petit, unless the pointer is on the island or the user clicked in it (the view
+    /// is in use), or a request holds the island.
+    func externalViewWentStale() {
+        guard state == .home, !pointerIsOver, homeClose != .autoClose, isHeldOpen?() != true else { return }
+        cancelTimers()
+        transition(to: .petit)
+    }
+
     /// The app folded the island itself (Escape, Settings, OK button, auto-close).
     /// Move to `.petit` right away so hover keeps working; waiting for the
     /// 15 s home timer left the island compact on screen while the FSM still said `.home`.

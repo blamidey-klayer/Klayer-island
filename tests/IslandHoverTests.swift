@@ -31,6 +31,7 @@ enum IslandHoverTests {
             ("a_finish_over_a_hover_opened_island_waits_for_a_new_hover", aFinishOverAHoverOpenedIslandWaitsForANewHover),
             ("a_compact_island_shown_by_the_app_hides_like_any_other", aCompactIslandShownByTheAppHidesLikeAnyOther),
             ("an_alert_during_the_greeting_leaves_the_greeting", anAlertDuringTheGreetingLeavesTheGreeting),
+            ("a_stale_view_folds_unless_in_use", aStaleViewFoldsUnlessInUse),
         ]
         for (name, run) in cases {
             try await run()
@@ -406,6 +407,45 @@ enum IslandHoverTests {
         m.clickedOutside()
         precondition(m.state == .hidden, "a click elsewhere closes it, got \(m.state)")
         precondition(log.states.last == .hidden)
+    }
+
+    @MainActor
+    static func aStaleViewFoldsUnlessInUse() async throws {
+        // The finished view of a session stays up while that session already works again (its user
+        // typed the next prompt in the terminal): an untouched view folds to petit.
+        let m = IslandStateMachine()
+        m.openedExternally()
+        m.externalViewWentStale()
+        precondition(m.state == .petit, "an untouched finished view folds, got \(m.state)")
+
+        // The pointer is on it: the user is reading it.
+        let over = IslandStateMachine()
+        over.openedExternally()
+        over.mouseEntered()
+        over.externalViewWentStale()
+        precondition(over.state == .home, "never folded under the pointer")
+
+        // The user clicked in it: it is in use, its normal close applies.
+        let used = IslandStateMachine()
+        used.homeToPetitDelay = 30
+        used.openedExternally()
+        used.mouseEntered()
+        used.userInteracted()
+        used.mouseLeft()
+        used.externalViewWentStale()
+        precondition(used.state == .home, "a view the user clicked in stays")
+
+        // A request holds the island: nothing folds it.
+        let held = IslandStateMachine()
+        held.isHeldOpen = { true }
+        held.openedExternally()
+        held.externalViewWentStale()
+        precondition(held.state == .home)
+
+        // Nothing to fold on a hidden or compact island.
+        let closed = IslandStateMachine()
+        closed.externalViewWentStale()
+        precondition(closed.state == .hidden)
     }
 
     // MARK: - Helpers

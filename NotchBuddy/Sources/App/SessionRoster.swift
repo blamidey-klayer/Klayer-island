@@ -241,4 +241,12 @@ enum FinishPresentation: Equatable {
         guard expanded else { return .open }
         return replaceableViews.contains(view) && !pinned ? .open : .badgeOnly
     }
+
+    /// Whether a new prompt makes the finished view on screen stale: only when it comes from the
+    /// session that view tells about (`finishedSessionId`), which works again. The state machine
+    /// then folds it, unless the pointer is on the island or the user clicked in it.
+    static func newPromptFoldsFinished(expanded: Bool, view: String, finishedSessionId: String?,
+                                       promptSessionId: String) -> Bool {
+        expanded && view == "finished" && finishedSessionId == promptSessionId
+    }
 }
