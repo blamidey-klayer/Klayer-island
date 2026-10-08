@@ -8,16 +8,16 @@ enum ClaudeHookDetectionTests {
     }
 
     static func main() {
-        // Installed: the hook Klayer Island writes, GitHub build
+        // Installed: the hook Klayer Island writes today, in its support folder
+        precondition(klayerHooksPresent(inSettings: settings("""
+        {"hooks":{"SessionStart":[{"hooks":[
+          {"type":"command","command":"/Users/me/Library/Application Support/NotchBuddy/nb-hook"}]}]}}
+        """)))
+
+        // Installed: the hook an earlier build wrote in ~/.claude/klayer
         precondition(klayerHooksPresent(inSettings: settings("""
         {"hooks":{"SessionStart":[{"hooks":[
           {"type":"command","command":"$HOME/.claude/klayer/nb-hook"}]}]}}
-        """)))
-
-        // Installed: App Store build names NotchBuddy
-        precondition(klayerHooksPresent(inSettings: settings("""
-        {"hooks":{"SessionStart":[{"hooks":[
-          {"type":"command","command":"/Applications/NotchBuddy.app/.../nb-hook"}]}]}}
         """)))
 
         // Installed: our hook sits alongside somebody else's

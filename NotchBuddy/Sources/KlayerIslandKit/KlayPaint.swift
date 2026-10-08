@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Klay's look, shared by every surface that draws him: BotEngine (the island, the
-/// mini Klays, the desktop Klay, the recap image), the launch greeting and the upload
+/// mini Klays, the desktop Klay), the launch greeting and the upload
 /// sequence.
 ///
 /// The body is the Klayer glyph (KlayGlyph), white on the dark island and never

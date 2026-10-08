@@ -61,14 +61,6 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled") }
     }
 
-    // Weekly recap — persisted
-    @Published var recapEnabled: Bool = (UserDefaults.standard.object(forKey: "recapEnabled") as? Bool) ?? true {
-        didSet { UserDefaults.standard.set(recapEnabled, forKey: "recapEnabled") }
-    }
-    @Published var recapHideProjects: Bool = UserDefaults.standard.bool(forKey: "recapHideProjects") {
-        didSet { UserDefaults.standard.set(recapHideProjects, forKey: "recapHideProjects") }
-    }
-
     // A colour of the user's own for each pill's Klay (pill id → "#RRGGBB") — persisted.
     // Empty means the catalog's colours. PillDefinition.color reads the stored value, so
     // what is built from the catalog follows on its own; the tasks already on the island
@@ -247,12 +239,9 @@ final class AppState: ObservableObject {
     }
 
     // Plan gauge: show pill in notch header — persisted
-    #if !APPSTORE
     @Published var showPlanInNotch: Bool = false {
         didSet { UserDefaults.standard.set(showPlanInNotch, forKey: "showPlanInNotch") }
     }
-    // In-memory plan usage override for demo mode. Never persisted. Set by DemoEngine.
-    @Published var demoPlanUsageOverride: PlanUsage? = nil
     // Cached relay-installed state — updated at launch, after install/uninstall, on Settings open
     @Published var planRelayInstalled: Bool = false
     // Transient — reset when island closes or view changes
@@ -261,7 +250,6 @@ final class AppState: ObservableObject {
     func refreshPlanRelayState() {
         planRelayInstalled = HookServer.statusLineInstalled()
     }
-    #endif
 
     // MARK: - Init (loads persisted settings)
 
@@ -287,15 +275,13 @@ final class AppState: ObservableObject {
         if let d = ud.data(forKey: "activeIntegrations"),
            let a = try? JSONDecoder().decode([String].self, from: d) { activeIntegrations = Set(a) }
         if let v = ud.string(forKey: "mainPill"), !v.isEmpty,
-           PillCatalog.available.contains(where: { $0.id == v && $0.category == .workspace && !$0.comingSoon }) {
+           PillCatalog.all.contains(where: { $0.id == v && $0.category == .workspace && !$0.comingSoon }) {
             mainPillId = v
         }
         if let d = ud.data(forKey: "claudePlanUsage"),
            let u = try? JSONDecoder().decode(PlanUsage.self, from: d) { claudePlanUsage = u }
-        #if !APPSTORE
         if let v = ud.object(forKey: "showPlanInNotch") as? Bool { showPlanInNotch = v }
         planRelayInstalled = HookServer.statusLineInstalled()
-        #endif
 
         // Sync SoundEngine volume on launch
         SoundEngine.shared.volume = Float(soundVolume)
@@ -402,12 +388,12 @@ final class AppState: ObservableObject {
 
     /// Load catalog pills into tasks, respecting activeIntegrations. Safe to call multiple times.
     func loadIntegrationTasks() {
-        let catalog = PillCatalog.available
+        let catalog = PillCatalog.all
         // Sanitize: remove saved IDs not in catalog
         let catalogIds = Set(catalog.map { $0.id })
         activeIntegrations = activeIntegrations.filter { catalogIds.contains($0) }
         // Validate mainPillId: must be a non-comingSoon workspace pill in the catalog
-        if !PillCatalog.available.contains(where: { $0.id == mainPillId && $0.category == .workspace && !$0.comingSoon }) {
+        if !PillCatalog.all.contains(where: { $0.id == mainPillId && $0.category == .workspace && !$0.comingSoon }) {
             mainPillId = PillCatalog.defaultMainPillId
         }
         // mainPillId must never be in activeIntegrations (migration + invariant)
@@ -435,7 +421,7 @@ final class AppState: ObservableObject {
     /// Max 4 non-main pills active at once.
     func toggleIntegration(_ id: String) {
         guard id != mainPillId else { return }
-        guard PillCatalog.available.contains(where: { $0.id == id }) else { return }
+        guard PillCatalog.all.contains(where: { $0.id == id }) else { return }
         if activeIntegrations.contains(id) {
             activeIntegrations.remove(id)
             tasks.removeAll { $0.id == id }
@@ -443,7 +429,7 @@ final class AppState: ObservableObject {
         } else {
             guard activeIntegrations.count < 4 else { return }
             activeIntegrations.insert(id)
-            if let def = PillCatalog.available.first(where: { $0.id == id }),
+            if let def = PillCatalog.all.first(where: { $0.id == id }),
                !tasks.contains(where: { $0.id == id }) {
                 let task = AgentTask(id: def.id, name: def.name, color: def.color,
                                      state: .idle, steps: [], source: def.source, isIntegration: true)
@@ -457,7 +443,7 @@ final class AppState: ObservableObject {
     /// Sort tasks so catalog pills are in catalog order, undeclared pills sit right after
     /// integration_claude (matching HookServer insertion behaviour), and the rest follows.
     private func sortTasksByCatalog() {
-        let order = PillCatalog.available.enumerated()
+        let order = PillCatalog.all.enumerated()
             .reduce(into: [String: Int]()) { $0[$1.element.id] = $1.offset }
         let catalogPills    = tasks.filter { order[$0.id] != nil }
         let undeclaredPills = tasks.filter { order[$0.id] == nil }

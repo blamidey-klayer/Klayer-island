@@ -504,14 +504,10 @@ final class IslandWindowController: NSWindowController {
             }
 
         case .jumpToTerminal:
-            #if !APPSTORE
             performJumpToTerminal()
-            #endif
 
         case .attachFrontWindow:
-            #if !APPSTORE
             performAttachFrontWindow()
-            #endif
 
         case .nextPill:
             cyclePill(by: +1)
@@ -628,7 +624,6 @@ final class IslandWindowController: NSWindowController {
 
     // MARK: - Terminal jump
 
-    #if !APPSTORE
     private func performJumpToTerminal() {
         guard state.focusTask != nil else {
             SoundEngine.shared.play("error")
@@ -655,7 +650,6 @@ final class IslandWindowController: NSWindowController {
         islandPanel.makeKey()
         expand(to: .prompt)
     }
-    #endif
 
     // MARK: - Keyboard (Escape closes)
 
@@ -749,7 +743,6 @@ final class IslandWindowController: NSWindowController {
                 self.attachDragStart = nil
                 self.state.stateOverride = nil
 
-                #if !APPSTORE
                 let windowCtx = self.windowContextAtPoint(mouse)
                 let inNotchZone = self.window?.frame.contains(mouse) == true
 
@@ -771,17 +764,6 @@ final class IslandWindowController: NSWindowController {
                     // Drop back in notch zone → Klay returns to notch
                     self.hideDragGhost()
                 }
-                #else
-                let inNotchZoneAS = self.window?.frame.contains(mouse) == true
-                if !inNotchZoneAS {
-                    let ghost = self.dragGhostPanel
-                    self.dragGhostPanel = nil
-                    self.hideDragGhost()
-                    DesktopKlayController.shared.install(ghostPanel: ghost, at: mouse)
-                } else {
-                    self.hideDragGhost()
-                }
-                #endif
             }
         }
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
@@ -1227,7 +1209,6 @@ extension Notification.Name {
     static let spotifyReveal    = Notification.Name("notchBuddy.spotifyReveal")
     // Greeting ↔ IslandWindowController
     static let greetComplete    = Notification.Name("notchBuddy.greetComplete")
-    static let checkMondayRecap = Notification.Name("notchBuddy.checkMondayRecap")
     static let greetingHover    = Notification.Name("notchBuddy.greetingHover")
     static let greetingInterrupt = Notification.Name("notchBuddy.greetingInterrupt")
     // Island moved to another screen (resting size may differ: notch vs bar)

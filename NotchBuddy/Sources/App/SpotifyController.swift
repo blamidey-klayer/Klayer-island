@@ -1,4 +1,3 @@
-#if !APPSTORE
 import Foundation
 import AppKit
 import Combine
@@ -25,7 +24,7 @@ struct SpotifyTrack: Equatable, Sendable {
 }
 
 /// Observes Spotify through its distributed notification and drives it over AppleScript.
-/// Singleton, @MainActor, GitHub build only (the App Store sandbox would need an Apple Events exception).
+/// Singleton, @MainActor. Driving Spotify needs the Apple Events (Automation) permission.
 /// Nothing runs on a timer: state arrives with Spotify's notification, the card extrapolates the position.
 @MainActor
 final class SpotifyController: ObservableObject {
@@ -511,4 +510,3 @@ final class SpotifyController: ObservableObject {
         return result
     }
 }
-#endif

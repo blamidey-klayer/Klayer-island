@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds, notarizes and publishes Klayer Island for macOS (GitHub build).
+# Builds, notarizes and publishes Klayer Island for macOS.
 #
 #   ./scripts/release.sh 0.1.2            build, sign, notarize, staple, tag, publish
 #   ./scripts/release.sh 0.1.2 --finish   finish after an interrupted notarization wait
@@ -41,8 +41,6 @@ CHANGES=$(awk -v head="## $VERSION" '
   }
 ' CHANGELOG.md)
 [ -n "$CHANGES" ] || die "CHANGELOG.md has no '## $VERSION' section"
-
-grep -q "| \[$VERSION\]" README.md || die "README.md has no row for $VERSION in the Versions table"
 
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   die "tag $TAG already exists here"

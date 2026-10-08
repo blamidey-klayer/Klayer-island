@@ -40,7 +40,6 @@ private func klayerHotKeyEventHandler(
 /// Manages all global keyboard shortcuts via Carbon `RegisterEventHotKey`.
 ///
 /// - No Accessibility permission required.
-/// - Works in the App Store sandbox.
 /// - The hot-key event is consumed and never forwarded to the front application.
 @MainActor
 final class HotKeyCenter {
@@ -95,9 +94,6 @@ final class HotKeyCenter {
         conflicts.removeAll()
 
         for action in ShortcutAction.allCases {
-            #if APPSTORE
-            if action.isNonAppStore { continue }
-            #endif
             if !ShortcutLogic.isEnabled(action) { continue }
             registerOne(action)
         }
@@ -114,9 +110,6 @@ final class HotKeyCenter {
         }
         conflicts.remove(action)
 
-        #if APPSTORE
-        if action.isNonAppStore { return }
-        #endif
         if !ShortcutLogic.isEnabled(action) { return }
         registerOne(action)
     }

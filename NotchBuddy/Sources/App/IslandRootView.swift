@@ -22,7 +22,6 @@ struct IslandRootView: View {
 
 struct IslandContainer: View {
     @ObservedObject var state: AppState
-    @ObservedObject private var demoEngine = DemoEngine.shared
     @State private var islandWidth:  CGFloat = IslandConst.notchWidth
     @State private var islandHeight: CGFloat = IslandConst.notchHeight
     @State private var cornerRadius: CGFloat = IslandConst.roundedCorner
@@ -106,19 +105,6 @@ struct IslandContainer: View {
                 .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive)
 
             CountdownBar(state: state, islandW: islandWidth)
-
-            if demoEngine.isActive {
-                Text(verbatim: "DEMO")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Color(hex: "#4ADE80"))
-                    .clipShape(Capsule())
-                    .position(x: 18, y: islandHeight - 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: demoEngine.isActive)
-            }
 
             Group {
                 if state.mode == .compact {
@@ -493,11 +479,9 @@ struct IslandHeader: View {
             HStack(spacing: 5) {
                 TabButton(icon: "house.fill", view: .overview, state: state)
                 TabButton(icon: "bubble.left.fill", view: .prompt, state: state, preAction: {
-                    #if !APPSTORE
                     if state.promptContext == nil {
                         state.promptContext = WindowContextCapture.captureActive(from: state.lastExternalApp)
                     }
-                    #endif
                 })
                 TabButton(icon: "plus", view: .upload, state: state)
             }
@@ -505,13 +489,11 @@ struct IslandHeader: View {
 
             Spacer()
 
-            // Right: plan pill (GitHub build, home view only) + action icons
+            // Right: plan pill (home view only) + action icons
             HStack(spacing: 8) {
-                #if !APPSTORE
                 if state.view == .overview && state.showPlanInNotch && state.planRelayInstalled {
                     ClaudePlanHeaderPill(state: state)
                 }
-                #endif
                 HStack(spacing: 14) {
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -572,19 +554,18 @@ struct TabButton: View {
     }
 }
 
-// MARK: - Claude Plan header pill (GitHub build only)
+// MARK: - Claude Plan header pill
 
-#if !APPSTORE
 struct ClaudePlanHeaderPill: View {
     @ObservedObject var state: AppState
     @State private var isHovered = false
 
     private var effectiveColor: String {
-        ClaudePlanGauge.color(for: (state.demoPlanUsageOverride ?? state.claudePlanUsage).flatMap { ClaudePlanGauge.dominantPct($0) })
+        ClaudePlanGauge.color(for: state.claudePlanUsage.flatMap { ClaudePlanGauge.dominantPct($0) })
     }
 
     private var label: String {
-        guard let usage = state.demoPlanUsageOverride ?? state.claudePlanUsage,
+        guard let usage = state.claudePlanUsage,
               let pct = ClaudePlanGauge.dominantPct(usage) else { return "Claude —" }
         return "Claude \(Int(pct.rounded()))%"
     }
@@ -629,7 +610,6 @@ struct ClaudePlanHeaderPill: View {
         }
     }
 }
-#endif
 
 // MARK: - Compact mini klay grid (2×2 to the right of the notch)
 

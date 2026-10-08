@@ -28,7 +28,6 @@ struct PillDefinition {
     let subtitle:   String
     let source:     AgentSource
     var comingSoon: Bool = false
-    var githubOnly: Bool = false
 
     /// The colour the pill is painted with: the user's own if they picked one
     /// (Settings → Active pills), else the catalog's.
@@ -37,7 +36,7 @@ struct PillDefinition {
     }
 
     init(id: String, name: String, color: String, category: PillCategory, subtitle: String,
-         source: AgentSource, comingSoon: Bool = false, githubOnly: Bool = false) {
+         source: AgentSource, comingSoon: Bool = false) {
         self.id = id
         self.name = name
         self.defaultColor = color
@@ -45,7 +44,6 @@ struct PillDefinition {
         self.subtitle = subtitle
         self.source = source
         self.comingSoon = comingSoon
-        self.githubOnly = githubOnly
     }
 
     /// Label shown in the active-session card header (workspace/agent pills only).
@@ -78,17 +76,8 @@ enum PillCatalog {
         .init(id: "integration_github",  name: "GitHub",      color: "#F4505E",
               category: .service,   subtitle: "Integration",  source: .integration),
         .init(id: "integration_spotify", name: "Spotify",     color: "#1DB954",
-              category: .service,   subtitle: "Integration",  source: .integration, githubOnly: true),
+              category: .service,   subtitle: "Integration",  source: .integration),
     ]
-
-    /// Pills available in the current build target.
-    static var available: [PillDefinition] {
-        #if APPSTORE
-        all.filter { !$0.githubOnly }
-        #else
-        all
-        #endif
-    }
 
     /// Default ID for the always-on main workspace pill.
     static let defaultMainPillId = "integration_claude"

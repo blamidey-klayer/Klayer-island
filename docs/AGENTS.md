@@ -28,10 +28,7 @@ Where the session runs decides how it is routed:
 
 Permission cards (Allow, Deny, Always) and `AskUserQuestion` cards appear for Claude Code only. If the app is not running, the hook returns at once and Claude Code asks as usual.
 
-Send newline-terminated JSON to the socket if you talk to it directly:
-
-- **macOS (GitHub build):** `~/Library/Application Support/NotchBuddy/nb.sock`
-- **macOS (App Store build):** `~/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock`
+If you talk to the socket directly, send newline-terminated JSON to `~/Library/Application Support/NotchBuddy/nb.sock`.
 
 ## Claude desktop app
 
@@ -57,11 +54,26 @@ A **declared pill** is a catalog entry (`PillCatalog.swift`) that has been enabl
 
 A catalog pill that is not checked in Settings gets an automatic pill when a session starts, and that pill is removed when the session ends.
 
-Claude Desktop (`agent_claude-desktop`, every build) is in the catalog: declare it to keep it after the session ends. Cursor (`agent_cursor`) is there as a workspace pill that can be declared and set as the main pill; the sessions that run in Cursor appear on the Claude Code pill.
+Claude Desktop (`agent_claude-desktop`) is in the catalog: declare it to keep it after the session ends. Cursor (`agent_cursor`) is there as a workspace pill that can be declared and set as the main pill; the sessions that run in Cursor appear on the Claude Code pill.
 
 ## Other tools
 
-Klayer Island no longer installs hooks or plugins for other agents, and the relay no longer translates their event names. If an earlier version wired a hook for another tool, it keeps calling `nb-hook --agent <name>`: the app ignores it and answers `ask` to its permission requests. Remove those entries from the tool's own configuration when you no longer want them.
+Klayer Island no longer installs hooks or plugins for other agents, and the relay no longer translates their event names. If an earlier version wired a hook for another tool, it keeps calling `nb-hook --agent <name>`: the app ignores it and answers `ask` to its permission requests. A leftover entry does nothing useful and can get in the way of that tool's own tool calls, so remove it by hand.
+
+Where an earlier version wrote them (each entry runs `nb-hook` with `--agent <name>`):
+
+| Tool | What to delete |
+|---|---|
+| Codex | the Klayer Island entries in `~/.codex/hooks.json` (`--agent codex`) |
+| GitHub Copilot CLI | the file `~/.copilot/hooks/klayer.json`, which Klayer Island wrote on its own |
+| Gemini CLI | the Klayer Island entries under `hooks` in `~/.gemini/settings.json` (`--agent gemini`) |
+| Antigravity | the Klayer Island entries in `~/.gemini/config/hooks.json` (`--agent antigravity`) |
+| OpenCode | the file `~/.config/opencode/plugins/klayer.js` |
+| Amp | the file `~/.config/amp/plugins/klayer.ts` |
+| Hermes Agent | the folder `~/.hermes/plugins/klayer`; and, if you had turned on approvals in the notch, the lines `transport: klayer` and `transport_fallback: builtin` under `security.approval` in `~/.hermes/config.yaml` |
+| Muse Code | the Klayer Island entries under `hooks` in `~/.config/muse/settings.json` (`--agent muse`) |
+
+Leave every other hook of those tools alone. In a file Klayer Island shares with the tool, delete only the entries whose command contains `nb-hook`.
 
 ## Quick test (macOS)
 

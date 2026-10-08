@@ -15,8 +15,8 @@ claude (terminal, VS Code, app Claude)
                          └─ socket Unix ─► Notch Buddy.app
                          ◄─ décision (pour PermissionRequest)
 ```
-- `nb-hook` (script shell) et `nb-hook.py` (relais Python) : écrits par l'app (`HookServer.swift`). Version GitHub : au lancement, dans `~/Library/Application Support/NotchBuddy/`. Version App Store : à l'installation des hooks, dans `~/.claude/klayer/`. Voir `docs/AGENTS.md` pour les sessions de l'app de bureau Claude, qui utilisent ces mêmes scripts.
-- Socket : `~/Library/Application Support/NotchBuddy/nb.sock` (version GitHub) ou `~/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock` (version App Store). Dossier en 0700, socket en 0600. Connexions du même utilisateur seulement (vérification `getpeereid`). 1 Mio et 5 s maximum par message, 32 connexions simultanées.
+- `nb-hook` (script shell) et `nb-hook.py` (relais Python) : écrits par l'app (`HookServer.swift`) au lancement, dans `~/Library/Application Support/NotchBuddy/`. Voir `docs/AGENTS.md` pour les sessions de l'app de bureau Claude, qui utilisent ces mêmes scripts.
+- Socket : `~/Library/Application Support/NotchBuddy/nb.sock`. Dossier en 0700, socket en 0600. Connexions du même utilisateur seulement (vérification `getpeereid`). 1 Mio et 5 s maximum par message, 32 connexions simultanées.
 - `nb-hook` lit le JSON du hook sur stdin, ajoute le contexte du terminal (`TERM_PROGRAM`, `ITERM_SESSION_ID`, `TERM_SESSION_ID`, `__CFBundleIdentifier`, le tty trouvé en remontant les processus parents, `cwd`) et, pour une session de l'app de bureau Claude, le champ `klayer_agent`, puis l'envoie à l'app. Le relais ne traduit plus aucun nom d'événement : seuls les événements de Claude Code passent tels quels.
 - **Si l'app ne répond pas en 300 ms, `nb-hook` sort en code 0 sans rien écrire** : Claude Code continue normalement. Jamais de blocage.
 - Champ optionnel `klayer_agent` : vide pour Claude Code (pastille Claude), `claude-desktop` pour une session lancée depuis l'app de bureau Claude (le relais le déduit de `CLAUDE_CODE_ENTRYPOINT`). Toute autre valeur est ignorée : pas de pastille, et une demande d'autorisation reçoit `{"permissionDecision":"ask"}`. Voir `docs/AGENTS.md`.
@@ -78,7 +78,7 @@ Demande l'autorisation Automatisation la première fois (normal).
 ## 1bis. Jauge de forfait Claude (statusLine)
 
 **Affichage** : petit pill dans l'en-tête de l'île (vue home uniquement) — plus de pastille dans le catalogue Active pills.  
-**Plateforme** : macOS uniquement (build GitHub)  
+**Plateforme** : macOS uniquement  
 **Plans** : Pro et Max uniquement (le champ `rate_limits` n'est présent que pour ces plans)
 
 Affiche la consommation du forfait Claude via un pill coloré dans l'en-tête de l'île. Couleur dynamique : vert `#22C55E` < 50 %, orange `#F59E0B` 50–80 %, rouge `#F4505E` ≥ 80 %, gris `#6B7079` sans données. Cliquer sur le pill bascule `showingPlanDetail`, ce qui remplace la carte en cours par `ClaudePlanCardView`. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode.
@@ -138,7 +138,7 @@ Sur `PostToolUse` pour `Edit`, `MultiEdit` et `Write` (Claude Code), l'app calcu
 
 ## 1quater. GitHub (pulse)
 
-**Plateforme** : macOS uniquement (build GitHub)
+**Plateforme** : macOS uniquement
 
 **Token** : token classique avec scope `repo`, ou token fin avec accès en lecture à Pull requests, Commit statuses et Actions. Stocké dans le Trousseau (`github-token`).
 
@@ -276,7 +276,7 @@ Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur
 |---|---|---|
 | Automatisation → Mail | envoyer les mails | premier envoi |
 | Automatisation → Terminal / iTerm / navigateur | sauter au bon onglet, lire l'URL | première utilisation |
-| Automatisation → Spotify *(GitHub only)* | lire la position, le shuffle, le volume ; piloter la lecture | activation de la pill Spotify, ou première ouverture de sa carte |
+| Automatisation → Spotify | lire la position, le shuffle, le volume ; piloter la lecture | activation de la pill Spotify, ou première ouverture de sa carte |
 | Enregistrement de l'écran | capturer la fenêtre attrapée | première attache |
 | Micro + Reconnaissance vocale (optionnel) | dictée | premier clic sur le micro |
 

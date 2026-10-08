@@ -3,8 +3,9 @@ import Foundation
 /// True when a parsed ~/.claude/settings.json routes Claude Code SessionStart events to Klayer Island.
 ///
 /// Kept free of file access so it can be tested on fixtures instead of the real settings file.
-/// Both the installed app and earlier builds matched on the command text: a hook written by
-/// Klayer Island runs ~/.claude/klayer/nb-hook, and the App Store build names NotchBuddy instead.
+/// The match is on the command text: the hook the app writes today runs
+/// ~/Library/Application Support/NotchBuddy/nb-hook, and earlier builds wrote
+/// ~/.claude/klayer/nb-hook. Either one counts as installed.
 func klayerHooksPresent(inSettings settings: [String: Any]) -> Bool {
     guard let hooks = settings["hooks"] as? [String: Any],
           let sessionStart = hooks["SessionStart"] as? [[String: Any]] else { return false }

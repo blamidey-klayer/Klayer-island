@@ -37,11 +37,10 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 - **GitHub** : PR, revues et CI dans l'île. Sa pastille a son mini Klay coloré.
 - **Spotify** : pastille de lecture (pochette, progression, volume). Klay danse quand Spotify joue.
 - **Raccourcis clavier** globaux, modifiables dans Réglages → Raccourcis.
-- **Récap hebdomadaire** le lundi matin, partageable en image ; l'historique reste sur la machine.
 - **10 langues**, dont le français.
 - **Aucune télémétrie, aucun compte.** L'app ne parle qu'aux services que vous branchez.
 
-Retirés par rapport à Coucou : app iPhone, widgets, Live Activities, synchronisation iCloud, build App Store, versions hors Mac, garde-robe et tenues de Mochi.
+Retirés par rapport à Coucou : widgets, synchronisation entre appareils, versions hors Mac, garde-robe et tenues de Mochi, mode démo, récap hebdomadaire.
 
 ## Installer
 

@@ -41,15 +41,11 @@ struct DesktopBotView: View {
 
                 // Dance when music plays (same rules as compact mode)
                 let dancing: Bool = {
-                    #if !APPSTORE
                     let spotify = SpotifyController.shared.isPlaying
                         && appState.activeIntegrations.contains(SpotifyController.pillId)
                     guard spotify else { return false }
                     let allowed: Set<BotState> = [.idle, .working, .thinking, .searching, .finished]
                     return allowed.contains(appState.effectiveState)
-                    #else
-                    return false
-                    #endif
                 }()
                 engine.setDancing(dancing)
                 engine.update(dt: dt)
@@ -596,7 +592,6 @@ final class DesktopKlayController {
             return
         }
 
-        #if !APPSTORE
         if let ctx = islandController?.windowContextAtPoint(mouse) {
             // Attach window context; Klay returns to pre-drag position
             AppState.shared.promptContext = ctx
@@ -608,7 +603,6 @@ final class DesktopKlayController {
             islandController?.expand(to: .prompt)
             return
         }
-        #endif
         // Elsewhere: keep new position
         persistPosition()
     }

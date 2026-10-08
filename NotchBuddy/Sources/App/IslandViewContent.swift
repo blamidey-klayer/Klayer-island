@@ -25,7 +25,6 @@ struct IslandViewContent: View {
         case .note:      NoteView(state: state)
         case .settings:  SettingsIslandView(state: state)
         case .greeting:  EmptyView()  // GreetingCanvasView overlaid in IslandRootView
-        case .recap:     WeeklyRecapCardView(state: state)
         }
     }
 }
@@ -99,14 +98,12 @@ struct OverviewView: View {
                     }
                 }
 
-                // Plan detail overlays on top of normal content (GitHub build, home view only)
-                #if !APPSTORE
+                // Plan detail overlays on top of normal content (home view only)
                 if state.showingPlanDetail {
                     CardBackground(wash: nil)
                     ClaudePlanCardView(usage: state.claudePlanUsage)
                         .transition(.opacity)
                 }
-                #endif
 
                 // Diff overlay — replaces ticker when a diff step is tapped
                 if let diffId = activeDiffId,
@@ -118,11 +115,7 @@ struct OverviewView: View {
                 }
 
                 // ↗ jump button — last in ZStack so it renders on top; hidden while any detail is open
-                #if !APPSTORE
                 let hideJumpButton = showingIntegrationDetail || state.showingPlanDetail || activeDiffId != nil
-                #else
-                let hideJumpButton = showingIntegrationDetail || activeDiffId != nil
-                #endif
                 if !hideJumpButton {
                     Button(action: { openAgentTarget(agent) }) {
                         Image(systemName: "arrow.up.right")
@@ -148,20 +141,14 @@ struct OverviewView: View {
         .onChange(of: state.focusId) { _, new in
             showingIntegrationDetail = false
             activeDiffId = nil
-            #if !APPSTORE
             withAnimation(.easeIn(duration: 0.16)) { state.showingPlanDetail = false }
-            #endif
             if new == "integration_github" { GithubPoller.shared.refreshIfStale() }
         }
-        #if !APPSTORE
         .onChange(of: state.view) { _, v in
             if v != .overview { state.showingPlanDetail = false; activeDiffId = nil }
         }
-        #endif
         .onChange(of: state.mode) { _, m in
-            #if !APPSTORE
             if m != .expanded { state.showingPlanDetail = false; activeDiffId = nil }
-            #endif
             if m == .expanded && state.focusId == "integration_github" {
                 GithubPoller.shared.refreshIfStale()
             }
@@ -191,23 +178,17 @@ struct OverviewView: View {
         case "integration_github":
             NSWorkspace.shared.open(URL(string: "https://github.com/pulls")!)
         case "agent_cursor":
-            #if !APPSTORE
             if let url = NSWorkspace.shared.urlForApplication(
                 withBundleIdentifier: "com.todesktop.230313mzl4w4u92") {
                 NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
             }
-            #endif
         case "agent_claude-desktop":
             openClaudeDesktopApp()
         case "integration_spotify":
-            #if !APPSTORE
             SpotifyController.shared.openSpotify()
-            #endif
         default:
             // Non-integration real tasks
-            #if !APPSTORE
             TerminalTarget.activate(sessionBundleId: task.sessionBundleId)
-            #endif
         }
     }
 }
@@ -557,7 +538,6 @@ struct FinishedView: View {
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
                     } else {
-                        #if !APPSTORE
                         PrimaryButton("Open terminal") {
                             // The app the session runs in (its terminal, or VS Code), then any known terminal
                             let task = state.focusTask
@@ -567,7 +547,6 @@ struct FinishedView: View {
                             }
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
-                        #endif
                     }
                     SecondaryButton("OK") {
                         NotificationCenter.default.post(name: .islandCollapse, object: nil)
@@ -657,7 +636,6 @@ struct DiffCardView: View {
 
     private func openInEditor(_ diff: FileDiff) {
         let path = diff.path
-        #if !APPSTORE
         let codePaths = ["/opt/homebrew/bin/code", "/usr/local/bin/code", "/usr/bin/code",
                          "\(NSHomeDirectory())/.nvm/current/bin/code"]
         if let codePath = codePaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
@@ -668,7 +646,6 @@ struct DiffCardView: View {
             try? p.run()
             return
         }
-        #endif
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 }
@@ -988,22 +965,6 @@ struct MailView: View {
     }
 
     private func sendViaAppleMail(to: String, subject: String) {
-        #if APPSTORE
-        // App Store: no AppleScript — use NSSharingService to compose (user sends manually)
-        guard let service = NSSharingService(named: .composeEmail) else {
-            statusMsg = String(localized: "Mail not available.")
-            return
-        }
-        var items: [Any] = [bodyText.isEmpty ? " " : bodyText]
-        if let url = state.droppedFile?.url,
-           FileManager.default.fileExists(atPath: url.path) {
-            items.append(url)
-        }
-        service.recipients = [to]
-        service.subject = subject
-        service.perform(withItems: items)
-        onSuccess(recipient: to)
-        #else
         func asEscape(_ s: String) -> String {
             s.replacingOccurrences(of: "\\", with: "\\\\")
              .replacingOccurrences(of: "\"", with: "\\\"")
@@ -1038,7 +999,6 @@ struct MailView: View {
         NSAppleScript(source: script)?.executeAndReturnError(&err)
         if err == nil { onSuccess(recipient: to) }
         else { statusMsg = "Mail error: \(err?["NSAppleScriptErrorMessage"] as? String ?? "unknown")" }
-        #endif
     }
 
     private func onSuccess(recipient: String) {
@@ -1059,9 +1019,7 @@ struct PromptView: View {
     @State private var text: String = ""
     @FocusState private var focused: Bool
 
-    #if !APPSTORE
     @State private var dictation = MacDictation()
-    #endif
     var body: some View {
         ZStack(alignment: .leading) {
             CardBackground(wash: .indigo)
@@ -1115,7 +1073,6 @@ struct PromptView: View {
                         .focused($focused)
                         .onSubmit { sendMessage() }
 
-                    #if !APPSTORE
                     // Dictate instead of typing (on-device speech recognition when available)
                     Button {
                         Task { await dictation.toggle(startingFrom: text) }
@@ -1131,7 +1088,6 @@ struct PromptView: View {
                     .onChange(of: dictation.transcript) { _, _ in
                         if dictation.isRecording { text = dictation.text }
                     }
-                    #endif
 
                     Button(action: sendMessage) {
                         Image(systemName: "arrow.up")
@@ -1167,9 +1123,7 @@ struct PromptView: View {
     }
 
     private func sendMessage() {
-        #if !APPSTORE
         dictation.stop()
-        #endif
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
         text = ""
@@ -1411,11 +1365,7 @@ struct IntegrationCardView: View {
 
     // Spotify: its own card for every state (playing, idle, not installed, Automation denied)
     private var isSpotify: Bool {
-        #if !APPSTORE
         return task.id == "integration_spotify"
-        #else
-        return false
-        #endif
     }
 
     private var statusDot: Color {
@@ -1467,10 +1417,8 @@ struct IntegrationCardView: View {
             GitHubStatsCardView(stats: appState.githubStats!)
                 .transition(.opacity)
         } else if isSpotify {
-            #if !APPSTORE
             SpotifyCardView()
                 .transition(.opacity)
-            #endif
         } else if agentSessionActive {
             // Active session view — reuse overview layout
             VStack(alignment: .leading, spacing: 0) {
@@ -1548,7 +1496,6 @@ struct IntegrationCardView: View {
                             .foregroundColor(Color(hex: task.color).opacity(0.7))
                             .buttonStyle(.plain)
                     } else if task.id == "agent_cursor" {
-                        #if !APPSTORE
                         if let url = NSWorkspace.shared.urlForApplication(
                             withBundleIdentifier: "com.todesktop.230313mzl4w4u92") {
                             Button("Open Cursor") {
@@ -1559,7 +1506,6 @@ struct IntegrationCardView: View {
                             .foregroundColor(Color(hex: task.color).opacity(0.85))
                             .buttonStyle(.plain)
                         }
-                        #endif
                     } else if let url = openURL {
                         Button("Open \(task.name)") { NSWorkspace.shared.open(url) }
                             .font(.system(size: 11, weight: .medium))
@@ -2493,7 +2439,6 @@ struct AgentPillsView: View {
             Spacer(minLength: 0)
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(displayTasks) { task in
-                    #if !APPSTORE
                     if task.id == "integration_spotify" {
                         SpotifyPill(task: task, swapping: $swapping) {
                             swapping = true
@@ -2509,14 +2454,6 @@ struct AgentPillsView: View {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { swapping = false }
                         }
                     }
-                    #else
-                    AgentPill(task: task, state: state, swapping: $swapping) {
-                        swapping = true
-                        state.setFocus(task.id)
-                        SoundEngine.shared.play("blip")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { swapping = false }
-                    }
-                    #endif
                 }
             }
             .padding(.horizontal, 8)

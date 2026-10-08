@@ -109,7 +109,7 @@ Toutes les pastilles déclarées sont définies dans `PillCatalog.all` (source d
 |---|---|---|---|---|
 | `workspace` | Where you code | VS Code, Cursor | Integration | Claude Code / Cursor / Agent |
 | `agent` | Agents | Claude Desktop | Agent | Claude Desktop |
-| `service` | Services | GitHub, Spotify *(GitHub only)* | Integration | — |
+| `service` | Services | GitHub, Spotify | Integration | — |
 
 Couleurs : Cursor `#C0C4CC`, Claude Desktop `#D97757`.
 
@@ -119,7 +119,6 @@ Règles :
 - Max 4 pastilles autres que `mainPillId` actives à la fois (`activeIntegrations`, persisté).
 - `removeTask` sur `mainPillId` ou une pastille déclarée + active → reset à `.idle` + `pillBadge = nil` + nom du catalogue (pas de suppression). Sinon → suppression normale.
 - `sortTasksByCatalog` : pastilles du catalogue dans l'ordre du catalogue ; pastilles hors catalogue juste après `integration_claude`.
-- Pastilles `githubOnly` : historiquement exclues du build App Store de Coucou ; Klayer Island n'a pas de build App Store.
 - Claude Code : `isConfigured` = les hooks de Klayer Island sont dans `~/.claude/settings.json` (`HookServer.claudeHooksInstalled()`). La pastille Cursor suit le même état, et les sessions Claude Code lancées dans Cursor s'affichent sur la pastille Claude Code. Claude Desktop : rien à installer, `isConfigured` est toujours vrai. Les autres agents ne sont plus suivis : leurs événements sont ignorés (pas de pastille) et leurs demandes d'autorisation reçoivent `ask` (voir `docs/AGENTS.md`).
 
 ### Carte GitHub (`GitHubPulseCardView`)
@@ -226,12 +225,12 @@ Pas de son pour les mises à jour silencieuses (défilé de tâches, mini-bonhom
 
 ## 10. Barre de menus et réglages
 
-Petit item dans la barre de menus (icône : silhouette du Klay, monochrome). Menu : Ouvrir le notch, Lancer la démo (⌃⌥⌘D), Réglages…, Debug ▸ (forcer chaque vue, chaque état, chaque émote, ajouter des tâches factices), Quitter.
+Petit item dans la barre de menus (icône : silhouette du Klay, monochrome). Menu : Ouvrir Klayer Island, Réglages…, Quitter.
 
 Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Anthropic API** : clé (Trousseau), modèle (défaut `claude-sonnet-4-6` ; liste depuis l'API, voir INTEGRATIONS §5).
 - **Claude Code Hooks** : état des hooks, bouton Installer / Désinstaller.
-- **Plan usage** : toggle **Show in the notch** + bouton **Install relay** / **Uninstall relay**. Voir INTEGRATIONS §1bis. **Jauge de forfait Claude** *(GitHub only)* : petit pill dans l'en-tête de l'île (vue home uniquement). Activé via `showPlanInNotch` (UserDefaults) + `HookServer.statusLineInstalled()`. Couleur = `ClaudePlanGauge.color(for: dominantPct)`. Clic → `showingPlanDetail` bascule et `ClaudePlanCardView` s'affiche à la place de la carte en cours. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode. Grand Klay prend la couleur de l'usage quand `showingPlanDetail == true`.
+- **Plan usage** : toggle **Show in the notch** + bouton **Install relay** / **Uninstall relay**. Voir INTEGRATIONS §1bis. **Jauge de forfait Claude** : petit pill dans l'en-tête de l'île (vue home uniquement). Activé via `showPlanInNotch` (UserDefaults) + `HookServer.statusLineInstalled()`. Couleur = `ClaudePlanGauge.color(for: dominantPct)`. Clic → `showingPlanDetail` bascule et `ClaudePlanCardView` s'affiche à la place de la carte en cours. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode. Grand Klay prend la couleur de l'usage quand `showingPlanDetail == true`.
 - **Integrations** : jeton personnel GitHub (Trousseau).
 - **Sound** : son on/off, volume.
 - **Behavior** : fermeture après N s d'inactivité ; masquage après N min sans mouvement.
@@ -257,7 +256,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 - **M6 GitHub** : polling, alertes CI, cartes (INTEGRATIONS §1quater).
 - **M7 Fichiers** : glisser-déposer, prompt sur fichier, mail via Mail (INTEGRATIONS §3 et §6).
 - **M8 Fenêtres + recherche** : attache, capture, URL, API Claude avec recherche web, vue résultat (INTEGRATIONS §4 et §5).
-- **M9 Finition** : mode démo (DEMO.md), réglages complets, lancement au démarrage, écran sans notch, mesure CPU/RAM, passe finale de comparaison visuelle.
+- **M9 Finition** : réglages complets, lancement au démarrage, écran sans notch, mesure CPU/RAM, passe finale de comparaison visuelle.
 
 ## 12. Critères d'acceptation
 
@@ -265,7 +264,6 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 - Aucun clic perdu à cause de la fenêtre transparente.
 - Une session Claude Code n'est jamais bloquée par l'app (app fermée, plantée ou lente → le terminal prend le relais).
 - Hidden = 0 % CPU ; compact < 3 % ; mémoire < 100 Mo.
-- La démo (⌃⌥⌘D) se filme d'une traite sans intervention.
 
 ## 13. Klay sur le bureau
 

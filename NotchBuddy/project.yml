@@ -69,8 +69,6 @@ targets:
         NSMicrophoneUsageDescription: "Klayer Island uses the microphone when you dictate a message in the chat."
         NSSpeechRecognitionUsageDescription: "Klayer Island turns your voice into the text of a chat message."
         NSAccessibilityUsageDescription: "Pour lire le titre de la fenêtre active et l'attacher comme contexte."
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
         CFBundleLocalizations:
           - en
           - ar

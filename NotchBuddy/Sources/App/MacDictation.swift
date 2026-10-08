@@ -1,8 +1,7 @@
-#if !APPSTORE
 import AVFoundation
 import Speech
 
-/// Speech to text for the notch chat (GitHub build), on-device when the Mac supports it.
+/// Speech to text for the notch chat, on-device when the Mac supports it.
 /// Not main-actor bound, because the audio tap and the
 /// recognizer call back on their own threads; the published values are set on the main actor.
 @Observable
@@ -76,4 +75,3 @@ final class MacDictation: @unchecked Sendable {
         return await AVAudioApplication.requestRecordPermission()
     }
 }
-#endif

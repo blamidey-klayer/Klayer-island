@@ -31,7 +31,6 @@ struct BotCanvasView: View {
                 }
                 // Integration pills have a fixed brand color → use it as bodyColor.
                 // Claude Code tasks use state-based gradient (working=blue, thinking=purple, etc.).
-                #if !APPSTORE
                 if state.showingPlanDetail {
                     let hex = ClaudePlanGauge.color(for: state.claudePlanUsage.flatMap { ClaudePlanGauge.dominantPct($0) })
                     engine.bodyColor = cgColorFromHex(hex)
@@ -40,15 +39,9 @@ struct BotCanvasView: View {
                         ? cgColorFromHex(state.focusTask!.color)
                         : nil
                 }
-                #else
-                engine.bodyColor = (state.focusTask?.isIntegration == true)
-                    ? cgColorFromHex(state.focusTask!.color)
-                    : nil
-                #endif
 
                 // Compute shouldDance per-frame (no observer lag)
                 let dancing: Bool = {
-                    #if !APPSTORE
                     let active = AppState.shared.activeIntegrations
                     let spotify = SpotifyController.shared.isPlaying && active.contains(SpotifyController.pillId)
                     guard spotify else { return false }
@@ -57,9 +50,6 @@ struct BotCanvasView: View {
                     if state.mode == .compact { return true }
                     guard state.mode == .expanded && state.view == .overview else { return false }
                     return state.focusId == SpotifyController.pillId
-                    #else
-                    return false
-                    #endif
                 }()
                 engine.setDancing(dancing)
 

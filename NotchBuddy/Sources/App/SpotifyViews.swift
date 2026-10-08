@@ -1,8 +1,7 @@
-#if !APPSTORE
 import SwiftUI
 import AppKit
 
-// MARK: - Spotify Pill (overview right card, GitHub build only)
+// MARK: - Spotify Pill (overview right card)
 
 struct SpotifyPill: View {
     let task: AgentTask
@@ -80,7 +79,7 @@ struct SpotifyPill: View {
     }
 }
 
-// MARK: - Spotify Card (overview left card, GitHub build only)
+// MARK: - Spotify Card (overview left card)
 
 struct SpotifyCardView: View {
     @ObservedObject private var controller = SpotifyController.shared
@@ -253,7 +252,7 @@ struct SpotifyCardView: View {
     }
 }
 
-// MARK: - Player pieces shared by the Spotify pill and card (GitHub build only)
+// MARK: - Player pieces shared by the Spotify pill and card
 
 struct SpotifyControlButton: View {
     let icon: String
@@ -462,4 +461,3 @@ struct SpotifyPressStyle: ButtonStyle {
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
-#endif

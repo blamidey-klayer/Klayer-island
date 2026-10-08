@@ -17,7 +17,7 @@ enum Keychain {
         SecItemDelete(lookup as CFDictionary)
         // Add with strictest access control:
         // WhenUnlockedThisDeviceOnly = accessible only while Mac is unlocked,
-        // never synced to iCloud, never migrated to another device.
+        // never synced through Keychain sync, never migrated to another device.
         let item: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
             kSecAttrService as String:      service,
@@ -165,12 +165,6 @@ final class ClaudeService {
     // MARK: - Chat (multi-turn, natural text + web search)
 
     func chat(query: String, context: PromptContext?, state: AppState) async {
-        if DemoEngine.shared.isActive {
-            state.stateOverride = .thinking
-            await DemoEngine.shared.streamChatResponse(for: query)
-            state.stateOverride = nil
-            return
-        }
         guard let key = apiKey, !key.isEmpty else {
             await showError("API key missing. Open settings.", state: state)
             return

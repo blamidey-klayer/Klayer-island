@@ -13,9 +13,6 @@ DerivedData/
 .AppleDouble
 .LSOverride
 
-# iCloud stubs
-*.icloud
-
 # Local only (never published)
 .claude/
 _prive/

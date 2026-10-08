@@ -15,17 +15,7 @@ final class HookServer: @unchecked Sendable {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NotchBuddy")
     }
-    static var socketPath: String {
-        #if APPSTORE
-        // Container home root keeps path ≤ 103 bytes (sun_path limit on macOS is 104 incl. NUL)
-        // /Users/louis/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock = 66 bytes ✓
-        return NSHomeDirectory() + "/nb.sock"
-        #else
-        return supportDir.appendingPathComponent("nb.sock").path
-        #endif
-    }
-    // hookScriptPath is only used by the non-App Store build.
-    // App Store build derives the command from the panel-selected claudeURL in buildHooksData(claudeURL:).
+    static var socketPath: String { supportDir.appendingPathComponent("nb.sock").path }
     static var hookScriptPath: String { supportDir.appendingPathComponent("nb-hook").path }
 
     // No approval blocking state — notch is notification-only, user answers in VS Code
@@ -42,12 +32,7 @@ final class HookServer: @unchecked Sendable {
     private var pendingQuestionFD: Int32 = -1         // held open while user answers AskUserQuestion
     private var questionFDSource: (any DispatchSourceRead)? = nil  // monitors pendingQuestionFD
 
-    /// True when a real nb-hook connection is holding the approval fd open.
-    @MainActor var hasRealPendingApproval: Bool { pendingApprovalFD >= 0 }
-    /// True when a real nb-hook connection is holding the question fd open.
-    @MainActor var hasRealPendingQuestion: Bool { pendingQuestionFD >= 0 }
     private var questionPillId: String = ""           // pill that owns the pending question
-    private var questionSessionId: String = ""        // sessionId for the pending question (recap tracking)
     private var focusBeforeQuestion: String? = nil    // saved focus to restore after question
     private var activeSessionId: String? = nil        // current Claude Code session
     private var focusBeforeApproval: String? = nil    // saved focus to restore after approval
@@ -128,20 +113,10 @@ final class HookServer: @unchecked Sendable {
     /// Called by QuestionView. Sends answers JSON and cleans up.
     @MainActor
     func sendQuestionAnswers(_ answers: [String: Any]) {
-        // Only intercept a demo question — real questions always have a live fd.
-        if DemoEngine.shared.isActive, pendingQuestionFD < 0 {
-            AppState.shared.pendingQuestion = nil
-            AppState.shared.isPinned = false
-            AppState.shared.view = AppState.shared.tasks.isEmpty ? .empty : .overview
-            DemoEngine.shared.handleQuestionAnswered(answers: answers)
-            return
-        }
         let fd = pendingQuestionFD
         pendingQuestionFD = -1
         let source = questionFDSource
         questionFDSource = nil
-        let sid = questionSessionId
-        questionSessionId = ""
         if fd >= 0, let data = try? JSONSerialization.data(withJSONObject: ["permissionDecision": "answer", "answers": answers], options: .withoutEscapingSlashes),
            let json = String(data: data, encoding: .utf8) {
             Task.detached { [weak self] in
@@ -151,7 +126,6 @@ final class HookServer: @unchecked Sendable {
         } else {
             source?.cancel()
         }
-        if !sid.isEmpty { RecapStore.shared.recordQuestionAnswered(sessionId: sid) }
         dismissQuestionCard(note: "")
     }
 
@@ -205,9 +179,7 @@ final class HookServer: @unchecked Sendable {
         let dir = Self.supportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700 as NSNumber], ofItemAtPath: dir.path)
-        #if !APPSTORE
         installHookScript()
-        #endif
         Thread.detachNewThread { self.serverThread() }
     }
 
@@ -383,16 +355,9 @@ final class HookServer: @unchecked Sendable {
         }
 
         let focused = state.focusId == agentId
-        // For sessions that carry no id, derive a unique key from pill + cwd so that
-        // concurrent anonymous sessions are tracked independently in RecapStore.
-        let recapSessionId = (sessionId == "unknown" || sessionId.isEmpty)
-            ? "\(agentId)+\(cwd)"
-            : sessionId
-
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
-        if let pending = state.pendingApproval, agentId == pending.pillId,
-           pending.sessionId != "demo_session" {
+        if let pending = state.pendingApproval, agentId == pending.pillId {
             let handledNote = "Handled in \(claudeHostName)."
             var resolved = false
             switch name {
@@ -424,7 +389,6 @@ final class HookServer: @unchecked Sendable {
             if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, cwd: cwd, hostApp: hostApp, bundleId: bundleId) }
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
             nbLog("SessionStart \(isExternalAgent ? agentId : projectName) (\(sessionId.prefix(8)))")
-            NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
             if state.isPresent { expandIfNeeded(to: .overview) }
             SoundEngine.shared.play("work")
 
@@ -436,15 +400,12 @@ final class HookServer: @unchecked Sendable {
             if let prompt = payload["prompt"] as? String, !prompt.isEmpty {
                 appendStep(id: agentId, step: String(prompt.prefix(60)))
             }
-            RecapStore.shared.userPromptSubmit(sessionId: recapSessionId, pillId: agentId, project: projectName)
-            NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
             if state.isPresent { expandIfNeeded(to: .overview) }
 
         case "PreToolUse":
             activeSessionId = sessionId
             let tool = payload["tool_name"] as? String ?? "Tool"
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
-            RecapStore.shared.preToolUse(sessionId: recapSessionId, tool: tool)
             // AskUserQuestion is handled via the dedicated --ask hook.
             // Skip state/step update here to avoid flickering over the question card.
             guard tool != "AskUserQuestion" else { break }
@@ -464,7 +425,6 @@ final class HookServer: @unchecked Sendable {
                 let idx = state.appendSessionDiff(diff, for: agentId)
                 let step = String.makeDiffStep(filename: diff.name, added: diff.added, removed: diff.removed, diffId: idx)
                 appendStep(id: agentId, step: step)
-                RecapStore.shared.recordFileDiff(sessionId: recapSessionId, path: diff.name, added: diff.added, removed: diff.removed)
             }
 
         case "PostToolUseFailure":
@@ -493,7 +453,6 @@ final class HookServer: @unchecked Sendable {
                     state.tasks[idx].finalLine = finalText
                 }
             }
-            RecapStore.shared.stop(sessionId: recapSessionId)
             SoundEngine.shared.play("finish")
             if focused {
                 expandIfNeeded(to: .finished)
@@ -510,7 +469,6 @@ final class HookServer: @unchecked Sendable {
             }
 
         case "StopFailure":
-            RecapStore.shared.stop(sessionId: recapSessionId)
             state.updateTask(id: agentId, state: .error)
             SoundEngine.shared.play("error")
             if focused {
@@ -524,7 +482,6 @@ final class HookServer: @unchecked Sendable {
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
             state.clearSessionDiffs(for: agentId)
             state.removeTask(id: agentId)
-            RecapStore.shared.sessionEnd(sessionId: recapSessionId)
 
         case "SubagentStart":
             appendStep(id: agentId, step: "+ subagent")
@@ -717,17 +674,6 @@ final class HookServer: @unchecked Sendable {
     /// Called by ApprovalView buttons. Writes the decision to the waiting nb-hook and cleans up.
     @MainActor
     func sendApprovalDecision(_ decision: String) {
-        // Only intercept a demo card — a real card has a live fd (pendingApprovalFD >= 0).
-        if DemoEngine.shared.isActive,
-           AppState.shared.pendingApproval?.sessionId == "demo_session",
-           pendingApprovalFD < 0 {
-            let s = AppState.shared
-            s.pendingApproval = nil
-            s.isPinned = false
-            s.view = s.tasks.isEmpty ? .empty : .overview
-            DemoEngine.shared.handleApprovalDecision(decision)
-            return
-        }
         let fd = pendingApprovalFD
         pendingApprovalFD = -1
         // Capture source before nulling — we send the decision first, then cancel the source.
@@ -757,7 +703,6 @@ final class HookServer: @unchecked Sendable {
         let pillId = state.pendingApproval?.pillId ?? "integration_claude"
         state.pendingApproval = nil
         state.isPinned = false
-        RecapStore.shared.recordDecision(pillId: pillId, decision: decision)
         state.updateTask(id: pillId, state: .working)
         clearPillBadge(id: pillId)
         // Restore focus to the pill that was focused before the approval card appeared.
@@ -811,9 +756,6 @@ final class HookServer: @unchecked Sendable {
         pendingQuestionFD = fd
         activeSessionId = sessionId
         questionPillId = pillId
-        questionSessionId = (sessionId == "unknown" || sessionId.isEmpty)
-            ? "\(pillId)+\(cwd)"
-            : sessionId
 
         upsertWorkspaceTask(id: pillId, projectName: projectName, cwd: cwd, hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .question)
@@ -1048,10 +990,6 @@ final class HookServer: @unchecked Sendable {
     // MARK: - nb-hook script installation
 
     func installHookScript() {
-        #if APPSTORE
-        // In App Store mode the script is written during settings hook installation
-        // (requires NSOpenPanel to ~/.claude chosen by the user)
-        #else
         let dir = Self.supportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700 as NSNumber], ofItemAtPath: dir.path)
@@ -1061,9 +999,8 @@ final class HookServer: @unchecked Sendable {
         _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: wrapperURL.path)
         // nb-hook.py: Python relay
         let pyURL = wrapperURL.deletingLastPathComponent().appendingPathComponent("nb-hook.py")
-        try? nbHookPythonGitHub.write(to: pyURL, atomically: true, encoding: .utf8)
+        try? nbHookPython.write(to: pyURL, atomically: true, encoding: .utf8)
         _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: pyURL.path)
-        #endif
     }
 
     // MARK: - Outdated hook detection
@@ -1143,12 +1080,7 @@ final class HookServer: @unchecked Sendable {
         let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
         var settings = snapshot.object
         let hookPath = Self.hookScriptPath
-        #if APPSTORE
-        // Sandboxed apps create quarantined files; /bin/sh bypasses the quarantine flag
-        let quotedCmd = "/bin/sh \"\(hookPath.replacingOccurrences(of: "\"", with: "\\\""))\""
-        #else
         let quotedCmd = "\"\(hookPath.replacingOccurrences(of: "\"", with: "\\\""))\""
-        #endif
         let events: [(String, Int)] = [
             ("SessionStart", 10), ("SessionEnd", 10),
             ("UserPromptSubmit", 10),
@@ -1332,110 +1264,17 @@ final class HookServer: @unchecked Sendable {
         _pendingDeletePrevious = false
     }
 
-    // MARK: - App Store: hooks via security-scoped bookmark
-
-    #if APPSTORE
-    /// Writes nb-hook script and updates settings.json in one shot.
-    /// claudeURL must be a URL from NSOpenPanel (sandbox access is granted immediately — no security scope needed).
-    func installAndWriteClaudeHooksAppStore(claudeURL: URL) throws {
-        let (data, original) = try buildHooksData(claudeURL: claudeURL)
-
-        // Write nb-hook (shell wrapper) + nb-hook.py (Python relay) into ~/.claude/klayer/
-        let klayerDir = claudeURL.appendingPathComponent("klayer")
-        try FileManager.default.createDirectory(at: klayerDir, withIntermediateDirectories: true)
-        let wrapperURL = klayerDir.appendingPathComponent("nb-hook")
-        try nbHookShellWrapper.write(to: wrapperURL, atomically: true, encoding: .utf8)
-        _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: wrapperURL.path)
-        let pyURL = klayerDir.appendingPathComponent("nb-hook.py")
-        try nbHookPythonAppStore.write(to: pyURL, atomically: true, encoding: .utf8)
-        _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: pyURL.path)
-
-        // Write settings.json (with backup)
-        let settingsURL = claudeURL.appendingPathComponent("settings.json")
-        try ClaudeSettingsFile.write(data, to: settingsURL, expecting: original)
-        UserDefaults.standard.set(true, forKey: "klayerHooksInstalled")
-    }
-
-    func uninstallClaudeHooksAppStore(claudeURL: URL) throws {
-        let settingsURL = claudeURL.appendingPathComponent("settings.json")
-        let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
-        var settings = snapshot.object
-        guard var hooks = settings["hooks"] as? [String: Any] else { return }
-        for key in hooks.keys {
-            if var matchers = hooks[key] as? [[String: Any]] {
-                matchers.removeAll { matcher in
-                    (matcher["hooks"] as? [[String: Any]])?.contains {
-                        ($0["command"] as? String)?.contains("klayer") == true ||
-                        ($0["command"] as? String)?.contains("NotchBuddy") == true
-                    } ?? false
-                }
-                if matchers.isEmpty { hooks.removeValue(forKey: key) }
-                else { hooks[key] = matchers }
-            }
-        }
-        settings["hooks"] = hooks
-        let newData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try ClaudeSettingsFile.write(newData, to: settingsURL, expecting: snapshot.bytes)
-        UserDefaults.standard.set(false, forKey: "klayerHooksInstalled")
-    }
-
-    private func buildHooksData(claudeURL: URL) throws -> (data: Data, original: Data?) {
-        let settingsURL = claudeURL.appendingPathComponent("settings.json")
-        // Unreadable or invalid settings must stop here, never count as empty.
-        let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
-        var settings = snapshot.object
-        // Derive hook path from the panel-selected claudeURL (real ~/.claude, not container)
-        let hookPath = claudeURL.appendingPathComponent("klayer/nb-hook").path
-        let quotedCmd = "/bin/sh \"\(hookPath.replacingOccurrences(of: "\"", with: "\\\""))\""
-        let events: [(String, Int)] = [
-            ("SessionStart", 10), ("SessionEnd", 10),
-            ("UserPromptSubmit", 10),
-            ("PreToolUse", 10), ("PostToolUse", 10), ("PostToolUseFailure", 10),
-            ("PermissionRequest", 120),
-            ("Notification", 10),
-            ("Stop", 10), ("StopFailure", 10),
-            ("SubagentStart", 10), ("SubagentStop", 10),
-        ]
-        // "hooks" in a shape we do not know is refused, never replaced.
-        var hooks = try ClaudeSettingsFile.hooks(in: settings, name: "settings.json")
-        for (event, timeout) in events {
-            var existing = try ClaudeSettingsFile.hookGroups(in: hooks, event: event, name: "settings.json")
-            existing.removeAll { ($0["hooks"] as? [[String: Any]])?.contains {
-                ($0["command"] as? String)?.contains("klayer") == true ||
-                ($0["command"] as? String)?.contains("NotchBuddy") == true
-            } ?? false }
-            existing.append(["hooks": [["type": "command", "command": quotedCmd, "timeout": timeout]]])
-            hooks[event] = existing
-        }
-        // Dedicated AskUserQuestion PreToolUse hook (Claude Code 2.1.85+, timeout 130s)
-        var preToolUse = hooks["PreToolUse"] as? [[String: Any]] ?? []
-        preToolUse.append([
-            "matcher": "AskUserQuestion",
-            "hooks": [["type": "command", "command": "\(quotedCmd) --ask", "timeout": 130]],
-        ])
-        hooks["PreToolUse"] = preToolUse
-        settings["hooks"] = hooks
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        return (data, snapshot.bytes)
-    }
-    #endif
-
-    // MARK: - Claude Code installed-state detection (both builds)
+    // MARK: - Claude Code installed-state detection
 
     /// True when ~/.claude/settings.json already routes Claude Code events to Klayer Island.
     /// Cursor sessions ride on these same hooks, so they share this state.
     static func claudeHooksInstalled() -> Bool {
-        #if APPSTORE
-        // Sandboxed: can't read ~/.claude directly — check the install flag set on write.
-        return UserDefaults.standard.bool(forKey: "klayerHooksInstalled")
-        #else
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
         guard let data = try? Data(contentsOf: url),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return false }
         return klayerHooksPresent(inSettings: json)
-        #endif
     }
 }
 
@@ -1445,7 +1284,7 @@ extension Notification.Name {
     static let hookExpand = Notification.Name("notchBuddy.hookExpand")
 }
 
-// MARK: - nb-hook shell wrapper (same for both GitHub and App Store)
+// MARK: - nb-hook shell wrapper
 // Invoked by Claude Code via /bin/sh or directly via shebang.
 // Always exits 0 — never blocks Claude Code.
 // Checks xcode-select before running python3 to avoid triggering the
@@ -1469,11 +1308,11 @@ fi
 exit 0
 """
 
-// MARK: - nb-hook Python relay (GitHub / non-sandboxed version)
+// MARK: - nb-hook Python relay
 
-private let nbHookPythonGitHub = """
+private let nbHookPython = """
 #!/usr/bin/env python3
-# nb-hook.py — Klayer Island hook relay for Claude Code (GitHub version)
+# nb-hook.py — Klayer Island hook relay for Claude Code
 # Reads JSON from stdin, forwards to Klayer Island via Unix socket, translates response.
 import sys, json, os, socket
 
@@ -1657,208 +1496,6 @@ def main():
         sys.exit(0)
 
     # All other events: fire-and-forget (0.3s timeout, never blocks)
-    try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(0.3)
-        s.connect(socket_path)
-        s.sendall((json.dumps(payload) + '\\n').encode())
-        s.close()
-    except Exception:
-        pass  # Always exit cleanly — never block Claude Code
-
-try:
-    main()
-except Exception:
-    pass
-sys.exit(0)
-"""
-
-// MARK: - nb-hook Python relay (App Store — socket in sandboxed container)
-
-private let nbHookPythonAppStore = """
-#!/usr/bin/env python3
-# nb-hook.py — Klayer Island (App Store) hook relay for Claude Code
-# Socket lives inside the sandboxed container; script runs outside the sandbox.
-import sys, json, os, socket
-
-def main():
-    raw = b''
-    payload = {}
-    try:
-        raw = sys.stdin.buffer.read()
-        if not raw:
-            if '--statusline' not in sys.argv[1:]:
-                return
-        else:
-            payload = json.loads(raw)
-    except Exception:
-        if '--statusline' not in sys.argv[1:]:
-            return
-
-    socket_path = os.path.expanduser(
-        '~/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock'
-    )
-
-    # --statusline mode: relay rate_limits to Klayer Island, then delegate to saved previous
-    if '--statusline' in sys.argv[1:]:
-        relay = {
-            'klayer_kind': 'statusline',
-            'session_id': payload.get('session_id', ''),
-            'rate_limits': payload.get('rate_limits', {}),
-        }
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(0.3)
-            s.connect(socket_path)
-            s.sendall((json.dumps(relay) + '\\n').encode())
-            s.close()
-        except Exception:
-            pass
-        prev_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'statusline-previous.json')
-        if os.path.exists(prev_file):
-            try:
-                import subprocess
-                with open(prev_file) as f:
-                    prev = json.load(f)
-                cmd = prev.get('command', '')
-                if cmd:
-                    result = subprocess.run(['/bin/sh', '-c', cmd], input=raw,
-                                             capture_output=True, timeout=10)
-                    if result.stdout:
-                        sys.stdout.buffer.write(result.stdout)
-                        sys.stdout.buffer.flush()
-            except Exception:
-                pass
-        return
-
-    # --ask mode: dedicated hook for AskUserQuestion via PreToolUse (Claude Code 2.1.85+)
-    if '--ask' in sys.argv[1:]:
-        tool = payload.get('tool_name', '')
-        if tool != 'AskUserQuestion':
-            return  # Not an AskUserQuestion invocation — exit cleanly (no output)
-        payload['klayer_kind'] = 'ask_user_question'
-        env = os.environ
-        payload.setdefault('term_program', env.get('TERM_PROGRAM', ''))
-        payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
-        payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
-        payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
-        if 'cwd' not in payload or not payload['cwd']:
-            payload['cwd'] = os.getcwd()
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(125)
-            s.connect(socket_path)
-            s.sendall((json.dumps(payload) + '\\n').encode())
-            chunks = []
-            while True:
-                chunk = s.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                if b'\\n' in chunk:
-                    break
-            s.close()
-            response = b''.join(chunks).decode().strip()
-            if response:
-                try:
-                    resp_obj = json.loads(response)
-                    decision = resp_obj.get('permissionDecision', '')
-                except Exception:
-                    decision = ''
-                if decision == 'answer':
-                    answers = resp_obj.get('answers', {})
-                    questions = payload.get('tool_input', {}).get('questions', [])
-                    out = {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': {'questions': questions, 'answers': answers}}}
-                    sys.stdout.write(json.dumps(out) + '\\n')
-                    sys.stdout.flush()
-                    sys.exit(0)
-                # 'ask' or unknown: fall through → no output → Claude Code asks in terminal
-        except Exception:
-            pass
-        return
-
-    # Claude Code sends no klayer_agent. A hook that an earlier Klayer Island wired for another
-    # tool still passes --agent <name>: tag the payload with it so the app ignores that tool
-    # (no pill, permission answered "ask") instead of reading it as a Claude Code session.
-    args = sys.argv[1:]
-    agent = ''
-    i = 0
-    while i < len(args):
-        if args[i] == '--agent' and i + 1 < len(args):
-            agent = args[i + 1]
-            i += 2
-        else:
-            i += 1
-    if agent:
-        payload.setdefault('klayer_agent', agent)
-    # Claude Code sessions from the Claude desktop app (Code tab) report this entrypoint;
-    # route them to the Claude Desktop pill instead of dropping them (no VS Code terminal).
-    if not payload.get('klayer_agent') and os.environ.get('CLAUDE_CODE_ENTRYPOINT') == 'claude-desktop':
-        payload['klayer_agent'] = 'claude-desktop'
-
-    env = os.environ
-    payload.setdefault('term_program', env.get('TERM_PROGRAM', ''))
-    payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
-    payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
-    payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
-    if 'cwd' not in payload or not payload['cwd']:
-        payload['cwd'] = os.getcwd()
-
-    event = payload.get('hook_event_name', '')
-    # socket_path is already defined above
-
-    if event == 'PermissionRequest':
-        # Block and wait for Klayer Island's decision (Claude Code allows up to 120s)
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(118)
-            s.connect(socket_path)
-            s.sendall((json.dumps(payload) + '\\n').encode())
-            chunks = []
-            while True:
-                chunk = s.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                if b'\\n' in chunk:
-                    break
-            s.close()
-            response = b''.join(chunks).decode().strip()
-            if response:
-                try:
-                    resp_obj = json.loads(response)
-                    decision = resp_obj.get('permissionDecision', '')
-                except Exception:
-                    decision = ''
-                if decision in ('allow', 'always'):
-                    if decision == 'always':
-                        # Let Claude Code persist the rule via updatedPermissions
-                        suggestions = payload.get('permission_suggestions', [])
-                        out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow', 'updatedPermissions': suggestions}}}
-                    else:
-                        out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow'}}}
-                    sys.stdout.write(json.dumps(out) + '\\n')
-                    sys.stdout.flush()
-                    sys.exit(0)
-                elif decision == 'deny':
-                    out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'deny', 'message': 'Denied from Klayer Island'}}}
-                    sys.stdout.write(json.dumps(out) + '\\n')
-                    sys.stdout.flush()
-                    sys.exit(0)
-                elif decision == 'answer':
-                    # AskUserQuestion answered from the notch
-                    answers = resp_obj.get('answers', {})
-                    questions = payload.get('tool_input', {}).get('questions', [])
-                    out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow', 'updatedInput': {'questions': questions, 'answers': answers}}}}
-                    sys.stdout.write(json.dumps(out) + '\\n')
-                    sys.stdout.flush()
-                    sys.exit(0)
-                # 'ask' or unknown: fall through → no output → Claude Code re-asks
-        except Exception:
-            pass
-        # App unreachable, timed out, or no explicit decision — print nothing: Claude Code asks itself
-        sys.exit(0)
-
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(0.3)

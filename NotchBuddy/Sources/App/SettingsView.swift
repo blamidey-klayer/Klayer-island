@@ -4,7 +4,6 @@ import AppKit
 
 struct SettingsView: View {
     @ObservedObject private var state = AppState.shared
-    @ObservedObject private var demoEngine = DemoEngine.shared
     @State private var apiKey: String = KeychainStore.shared.get("anthropic-api-key") ?? ""
 
     // Claude model — dynamic list fetched from the API, static fallback if unavailable
@@ -33,12 +32,10 @@ struct SettingsView: View {
     @State private var pendingHookJSON: String = ""
     @State private var hookNeedsUpdate: Bool = HookServer.hooksNeedUpdate()
 
-    #if !APPSTORE
     @State private var showStatusLineDiff: Bool = false
     @State private var pendingStatusLineJSON: String = ""
     @State private var statusLinePendingInstall: Bool = true
     @State private var planTogglePending: Bool = false
-    #endif
 
     // Integration keys
     @State private var githubToken: String  = KeychainStore.shared.get("github-token")    ?? ""
@@ -139,9 +136,7 @@ struct SettingsView: View {
             }
         }
         .onAppear {
-            #if !APPSTORE
             state.refreshPlanRelayState()
-            #endif
             guard fetchedModels.isEmpty,
                   let key = KeychainStore.shared.get("anthropic-api-key"), !key.isEmpty else { return }
             Task {
@@ -190,21 +185,6 @@ struct SettingsView: View {
     // MARK: - General section
 
     @ViewBuilder private var generalSection: some View {
-        GroupBox(String(localized: "demo.groupbox.title")) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "demo.description"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(demoEngine.isActive ? String(localized: "demo.stop") : String(localized: "demo.start")) {
-                    if demoEngine.isActive { DemoEngine.shared.stop() }
-                    else { DemoEngine.shared.start() }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(6)
-        }
-
         GroupBox("Sound") {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Enable sounds", isOn: $state.soundEnabled)
@@ -324,20 +304,6 @@ struct SettingsView: View {
                 .padding(6)
         }
 
-        GroupBox(String(localized: "Weekly recap")) {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle(String(localized: "Keep a history of my coding sessions"), isOn: $state.recapEnabled)
-                Text(String(localized: "Stored locally on your Mac. Nothing leaves your Mac. Retained for 12 weeks."))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Toggle(String(localized: "Hide project names in shared images"), isOn: $state.recapHideProjects)
-                    .disabled(!state.recapEnabled)
-                Button(String(localized: "Clear history")) { RecapStore.shared.clearHistory() }
-            }
-            .padding(6)
-        }
-
         GroupBox(String(localized: "Language")) {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("", selection: $state.appLanguage) {
@@ -404,7 +370,7 @@ struct SettingsView: View {
                     .foregroundColor(state.activeIntegrations.count >= 4 ? .orange : .secondary)
 
                 Picker(String(localized: "settings.main-pill"), selection: $state.mainPillId) {
-                    ForEach(PillCatalog.available.filter { $0.category == .workspace && !$0.comingSoon }, id: \.id) { def in
+                    ForEach(PillCatalog.all.filter { $0.category == .workspace && !$0.comingSoon }, id: \.id) { def in
                         Text(def.name).tag(def.id)
                     }
                 }
@@ -415,7 +381,7 @@ struct SettingsView: View {
                 }
 
                 ForEach(PillCategory.allCases, id: \.self) { cat in
-                    let catPills = PillCatalog.available.filter { $0.category == cat }
+                    let catPills = PillCatalog.all.filter { $0.category == cat }
                     if !catPills.isEmpty {
                         Divider()
                         Text(cat.title)
@@ -444,23 +410,8 @@ struct SettingsView: View {
                             .font(.system(size: 11))
                             .foregroundColor(.orange)
                     }
-                    #if APPSTORE
-                    Button(String(localized: "hooks.update")) { installHooksAppStore() }
-                    #else
                     Button(String(localized: "hooks.update")) { installHooks() }
-                    #endif
                 }
-                #if APPSTORE
-                Text("~/.claude/klayer/nb-hook")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary)
-                HStack(spacing: 10) {
-                    Button(String(localized: "hooks.install")) { installHooksAppStore() }
-                        .buttonStyle(.borderedProminent)
-                    Button(String(localized: "hooks.uninstall")) { uninstallHooksAppStore() }
-                        .buttonStyle(.bordered)
-                }
-                #else
                 Text("nb-hook : \(HookServer.hookScriptPath)")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.secondary)
@@ -470,14 +421,12 @@ struct SettingsView: View {
                     Button(String(localized: "hooks.uninstall")) { uninstallHooks() }
                         .buttonStyle(.bordered)
                 }
-                #endif
                 Toggle("Answer questions and permissions from terminal sessions in the notch", isOn: $terminalCardsEnabled)
                 Text("Off: sessions in Warp, Terminal, iTerm… show in the notch, but their questions and permission requests are asked in the terminal. On: the notch shows them first, and the terminal waits until you answer there or close the island (up to 2 min).")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                #if !APPSTORE
                 if showDiff {
                     ScrollView {
                         Text(pendingHookJSON)
@@ -495,12 +444,10 @@ struct SettingsView: View {
                             .buttonStyle(.bordered)
                     }
                 }
-                #endif
             }
             .padding(6)
         }
 
-        #if !APPSTORE
         GroupBox(String(localized: "plan.title")) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(String(localized: "plan.description"))
@@ -561,7 +508,6 @@ struct SettingsView: View {
             }
             .padding(6)
         }
-        #endif
     }
 
     // MARK: - Chat section
@@ -650,56 +596,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - App Store: hooks via NSOpenPanel + security-scoped bookmark
-
-    #if APPSTORE
-    private func pickClaudeFolder(prompt: String) -> URL? {
-        let panel = NSOpenPanel()
-        panel.message = "Select your .claude folder (press ⇧⌘. to show hidden files)"
-        panel.prompt = prompt
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.showsHiddenFiles = true
-        let realHomePath = getpwuid(getuid()).flatMap { String(cString: $0.pointee.pw_dir, encoding: .utf8) }
-            ?? "/Users/\(NSUserName())"
-        panel.directoryURL = URL(fileURLWithPath: realHomePath)
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        guard url.lastPathComponent == ".claude" else {
-            statusMessage = String(localized: "status.select-claude-folder")
-            return nil
-        }
-        return url
-    }
-
-    private func installHooksAppStore() {
-        guard let claudeURL = pickClaudeFolder(prompt: "Select") else { return }
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.hooks.title")
-        alert.informativeText = String(localized: "alert.hooks.body")
-        alert.addButton(withTitle: String(localized: "alert.hooks.button-install"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
-        alert.alertStyle = .informational
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        do {
-            try HookServer.shared.installAndWriteClaudeHooksAppStore(claudeURL: claudeURL)
-            hookNeedsUpdate = false
-            statusMessage = String(localized: "status.hooks-installed-claude")
-        } catch {
-            statusMessage = "❌ \(error.localizedDescription)"
-        }
-    }
-
-    private func uninstallHooksAppStore() {
-        guard let claudeURL = pickClaudeFolder(prompt: "Select") else { return }
-        do {
-            try HookServer.shared.uninstallClaudeHooksAppStore(claudeURL: claudeURL)
-            statusMessage = String(localized: "status.hooks-removed")
-        } catch {
-            statusMessage = "❌ \(error.localizedDescription)"
-        }
-    }
-    #endif
+    // MARK: - Hooks and status line
 
     private func installHooks() {
         do {
@@ -732,7 +629,6 @@ struct SettingsView: View {
         }
     }
 
-    #if !APPSTORE
     private func installStatusLine() {
         do {
             pendingStatusLineJSON = try HookServer.shared.previewStatusLine(install: true)
@@ -776,7 +672,6 @@ struct SettingsView: View {
             statusMessage = "❌ \(error.localizedDescription)"
         }
     }
-    #endif
 
     private func saveIntegrations() {
         // Detect GitHub token changes before writing
@@ -812,9 +707,7 @@ struct SettingsView: View {
         let hint: String? = {
             if isMain { return nil }
             if def.comingSoon { return String(localized: "Coming soon") }
-            #if !APPSTORE
             if def.id == SpotifyController.pillId && !SpotifyController.shared.isInstalled { return String(localized: "Not installed") }
-            #endif
             return nil
         }()
         HStack(spacing: 8) {
