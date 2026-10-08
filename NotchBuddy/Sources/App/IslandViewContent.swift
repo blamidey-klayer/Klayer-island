@@ -430,7 +430,7 @@ struct QuestionView: View {
                                 }
                             }
                         }
-                        // Send/Next — only for multi-select (and not while "Other…" field is open)
+                        // Send/Next: only for multi-select (and not while "Other…" field is open)
                         if isMulti && !curOther {
                             PrimaryButton(isLast ? "Send" : "Next") {
                                 proceedFromQuestion(q: q, qi: qi, isLast: isLast)

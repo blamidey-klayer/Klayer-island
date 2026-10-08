@@ -841,7 +841,7 @@ final class HookServer: @unchecked Sendable {
         SoundEngine.shared.play("approval")
 
         if takesScreen {
-            // Approval forces the island open — user must be able to respond.
+            // Approval forces the island open: the user must be able to respond.
             // Save current focus so we can restore it when the card is dismissed.
             if focusBeforeApproval == nil { focusBeforeApproval = state.focusId }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
