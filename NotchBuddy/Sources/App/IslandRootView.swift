@@ -45,7 +45,7 @@ struct IslandContainer: View {
 
     var body: some View {
         // Canvas active during drag-over (.upload), post-drop animation (.uploading),
-        // AND choose overlay (.choose) — canvas handles the full sequence through user action.
+        // AND choose overlay (.choose): canvas handles the full sequence through user action.
         // Engine deactivates when user clicks a canvas choose button or navigates away.
         let uploadActive = state.mode == .expanded
             && UploadSequenceEngine.shared.isActive
@@ -92,7 +92,7 @@ struct IslandContainer: View {
                 }
             }
 
-            // Single BotPlacement — always alive in the view tree so spring animations
+            // Single BotPlacement: always alive in the view tree so spring animations
             // fire from the current position (e.g. choose at 60,101) when canvas deactivates.
             // Hidden during upload canvas or greeting (both draw their own Klay).
             BotPlacement(state: state, islandW: islandWidth, islandH: islandHeight)
@@ -275,7 +275,7 @@ struct BotPlacement: View {
         let isUploading = state.view == .uploading
 
         Group {
-            // No glow in uploading mode — the tiny dot doesn't need it
+            // No glow in uploading mode: the tiny dot doesn't need it
             if state.mode == .expanded && !isUploading {
                 Circle()
                     .fill(RadialGradient(
@@ -330,7 +330,7 @@ struct BotPlacement: View {
         // scales out at bar-end while normal bot scales in at choose position.
         .animation(.spring(response: 0.36, dampingFraction: 0.72), value: isUploading)
         // Slap, drag, and hover are handled by the AppKit NSEvent monitor in
-        // IslandWindowController — not SwiftUI gestures — so this is safe.
+        // IslandWindowController (not SwiftUI gestures), so this is safe.
         .allowsHitTesting(false)
     }
 

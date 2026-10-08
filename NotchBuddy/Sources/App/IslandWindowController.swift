@@ -31,7 +31,7 @@ final class IslandWindowController: NSWindowController {
     // Suppress peek sound on next reveal (e.g. spotifyReveal)
     var silentNextReveal = false
 
-    // Bot-head hover (love emote — mirrors prototype botHover())
+    // Bot-head hover (love emote: mirrors prototype botHover())
     private var hoverTimer: DispatchWorkItem?
     private var botHoverTimer: DispatchWorkItem?
     private var botHovering: Bool = false
@@ -133,7 +133,7 @@ final class IslandWindowController: NSWindowController {
         dropView.onDragExited = {
             Task { @MainActor in
                 AppState.shared.fileDragOver = false
-                // Do NOT collapse — drag session still active; island stays open.
+                // Do NOT collapse: drag session still active; island stays open.
                 NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
                 UploadSequenceEngine.shared.exitZone()
             }
@@ -490,7 +490,7 @@ final class IslandWindowController: NSWindowController {
 
     private var lastMouse: CGPoint = .zero
 
-    // MARK: - Bot-head hover (love emote — mirrors prototype botHover())
+    // MARK: - Bot-head hover (love emote: mirrors prototype botHover())
 
     private func botHoverIn(mousePos: CGPoint) {
         guard state.mode == .expanded, state.stateOverride == nil else { return }
@@ -551,7 +551,7 @@ final class IslandWindowController: NSWindowController {
     func expand(to view: IslandView) {
         state.view = view
         if state.mode == .expanded {
-            // Already expanded — just switch view
+            // Already expanded: just switch view
         } else {
             setMode(.expanded)
         }
@@ -703,42 +703,42 @@ final class IslandWindowController: NSWindowController {
         let raw = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let cmd = raw == .command
 
-        // ⌘→ — next pill
+        // ⌘→: next pill
         if cmd && event.keyCode == 124 { cyclePill(by: +1); return true }
-        // ⌘← — previous pill
+        // ⌘←: previous pill
         if cmd && event.keyCode == 123 { cyclePill(by: -1); return true }
-        // ⌘↓ — navigate list down
+        // ⌘↓: navigate list down
         if cmd && event.keyCode == 125 { navigateCard(by: +1); return true }
-        // ⌘↑ — navigate list up
+        // ⌘↑: navigate list up
         if cmd && event.keyCode == 126 { navigateCard(by: -1); return true }
-        // ⌘O — open selected card item
+        // ⌘O: open selected card item
         if cmd && event.keyCode == 31  { openCardSelection(); return true }
-        // ⌘↩ — send chat message
+        // ⌘↩: send chat message
         if cmd && event.keyCode == 36 && state.view == .prompt {
             NotificationCenter.default.post(name: .islandSendMessage, object: nil)
             return true
         }
-        // ⌘K — new conversation
+        // ⌘K: new conversation
         if cmd && event.keyCode == 40 && state.view == .prompt {
             NotificationCenter.default.post(name: .islandNewConversation, object: nil)
             return true
         }
-        // ⌘, — open Settings
+        // ⌘,: open Settings
         if cmd && event.keyCode == 43 {
             NotificationCenter.default.post(name: .openFullSettings, object: nil)
             return true
         }
-        // ⌘P — pin / unpin
+        // ⌘P: pin / unpin
         if cmd && event.keyCode == 35 {
             state.isPinned.toggle()
             return true
         }
-        // ⌘1–⌘9 — switch to pill by number
+        // ⌘1–⌘9: switch to pill by number
         let digitCodes: [UInt16: Int] = [18:1,19:2,20:3,21:4,23:5,22:6,26:7,28:8,25:9]
         if cmd, let n = digitCodes[event.keyCode] {
             switchToPill(number: n); return true
         }
-        // ⎋ Escape — focused views (.onExitCommand) have first crack; otherwise it closes the
+        // ⎋ Escape: focused views (.onExitCommand) have first crack; otherwise it closes the
         // island like a click outside (spec §4).
         if event.keyCode == 53 && raw.isEmpty {
             let consumed = NSApp.sendAction(Selector(("cancelOperation:")), to: nil, from: nil)
@@ -862,7 +862,7 @@ final class IslandWindowController: NSWindowController {
             if self.state.mode != .expanded { self.window?.resignKey() }
         }
 
-        // .botDizzy — posted by BotEngine.slap() on 3rd hit; show confused view + recover after 3.3s
+        // .botDizzy: posted by BotEngine.slap() on 3rd hit; show confused view + recover after 3.3s
         NotificationCenter.default.addObserver(forName: .botDizzy, object: nil, queue: .main) { [weak self] _ in
             self?.handleDizzy()
         }
@@ -882,7 +882,7 @@ final class IslandWindowController: NSWindowController {
                 self.botHovering = false
                 // Drag only starts when clicking directly on the bot head
                 guard self.isBotHit(event.locationInWindow) else { return }
-                // Notch Klay is invisible when on desktop — no drag, no slap
+                // Notch Klay is invisible when on desktop: no drag, no slap
                 guard !self.state.klayOnDesktop else { return }
                 self.attachDragStart = NSEvent.mouseLocation
                 // Post slap only when expanded
@@ -904,7 +904,7 @@ final class IslandWindowController: NSWindowController {
             return event
         }
 
-        // mouseUp — local (cursor still in panel) + global (cursor moved outside panel frame)
+        // mouseUp: local (cursor still in panel) + global (cursor moved outside panel frame)
         let finishDrag: @Sendable () -> Void = { [weak self] in
             Task { @MainActor in
                 guard let self, self.inAttachDrag else { return }
@@ -1023,7 +1023,7 @@ final class IslandWindowController: NSWindowController {
         guard let panel = dragGhostPanel else { return }
         let s = dragGhostSize
         let mouse = NSEvent.mouseLocation
-        // Direct follow — bot is "held", no trailing lag
+        // Direct follow: bot is "held", no trailing lag
         ghostCurrentOrigin = NSPoint(x: mouse.x - s/2, y: mouse.y - s/2)
         panel.setFrameOrigin(ghostCurrentOrigin)
     }
@@ -1048,10 +1048,10 @@ final class IslandWindowController: NSWindowController {
         }
 
         if pid == highlightWindowPid, let existing = highlightPanel {
-            // Same window — just track position (windows rarely move, instant is fine)
+            // Same window: just track position (windows rarely move, instant is fine)
             existing.setFrame(appKitBounds, display: false)
         } else {
-            // New window — close old immediately, fade-in new
+            // New window: close old immediately, fade-in new
             highlightPanel?.close()
             highlightPanel = nil
             highlightWindowPid = pid
@@ -1202,7 +1202,7 @@ final class IslandWindowController: NSWindowController {
         let panelW = window?.frame.width  ?? 720
         let (islandW, fixedH) = islandSize(mode: s.mode, view: s.view,
                                             progress: s.uploadProgress, nw: notchW, nh: notchH)
-        // Chat view resizes dynamically — must match IslandContainer.chatPromptHeight
+        // Chat view resizes dynamically: must match IslandContainer.chatPromptHeight
         let islandH: CGFloat
         if s.mode == .expanded && s.view == .prompt {
             let base: CGFloat = 240
@@ -1291,7 +1291,7 @@ final class IslandPanel: NSPanel {
     override var canBecomeKey:  Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// Allow panel to sit in the menu bar / notch area — don't let macOS push it down.
+    /// Allow panel to sit in the menu bar / notch area: don't let macOS push it down.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         return frameRect
     }

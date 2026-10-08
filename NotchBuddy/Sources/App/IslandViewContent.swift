@@ -575,7 +575,7 @@ struct ErrorView: View {
     }
 }
 
-/// Brings the Claude desktop app forward (or launches it) — target of the Claude Desktop pill.
+/// Brings the Claude desktop app forward (or launches it): target of the Claude Desktop pill.
 private let claudeDesktopBundleId = "com.anthropic.claudefordesktop"
 
 private func openClaudeDesktopApp() {
@@ -699,7 +699,7 @@ struct UploadView: View {
     @ObservedObject var state: AppState
     @State private var dashPhase: CGFloat = 0
     @State private var breathAngle: Double = 0
-    // Timer only runs while this is the active tab — killed on deactivation
+    // Timer only runs while this is the active tab: killed on deactivation
     @State private var animTimer: Timer? = nil
 
     private var borderOpacity: Double {
@@ -754,7 +754,7 @@ struct UploadView: View {
 
     private func startTimer() {
         guard animTimer == nil else { return }
-        // 20 fps — smooth enough for slow dash, 3× lighter than 60fps
+        // 20 fps: smooth enough for slow dash, 3× lighter than 60fps
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0/20.0, repeats: true) { _ in
             dashPhase  += 1.0          // 20 pt/s march
             breathAngle += 0.9 / 20.0  // advance sin phase at 0.9 rad/s
@@ -799,7 +799,7 @@ struct UploadingView: View {
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color(hex: "#141518"))
 
-                // Permanent green radial wash — brighter at completion
+                // Permanent green radial wash: brighter at completion
                 RoundedRectangle(cornerRadius: 20)
                     .fill(RadialGradient(
                         colors: [Color(hex: "#34D399").opacity(isDone ? 0.28 : 0.14), Color.clear],
@@ -832,7 +832,7 @@ struct UploadingView: View {
                         .offset(x: barLeft + fillWidth - 14, y: barTop - 3)
                 }
 
-                // Text row — filename + % (above bar)
+                // Text row: filename + % (above bar)
                 HStack(spacing: 0) {
                     if isDone {
                         Image(systemName: "checkmark.circle.fill")
@@ -914,7 +914,7 @@ struct MailView: View {
                 MailField(label: "To", placeholder: "address@example.com", text: $to)
                 MailField(label: "Subject", placeholder: state.droppedFile?.name ?? "Subject", text: $subject)
 
-                // Body — TextEditor scrolls internally when text overflows
+                // Body: TextEditor scrolls internally when text overflows
                 TextEditor(text: $bodyText)
                     .scrollContentBackground(.hidden)
                     .font(.system(size: 12.5))
@@ -1123,7 +1123,7 @@ struct PromptView: View {
 
 // MARK: - Chip flow layout
 
-/// Wrapping horizontal flow layout — used by QuestionView.
+/// Wrapping horizontal flow layout: used by QuestionView.
 struct ChipFlowLayout: Layout {
     var spacing: CGFloat = 6
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
@@ -1378,7 +1378,7 @@ struct IntegrationCardView: View {
             SpotifyCardView()
                 .transition(.opacity)
         } else {
-            // Idle / not connected view — slides in from left when returning from detail
+            // Idle / not connected view: slides in from left when returning from detail
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Circle()
@@ -1499,7 +1499,7 @@ struct GitHubPulseCardView: View {
                     }
                     .buttonStyle(.plain)
                 } else if let act = activity {
-                    // No stats yet but activity loaded — show mini-row only
+                    // No stats yet but activity loaded: show mini-row only
                     Button(action: { onTapSection(.activity) }) {
                         HStack(spacing: 2) {
                             ForEach(act.lastDays(7), id: \.date) { day in

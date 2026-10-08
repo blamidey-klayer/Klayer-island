@@ -44,27 +44,27 @@ final class AppState: ObservableObject {
     /// (`IslandStateMachine.foldDeadline`), else nil. The countdown bar draws only from it.
     @Published var foldDeadline: Date? = nil
 
-    // Keyboard navigation — index of the selected item within the current card's list (nil = none)
+    // Keyboard navigation: index of the selected item within the current card's list (nil = none)
     @Published var cardSelection: Int? = nil
     // Number of navigable items in the card currently on screen (0 = no list)
     @Published var cardItemCount: Int = 0
 
-    // Upload progress (0-1) — set to 1.0 only at completion; animation is time-based
+    // Upload progress (0-1): set to 1.0 only at completion; animation is time-based
     @Published var uploadProgress: Double = 0
 
-    // Upload animation timing (non-published — TimelineViews read these directly)
+    // Upload animation timing (non-published: TimelineViews read these directly)
     var uploadStartTime: Date?
     var uploadDuration: Double = 2.4
 
     // File drag-over state (mailbox morph glow + mouth spring)
     @Published var fileDragOver: Bool = false
 
-    // Sound enabled — persisted
+    // Sound enabled: persisted
     @Published var soundEnabled: Bool = true {
         didSet { UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled") }
     }
 
-    // A colour of the user's own for each pill's Klay (pill id → "#RRGGBB") — persisted.
+    // A colour of the user's own for each pill's Klay (pill id → "#RRGGBB"): persisted.
     // Empty means the catalog's colours. PillDefinition.color reads the stored value, so
     // what is built from the catalog follows on its own; the tasks already on the island
     // hold a copy of their colour and are repainted here.
@@ -88,7 +88,7 @@ final class AppState: ObservableObject {
         pillColors = PillColors.picking(hex, for: id, catalogColor: def.defaultColor, in: pillColors)
     }
 
-    // Claude model used by the chat and the search — persisted
+    // Claude model used by the chat and the search: persisted
     static let defaultClaudeModel = "claude-sonnet-4-6"
     @Published var claudeModel: String = AppState.defaultClaudeModel {
         didSet { UserDefaults.standard.set(claudeModel, forKey: "claudeModel") }
@@ -100,7 +100,7 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(mainPillId, forKey: "mainPill") }
     }
 
-    // Sound volume (0–0.2) — persisted, synced to SoundEngine
+    // Sound volume (0–0.2): persisted, synced to SoundEngine
     @Published var soundVolume: Double = 0.12 {
         didSet {
             UserDefaults.standard.set(soundVolume, forKey: "soundVolume")
@@ -124,12 +124,12 @@ final class AppState: ObservableObject {
     // Short note message (shown in NoteView)
     @Published var noteMessage: String? = nil
 
-    // Auto-close delay — persisted
+    // Auto-close delay: persisted
     @Published var autoCloseInterval: TimeInterval = 15 {
         didSet { UserDefaults.standard.set(autoCloseInterval, forKey: "autoCloseInterval") }
     }
 
-    // Greeting threshold — how long hidden before greeting on reappear (default 2 min)
+    // Greeting threshold: how long hidden before greeting on reappear (default 2 min)
     var greetThresholdSeconds: TimeInterval = 120 {
         didSet { UserDefaults.standard.set(greetThresholdSeconds, forKey: "greetThreshold") }
     }
@@ -145,7 +145,7 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(Int(hotkeyCode), forKey: "hotkeyCode") }
     }
 
-    // Screen hosting the island (notch screen by default) — persisted
+    // Screen hosting the island (notch screen by default): persisted
     @Published var islandDisplay: IslandDisplayChoice = .notch {
         didSet { UserDefaults.standard.set(islandDisplay.storageValue, forKey: "islandDisplay") }
     }
@@ -247,13 +247,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    // Plan gauge: show pill in notch header — persisted
+    // Plan gauge: show pill in notch header (persisted)
     @Published var showPlanInNotch: Bool = false {
         didSet { UserDefaults.standard.set(showPlanInNotch, forKey: "showPlanInNotch") }
     }
-    // Cached relay-installed state — updated at launch, after install/uninstall, on Settings open
+    // Cached relay-installed state: updated at launch, after install/uninstall, on Settings open
     @Published var planRelayInstalled: Bool = false
-    // Transient — reset when island closes or view changes
+    // Transient: reset when island closes or view changes
     @Published var showingPlanDetail: Bool = false
 
     func refreshPlanRelayState() {

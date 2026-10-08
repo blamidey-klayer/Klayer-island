@@ -6,7 +6,7 @@ struct SettingsView: View {
     @ObservedObject private var state = AppState.shared
     @State private var apiKey: String = KeychainStore.shared.get("anthropic-api-key") ?? ""
 
-    // Claude model — dynamic list fetched from the API, static fallback if unavailable
+    // Claude model: dynamic list fetched from the API, static fallback if unavailable
     private static let fallbackModels: [(id: String, label: String)] = [
         ("claude-sonnet-4-6",         "Claude Sonnet 4.6"),
         ("claude-sonnet-5-5",         "Claude Sonnet 5.5"),
@@ -65,7 +65,7 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sidebar — 200 pt, sidebar visual effect background
+            // Sidebar: 200 pt, sidebar visual effect background
             ZStack(alignment: .topLeading) {
                 SidebarBackground()
                 VStack(alignment: .leading, spacing: 0) {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Pure 4-state FSM for island open/close logic.
-/// No AppKit / AppState dependencies — communicates via `onTransition` and `onGreet`.
+/// No AppKit / AppState dependencies: communicates via `onTransition` and `onGreet`.
 ///
 /// The island opens on hover only, never on a click (spec §4): the pointer near the notch
 /// brings Klay out (`petit`) with a greeting, resting on the notch opens it after
@@ -125,7 +125,7 @@ final class IslandStateMachine {
         switch state {
         case .hidden:
             if isHeldOpen?() == true {
-                // Island already expanded by an external call — sync FSM state without transition
+                // Island already expanded by an external call: sync FSM state without transition
                 cancelTimers()
                 homeClose = .hover
                 state = .home
@@ -142,7 +142,7 @@ final class IslandStateMachine {
             // An island the app opened on its own has now been seen: leaving it folds it.
             if homeClose == .untilHovered { homeClose = .hover }
         case .klayer:
-            // Mouse hovering during greeting — cancel short auto-collapse, extend to hover delay
+            // Mouse hovering during greeting: cancel short auto-collapse, extend to hover delay
             scheduleGreetCollapse(delay: greetHoverCollapseDelay)
         }
     }

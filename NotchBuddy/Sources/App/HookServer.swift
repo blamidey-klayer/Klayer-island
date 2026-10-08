@@ -18,7 +18,7 @@ final class HookServer: @unchecked Sendable {
     static var socketPath: String { supportDir.appendingPathComponent("nb.sock").path }
     static var hookScriptPath: String { supportDir.appendingPathComponent("nb-hook").path }
 
-    private static let maxPayload = 1_048_576          // 1 MB — reject oversized messages
+    private static let maxPayload = 1_048_576          // 1 MB: reject oversized messages
     private static let receiveTimeoutSeconds: Int = 5   // SO_RCVTIMEO on client sockets
     private static let maxConnections = 32              // concurrent connection ceiling
 
@@ -59,7 +59,7 @@ final class HookServer: @unchecked Sendable {
     private func dismissApprovalCard(note: String) {
         let onScreen = requestOnScreen
         // cancelApprovalFDSource() triggers the cancel handler which closes the fd.
-        // Never close the fd here directly — Apple requires it to happen in the cancel handler.
+        // Never close the fd here directly: Apple requires it to happen in the cancel handler.
         cancelApprovalFDSource()
         pendingApprovalFD = -1
         requestTokens.release(.approval)
@@ -279,7 +279,7 @@ final class HookServer: @unchecked Sendable {
     // MARK: - Start
 
     func start() {
-        // Ensure support directory exists (mode 0700 — not world-readable)
+        // Ensure support directory exists (mode 0700: not world-readable)
         let dir = Self.supportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700 as NSNumber], ofItemAtPath: dir.path)
@@ -347,7 +347,7 @@ final class HookServer: @unchecked Sendable {
         defer {
             connectionLock.lock(); connectionCount -= 1; connectionLock.unlock()
         }
-        // 5-second receive timeout — unresponsive clients don't hold threads forever
+        // 5-second receive timeout: unresponsive clients don't hold threads forever
         var tv = timeval(tv_sec: Self.receiveTimeoutSeconds, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
@@ -373,7 +373,7 @@ final class HookServer: @unchecked Sendable {
 
         let klayerKind = payload["klayer_kind"] as? String ?? ""
 
-        // statusline payloads are handled separately — no session, no reveal, no sound
+        // statusline payloads are handled separately: no session, no reveal, no sound
         if klayerKind == "statusline" {
             Task { @MainActor in self.processStatusLine(payload: payload) }
             sendLine(fd: fd, text: #"{"ok":true}"#)
@@ -381,13 +381,13 @@ final class HookServer: @unchecked Sendable {
             return
         }
 
-        // AskUserQuestion via --ask PreToolUse hook — hold fd open like PermissionRequest
+        // AskUserQuestion via --ask PreToolUse hook: hold fd open like PermissionRequest
         if klayerKind == "ask_user_question" {
             let toolInput = payload["tool_input"] as? [String: Any] ?? [:]
             if let parsed = AskQuestion.parse(toolInput: toolInput) {
                 Task { @MainActor in self.processQuestionRequest(fd: fd, parsed: parsed, payload: payload) }
             } else {
-                // Malformed payload — fall back: send ask so Claude Code re-asks in terminal
+                // Malformed payload: fall back and send ask, so Claude Code re-asks in terminal
                 sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
             }
@@ -397,7 +397,7 @@ final class HookServer: @unchecked Sendable {
         let eventName = payload["hook_event_name"] as? String ?? ""
 
         if eventName == "PermissionRequest" {
-            // Hold fd open — Claude Code waits for our decision (up to 120s)
+            // Hold fd open: Claude Code waits for our decision (up to 120s)
             Task { @MainActor in self.processPermissionRequest(fd: fd, payload: payload) }
         } else {
             Task { @MainActor in self.processEvent(name: eventName, payload: payload) }
@@ -470,7 +470,7 @@ final class HookServer: @unchecked Sendable {
             var resolved = false
             switch name {
             case "PostToolUse", "PostToolUseFailure":
-                // Only dismiss when this exact tool call finished — same session, tool and input.
+                // Only dismiss when this exact tool call finished: same session, tool and input.
                 // Other parallel tools finishing must not close the card.
                 if sessionId == pending.sessionId,
                    (payload["tool_name"] as? String ?? "") == pending.tool,
@@ -479,7 +479,7 @@ final class HookServer: @unchecked Sendable {
                     resolved = true
                 }
             case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd":
-                // Turn ended — the permission is moot.
+                // Turn ended: the permission is moot.
                 if sessionId == pending.sessionId {
                     dismissApprovalCard(note: handledNote)
                     resolved = true
@@ -494,7 +494,7 @@ final class HookServer: @unchecked Sendable {
                 }
                 return
             }
-            // Approval dismissed — fall through so the resolving event updates state normally.
+            // Approval dismissed: fall through so the resolving event updates state normally.
         }
 
         // A question card of this pill waits for its answer. No event of ANOTHER session of the same
@@ -687,7 +687,7 @@ final class HookServer: @unchecked Sendable {
     }
 
     /// Creates the dynamic pill of a Claude desktop app session on first event, then no-ops.
-    /// ID format: "agent_<name>" — never collides with "integration_*" pills.
+    /// ID format: "agent_<name>", never collides with "integration_*" pills.
     /// Inserted right after integration_claude so it appears in the visible prefix(4).
     @MainActor
     private func upsertExternalAgent(id: String, name: String) {
@@ -756,7 +756,7 @@ final class HookServer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Permission request (blocking — Claude Code waits for decision)
+    // MARK: - Permission request (blocking: Claude Code waits for decision)
 
     @MainActor
     private func processPermissionRequest(fd: Int32, payload: [String: Any]) {
@@ -791,7 +791,7 @@ final class HookServer: @unchecked Sendable {
 
         // AskUserQuestion is now handled via the dedicated --ask PreToolUse hook.
         // If it still arrives here as a PermissionRequest, reply "ask" so Claude Code
-        // re-asks in the terminal — never show the question twice.
+        // re-asks in the terminal: never show the question twice.
         if tool == "AskUserQuestion" {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
@@ -811,7 +811,7 @@ final class HookServer: @unchecked Sendable {
 
         if pendingApprovalFD >= 0 {
             // Displace the previous request: write "ask" then cancel its source.
-            // The cancel handler closes the old fd — never close it directly.
+            // The cancel handler closes the old fd: never close it directly.
             let old = pendingApprovalFD
             let oldSource = approvalFDSource
             approvalFDSource = nil
@@ -852,7 +852,7 @@ final class HookServer: @unchecked Sendable {
         }
 
         // Monitor fd: if the editor closes the connection (handled externally), dismiss the card.
-        // The cancel handler closes the fd — never close it anywhere else.
+        // The cancel handler closes the fd: never close it anywhere else.
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, self.requestTokens.isCurrent(token, .approval) else { return }
@@ -862,7 +862,7 @@ final class HookServer: @unchecked Sendable {
         source.resume()
         approvalFDSource = source
 
-        // Safety timeout — show a note and cancel without sending a decision.
+        // Safety timeout: show a note and cancel without sending a decision.
         // nb-hook reads EOF from the cancel handler's close and exits; Claude Code re-asks.
         // Keyed by the request's token: a later request on the same fd number is not dismissed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 115) { [weak self] in
@@ -878,7 +878,7 @@ final class HookServer: @unchecked Sendable {
         let fd = pendingApprovalFD
         pendingApprovalFD = -1
         requestTokens.release(.approval)
-        // Capture source before nulling — we send the decision first, then cancel the source.
+        // Capture source before nulling: we send the decision first, then cancel the source.
         // The cancel handler closes the fd; never close it directly.
         let source = approvalFDSource
         approvalFDSource = nil
@@ -1258,7 +1258,7 @@ final class HookServer: @unchecked Sendable {
         ]
         var label = labels[tool] ?? tool
 
-        // MCP tools arrive as mcp__server__tool — show "server · tool"
+        // MCP tools arrive as mcp__server__tool: show "server · tool"
         if tool.hasPrefix("mcp__") {
             let rest = String(tool.dropFirst(5))
             let parts = rest.components(separatedBy: "__")
@@ -1465,7 +1465,7 @@ final class HookServer: @unchecked Sendable {
                                                                    options: [.prettyPrinted, .sortedKeys])
             } else if let existing = oldSL,
                       let cmd = existing["command"] as? String, cmd.contains("nb-hook") {
-                // Already installed — rebuild to update path if needed, keep other fields
+                // Already installed: rebuild to update path if needed, keep other fields
                 var updated = existing
                 updated["command"] = quotedCmd
                 newSL = updated
@@ -1483,7 +1483,7 @@ final class HookServer: @unchecked Sendable {
                     newSL = nil
                 }
             } else {
-                newSL = oldSL  // not ours — leave unchanged
+                newSL = oldSL  // not ours: leave unchanged
             }
         }
 
@@ -1551,13 +1551,13 @@ extension Notification.Name {
 
 // MARK: - nb-hook shell wrapper
 // Invoked by Claude Code via /bin/sh or directly via shebang.
-// Always exits 0 — never blocks Claude Code.
+// Always exits 0: never blocks Claude Code.
 // Checks xcode-select before running python3 to avoid triggering the
 // "install developer tools" dialog on machines without Xcode CLI tools.
 
 private let nbHookShellWrapper = """
 #!/bin/sh
-# Klayer Island hook relay — always exits 0, never blocks Claude Code
+# Klayer Island hook relay: always exits 0, never blocks Claude Code
 HOOK_DIR="$(dirname "$0")"
 out=""
 if xcode-select -p >/dev/null 2>&1; then
@@ -1577,7 +1577,7 @@ exit 0
 
 private let nbHookPython = """
 #!/usr/bin/env python3
-# nb-hook.py — Klayer Island hook relay for Claude Code
+# nb-hook.py: Klayer Island hook relay for Claude Code
 # Reads JSON from stdin, forwards to Klayer Island via Unix socket, translates response.
 import sys, json, os, socket
 
@@ -1635,7 +1635,7 @@ def main():
     if '--ask' in sys.argv[1:]:
         tool = payload.get('tool_name', '')
         if tool != 'AskUserQuestion':
-            return  # Not an AskUserQuestion invocation — exit cleanly (no output)
+            return  # Not an AskUserQuestion invocation: exit cleanly (no output)
         payload['klayer_kind'] = 'ask_user_question'
         # A question from a Claude desktop app session (Code tab) carries this entrypoint: tag it
         # like the other events so the island shows the question instead of answering "ask".
@@ -1761,7 +1761,7 @@ def main():
                 # 'ask' or unknown: fall through → no output → Claude Code re-asks
         except Exception:
             pass
-        # App unreachable, timed out, or no explicit decision — print nothing: Claude Code asks itself
+        # App unreachable, timed out, or no explicit decision: print nothing, Claude Code asks itself
         sys.exit(0)
 
     # All other events: fire-and-forget (0.3s timeout, never blocks)
@@ -1772,7 +1772,7 @@ def main():
         s.sendall((json.dumps(payload) + '\\n').encode())
         s.close()
     except Exception:
-        pass  # Always exit cleanly — never block Claude Code
+        pass  # Always exit cleanly: never block Claude Code
 
 try:
     main()
