@@ -16,6 +16,42 @@ struct ChoiceRecord: Codable, Equatable {
     let answer: String
 }
 
+// MARK: - What the island records
+
+extension ChoiceRecord {
+    /// A permission answered from the island: « Autorisé », « Refusé » or « Toujours ».
+    /// "ask" hands the request back to the terminal, so nothing was answered and there is no
+    /// record. Any other decision is a refusal, as HookServer sends it to the hook.
+    static func permission(decision: String, session: String, command: String, date: Date) -> ChoiceRecord? {
+        let answer: String
+        switch decision {
+        case "allow":  answer = "Autorisé"
+        case "always": answer = "Toujours"
+        case "ask":    return nil
+        default:       answer = "Refusé"
+        }
+        return ChoiceRecord(date: date, session: session, kind: .permission, prompt: command, answer: answer)
+    }
+
+    /// A question answered from the island. `questions` are the question texts in the order
+    /// asked, `answers` is what the card sends back: a label (single select) or an array of
+    /// labels (multi select) under each question text. The record holds the questions joined
+    /// by " / " and every chosen label, in question order, joined by ", ". No label, no record.
+    static func question(_ questions: [String], answers: [String: Any], session: String, date: Date) -> ChoiceRecord? {
+        let labels = questions.flatMap { question -> [String] in
+            switch answers[question] {
+            case let one as String:    return [one]
+            case let many as [String]: return many
+            default:                   return []
+            }
+        }
+        guard !labels.isEmpty else { return nil }
+        return ChoiceRecord(date: date, session: session, kind: .question,
+                            prompt: questions.joined(separator: " / "),
+                            answer: labels.joined(separator: ", "))
+    }
+}
+
 /// The last 20 choices the user made from the island, newest first, kept in a local JSON file
 /// so they survive a restart. Nothing leaves the Mac: no network, no logging of the prompts.
 /// A missing or damaged file loads as empty and the next `record` writes a valid one again.
@@ -24,6 +60,9 @@ struct ChoiceRecord: Codable, Equatable {
 final class ChoiceHistory {
     /// How many choices are kept; the oldest one drops when a new one arrives.
     static let limit = 20
+    /// Longest stored prompt, ellipsis included: a long heredoc or a command carrying a token
+    /// is not kept whole.
+    static let promptLimit = 300
 
     private let fileURL: URL
     /// Newest first, at most `limit`.
@@ -34,9 +73,16 @@ final class ChoiceHistory {
         self.records = Self.load(from: fileURL)
     }
 
-    /// Adds `r` as the newest choice, drops what exceeds the limit and rewrites the file.
+    /// Adds `r` as the newest choice (its prompt cut to `promptLimit` characters with "…"),
+    /// drops what exceeds the limit and rewrites the file.
     func record(_ r: ChoiceRecord) {
-        records.insert(r, at: 0)
+        var kept = r
+        if r.prompt.count > Self.promptLimit {
+            kept = ChoiceRecord(date: r.date, session: r.session, kind: r.kind,
+                                prompt: String(r.prompt.prefix(Self.promptLimit - 1)) + "…",
+                                answer: r.answer)
+        }
+        records.insert(kept, at: 0)
         if records.count > Self.limit { records.removeLast(records.count - Self.limit) }
         save()
     }

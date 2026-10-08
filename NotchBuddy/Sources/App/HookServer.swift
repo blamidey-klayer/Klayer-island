@@ -119,11 +119,11 @@ final class HookServer: @unchecked Sendable {
         questionFDSource = nil
         if fd >= 0, let data = try? JSONSerialization.data(withJSONObject: ["permissionDecision": "answer", "answers": answers], options: .withoutEscapingSlashes),
            let json = String(data: data, encoding: .utf8) {
-            recordQuestionChoice(answers)
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: json)
                 DispatchQueue.main.async { source?.cancel() }
             }
+            recordQuestionChoice(answers)
         } else {
             source?.cancel()
         }
@@ -150,33 +150,24 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - Choice history
 
-    /// Keeps an answer given from the island in the local history of choices.
-    /// A timeout, a displaced request, a card closed because the request was handled elsewhere
-    /// and "Reply in terminal" never come here: no answer was given in the island.
-    @MainActor
-    private func recordChoice(kind: ChoiceRecord.Kind, pillId: String, prompt: String, answer: String) {
-        let state = AppState.shared
-        let session = state.tasks.first { $0.id == pillId }?.name ?? "Session"
-        state.recordChoice(ChoiceRecord(date: Date(), session: session, kind: kind,
-                                        prompt: prompt, answer: answer))
-    }
-
-    /// The pending question and the labels chosen, in question order (a multi-select adds all
-    /// of its labels). Read before the card is dismissed. An empty answer records nothing.
+    /// Keeps the question just answered in the history of choices (rules in ChoiceRecord).
+    /// Called after the answer is handed to nb-hook, before the card is dismissed. A timeout,
+    /// a displaced request, a card closed because the request was handled elsewhere and
+    /// "Reply in terminal" never come here: no answer was given in the island.
     @MainActor
     private func recordQuestionChoice(_ answers: [String: Any]) {
-        guard let pending = AppState.shared.pendingQuestion else { return }
-        let labels = pending.questions.flatMap { item -> [String] in
-            switch answers[item.question] {
-            case let one as String:    return [one]
-            case let many as [String]: return many
-            default:                   return []
-            }
-        }
-        guard !labels.isEmpty else { return }
-        recordChoice(kind: .question, pillId: questionPillId,
-                     prompt: pending.questions.map(\.question).joined(separator: " / "),
-                     answer: labels.joined(separator: ", "))
+        let state = AppState.shared
+        guard let pending = state.pendingQuestion,
+              let record = ChoiceRecord.question(pending.questions.map(\.question), answers: answers,
+                                                 session: sessionName(for: questionPillId), date: Date())
+        else { return }
+        state.recordChoice(record)
+    }
+
+    /// The project name the island shows for a pill, "Session" when it is gone.
+    @MainActor
+    private func sessionName(for pillId: String) -> String {
+        AppState.shared.tasks.first { $0.id == pillId }?.name ?? "Session"
     }
 
     /// Returns the tool_input serialized as sorted-keys JSON, "" if absent or empty.
@@ -699,17 +690,11 @@ final class HookServer: @unchecked Sendable {
         approvalFDSource = nil
 
         let json: String
-        let answerLabel: String?   // what the history keeps; nil for "ask" (handed back to the terminal)
         switch decision {
-        case "allow":  json = #"{"permissionDecision":"allow"}"#;  answerLabel = "Autorisé"
-        case "always": json = #"{"permissionDecision":"always"}"#; answerLabel = "Toujours"
-        case "ask":    json = #"{"permissionDecision":"ask"}"#;    answerLabel = nil
-        default:       json = #"{"permissionDecision":"deny"}"#;   answerLabel = "Refusé"
-        }
-
-        // The request is still in pendingApproval here: it is cleared below.
-        if fd >= 0, let answerLabel, let info = AppState.shared.pendingApproval {
-            recordChoice(kind: .permission, pillId: info.pillId, prompt: info.command, answer: answerLabel)
+        case "allow":  json = #"{"permissionDecision":"allow"}"#
+        case "always": json = #"{"permissionDecision":"always"}"#
+        case "ask":    json = #"{"permissionDecision":"ask"}"#
+        default:       json = #"{"permissionDecision":"deny"}"#
         }
 
         if fd >= 0 {
@@ -724,6 +709,13 @@ final class HookServer: @unchecked Sendable {
 
         let state = AppState.shared
         let pillId = state.pendingApproval?.pillId ?? "integration_claude"
+        // History: after the decision is handed to nb-hook, while the request is still in
+        // pendingApproval (cleared just below). "ask" hands it back to the terminal: no record.
+        if fd >= 0, let info = state.pendingApproval,
+           let record = ChoiceRecord.permission(decision: decision, session: sessionName(for: pillId),
+                                                command: info.command, date: Date()) {
+            state.recordChoice(record)
+        }
         state.pendingApproval = nil
         state.isPinned = false
         state.updateTask(id: pillId, state: .working)

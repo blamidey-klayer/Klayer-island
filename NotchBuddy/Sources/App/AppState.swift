@@ -186,7 +186,7 @@ final class AppState: ObservableObject {
 
     // Choices answered from the island (permissions and questions), kept in choices.json.
     // `recentChoices` is the 5 newest, newest first, for the open island.
-    let choiceHistory = ChoiceHistory(fileURL: HookServer.supportDir.appendingPathComponent("choices.json"))
+    private let choiceHistory = ChoiceHistory(fileURL: HookServer.supportDir.appendingPathComponent("choices.json"))
     @Published private(set) var recentChoices: [ChoiceRecord] = []
 
     func recordChoice(_ r: ChoiceRecord) {

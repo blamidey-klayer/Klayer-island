@@ -2,8 +2,8 @@ import Foundation
 
 /// The history of what Claude asked and what the user answered from the island: the last 20
 /// answers, newest first, kept in a local JSON file that survives a restart and never crashes
-/// the app when it is missing or damaged. Tests use a temporary folder, never the real
-/// Application Support.
+/// the app when it is missing or damaged, and the rules deciding what an answer records.
+/// Tests use a temporary folder, never the real Application Support.
 @main
 enum ChoiceHistoryTests {
     static func main() {
@@ -12,6 +12,13 @@ enum ChoiceHistoryTests {
             ("latest_5", latest5),
             ("persists_round_trip", persistsRoundTrip),
             ("missing_or_corrupt_file_is_empty", missingOrCorruptFileIsEmpty),
+            ("empty_or_wrong_shape_file_is_empty", emptyOrWrongShapeFileIsEmpty),
+            ("file_with_more_than_20_records_loads_the_20_newest", fileWithMoreThan20RecordsLoadsThe20Newest),
+            ("long_prompt_is_capped_at_300_characters", longPromptIsCapped),
+            ("ask_records_nothing", askRecordsNothing),
+            ("labels_for_each_decision", labelsForEachDecision),
+            ("multi_select_is_flattened_in_question_order", multiSelectIsFlattenedInQuestionOrder),
+            ("empty_answers_record_nothing", emptyAnswersRecordNothing),
         ]
         for (name, run) in cases {
             run()
@@ -90,5 +97,98 @@ enum ChoiceHistoryTests {
             precondition(reopened.records == [choice(1)],
                          "the next record rewrites a valid JSON file")
         }
+    }
+
+    static func emptyOrWrongShapeFileIsEmpty() {
+        for (label, content) in [("an empty 0-byte", ""), ("a {} object", "{}"), ("a wrong-shape records", #"[{"x":1}]"#)] {
+            withTempDir { dir in
+                let file = dir.appendingPathComponent("choices.json")
+                try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try! Data(content.utf8).write(to: file)
+                let history = ChoiceHistory(fileURL: file)
+                precondition(history.records.isEmpty, "\(label) file loads as empty, without crashing")
+                history.record(choice(1))
+                precondition(ChoiceHistory(fileURL: file).records == [choice(1)],
+                             "the next record rewrites a valid file over \(label) file")
+            }
+        }
+    }
+
+    static func fileWithMoreThan20RecordsLoadsThe20Newest() {
+        withTempDir { dir in
+            let file = dir.appendingPathComponent("choices.json")
+            try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            // 30 records, newest first, as the app writes them.
+            try! encoder.encode((1...30).reversed().map(choice)).write(to: file)
+            let history = ChoiceHistory(fileURL: file)
+            precondition(history.records.count == 20, "load keeps 20 records, got \(history.records.count)")
+            precondition(history.records.first == choice(30), "the newest stays first")
+            precondition(history.records.last == choice(11), "the 10 oldest are dropped")
+        }
+    }
+
+    static func longPromptIsCapped() {
+        withTempDir { dir in
+            let file = dir.appendingPathComponent("choices.json")
+            let history = ChoiceHistory(fileURL: file)
+            let exactly300 = String(repeating: "a", count: 300)
+            let token = "export API_TOKEN=secret && " + String(repeating: "x", count: 1000)
+            for prompt in [exactly300, token] {
+                history.record(ChoiceRecord(date: choice(1).date, session: "Projet", kind: .permission,
+                                            prompt: prompt, answer: "Autorisé"))
+            }
+            let reopened = ChoiceHistory(fileURL: file)
+            precondition(reopened.records[1].prompt == exactly300, "300 characters are kept whole")
+            let capped = reopened.records[0].prompt
+            precondition(capped.count == 300, "a longer prompt is cut to 300 characters, got \(capped.count)")
+            precondition(capped.hasSuffix("…"), "the cut ends with an ellipsis")
+            precondition(capped.hasPrefix("export API_TOKEN=secret && "), "the start of the prompt is kept")
+            precondition(!(try! String(contentsOf: file, encoding: .utf8)).contains(token),
+                         "the whole prompt is not written to the file")
+        }
+    }
+
+    // MARK: - What an answer records
+
+    static let when = Date(timeIntervalSince1970: 1_700_000_000)
+
+    static func askRecordsNothing() {
+        precondition(ChoiceRecord.permission(decision: "ask", session: "Klayer", command: "npm test", date: when) == nil,
+                     "\"ask\" hands the request back to the terminal: no answer, no record")
+    }
+
+    static func labelsForEachDecision() {
+        for (decision, label) in [("allow", "Autorisé"), ("deny", "Refusé"), ("always", "Toujours")] {
+            let r = ChoiceRecord.permission(decision: decision, session: "Klayer", command: "npm test", date: when)
+            precondition(r == ChoiceRecord(date: when, session: "Klayer", kind: .permission,
+                                           prompt: "npm test", answer: label),
+                         "\(decision) records « \(label) » with the session and the command")
+        }
+    }
+
+    static func multiSelectIsFlattenedInQuestionOrder() {
+        let questions = ["Quel moteur ?", "Quels modules ?", "Autre chose ?"]
+        // The dictionary has no order: the labels follow the questions, and a question
+        // without answer is skipped.
+        let answers: [String: Any] = ["Quels modules ?": ["Auth", "Facturation"], "Quel moteur ?": "Postgres"]
+        let r = ChoiceRecord.question(questions, answers: answers, session: "Klayer", date: when)
+        precondition(r == ChoiceRecord(date: when, session: "Klayer", kind: .question,
+                                       prompt: "Quel moteur ? / Quels modules ? / Autre chose ?",
+                                       answer: "Postgres, Auth, Facturation"),
+                     "got \(String(describing: r))")
+    }
+
+    static func emptyAnswersRecordNothing() {
+        let questions = ["Quel moteur ?"]
+        precondition(ChoiceRecord.question(questions, answers: [:], session: "Klayer", date: when) == nil,
+                     "no answers, no record")
+        precondition(ChoiceRecord.question(questions, answers: ["Quel moteur ?": [String]()],
+                                           session: "Klayer", date: when) == nil,
+                     "a multi select with nothing chosen records nothing")
+        precondition(ChoiceRecord.question(questions, answers: ["Une autre question": "Oui"],
+                                           session: "Klayer", date: when) == nil,
+                     "an answer to a question that was not asked records nothing")
     }
 }
