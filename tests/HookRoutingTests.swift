@@ -20,6 +20,9 @@ enum HookRoutingTests {
             ("another_pills_card_does_not_keep_it", anotherPillsCardDoesNotKeepIt),
             ("another_session_never_acts_on_a_pill_under_its_question", anotherSessionNeverActsOnAPillUnderItsQuestion),
             ("the_question_owner_and_other_pills_go_on", theQuestionOwnerAndOtherPillsGoOn),
+            ("a_card_keeps_its_pill_after_a_stop", aCardKeepsItsPillAfterAStop),
+            ("a_pill_that_moved_on_is_left_alone_after_a_stop", aPillThatMovedOnIsLeftAloneAfterAStop),
+            ("the_desktop_pill_waits_for_its_finished_view", theDesktopPillWaitsForItsFinishedView),
         ]
         for (name, run) in cases {
             run()
@@ -126,5 +129,39 @@ enum HookRoutingTests {
                      "another pill is not held by the question")
         precondition(HookRouting.eventReachesPill(desktop, sessionId: "B", questionPill: nil, questionSession: nil),
                      "no question waiting: every event goes on")
+    }
+
+    // MARK: - 5.2 s after a Stop (ledger, Tasks 10 and 11a)
+
+    static func aCardKeepsItsPillAfterAStop() {
+        // The Claude Code pill used to go back to idle under a card that came in since the Stop:
+        // Klay lost the request's pose. Same guard as the desktop pill.
+        precondition(HookRouting.stopCleanup(removesPill: false, cardWaits: true, showingFinished: false,
+                                             stillFinished: true) == .keep)
+        precondition(HookRouting.stopCleanup(removesPill: true, cardWaits: true, showingFinished: true,
+                                             stillFinished: true) == .keep)
+    }
+
+    static func aPillThatMovedOnIsLeftAloneAfterAStop() {
+        // Another session of the Claude app started on the shared pill before the first tick: it
+        // must not be removed under it (before, only the repeats checked).
+        precondition(HookRouting.stopCleanup(removesPill: true, cardWaits: false, showingFinished: false,
+                                             stillFinished: false) == .keep)
+        // A new turn of Claude Code started within 5.2 s: it is not put back on idle.
+        precondition(HookRouting.stopCleanup(removesPill: false, cardWaits: false, showingFinished: false,
+                                             stillFinished: false) == .keep)
+        precondition(HookRouting.stopCleanup(removesPill: true, cardWaits: false, showingFinished: false,
+                                             stillFinished: true) == .remove)
+        precondition(HookRouting.stopCleanup(removesPill: false, cardWaits: false, showingFinished: true,
+                                             stillFinished: true) == .idle,
+                     "the Claude Code pill goes idle even under the finished view, which reads its session")
+    }
+
+    static func theDesktopPillWaitsForItsFinishedView() {
+        precondition(HookRouting.stopCleanup(removesPill: true, cardWaits: false, showingFinished: true,
+                                             stillFinished: true) == .again)
+        precondition(HookRouting.stopCleanup(removesPill: true, cardWaits: false, showingFinished: true,
+                                             stillFinished: false) == .again,
+                     "the view on screen still needs its pill")
     }
 }

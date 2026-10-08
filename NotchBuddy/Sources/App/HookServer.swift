@@ -1124,26 +1124,30 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - After a Stop
 
-    /// 5.2 s after a Stop: the Claude Code pill goes back to idle, the Claude app pill goes away.
-    /// The app pill stays while the open finished view still shows its session (the view reads
-    /// that session, but the focus, the Klay and the buttons follow the pill), and goes once the
-    /// view is left: the check repeats every 5.2 s, and only while that view is open. A repeat
-    /// leaves the pill alone when it has moved on to another turn.
+    /// 5.2 s after a Stop: the Claude Code pill goes back to idle, the Claude app pill goes away
+    /// (`HookRouting.stopCleanup`). Neither happens under a card of that pill that came in since the
+    /// Stop, nor once the pill has moved on to another turn (checked from the first tick). The app
+    /// pill stays while the open finished view still shows its session (the view reads that
+    /// session, but the focus, the Klay and the buttons follow the pill), and goes once the view is
+    /// left: the check repeats every 5.2 s, and only while that view is open.
     @MainActor
-    private func scheduleFinishCleanup(pillId: String, isExternalAgent: Bool, isRepeat: Bool = false) {
+    private func scheduleFinishCleanup(pillId: String, isExternalAgent: Bool) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
-            if isExternalAgent {
-                // A card of the shared Claude app pill may have come in since the Stop.
-                guard self.mayRemovePill(pillId) else { return }
-                if self.isShowingFinished(of: pillId) {
-                    self.scheduleFinishCleanup(pillId: pillId, isExternalAgent: true, isRepeat: true)
-                    return
-                }
-                if isRepeat, AppState.shared.tasks.first(where: { $0.id == pillId })?.state != .finished { return }
-                AppState.shared.removeTask(id: pillId)
-            } else {
-                AppState.shared.updateTask(id: pillId, state: .idle)
+            let state = AppState.shared
+            let cleanup = HookRouting.stopCleanup(
+                removesPill: isExternalAgent, cardWaits: !self.mayRemovePill(pillId),
+                showingFinished: self.isShowingFinished(of: pillId),
+                stillFinished: state.tasks.first(where: { $0.id == pillId })?.state == .finished)
+            switch cleanup {
+            case .keep:
+                break
+            case .again:
+                self.scheduleFinishCleanup(pillId: pillId, isExternalAgent: isExternalAgent)
+            case .idle:
+                state.updateTask(id: pillId, state: .idle)
                 self.clearPillBadge(id: pillId)
+            case .remove:
+                state.removeTask(id: pillId)
             }
         }
     }

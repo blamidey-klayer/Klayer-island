@@ -31,6 +31,32 @@ enum HookRouting {
         pillId != pendingApprovalPill && pillId != pendingQuestionPill
     }
 
+    /// What the 5.2 s timer after a Stop does to the pill of that session.
+    enum StopCleanup: Equatable {
+        /// The pill stays as it is: a card of that pill waits, or it moved on to another turn.
+        case keep
+        /// Look again 5.2 s later: the finished view on screen still tells about a session of it.
+        case again
+        /// The Claude Code pill goes back to idle, its badge cleared.
+        case idle
+        /// The Claude app pill goes away.
+        case remove
+    }
+
+    /// `removesPill`: the Claude app pill, which goes away (the Claude Code pill only goes idle).
+    /// `cardWaits`: a permission or question card of that pill waits. `showingFinished`: the open
+    /// island shows the finished view of a session of that pill. `stillFinished`: the pill is still
+    /// on finished (no other turn started on it since the Stop), checked from the first tick on.
+    static func stopCleanup(removesPill: Bool, cardWaits: Bool, showingFinished: Bool,
+                            stillFinished: Bool) -> StopCleanup {
+        if cardWaits { return .keep }
+        if removesPill {
+            if showingFinished { return .again }
+            return stillFinished ? .remove : .keep
+        }
+        return stillFinished ? .idle : .keep
+    }
+
     /// Whether an event of session `sessionId` may act on its pill `pillId` (its state, its name
     /// and steps, the focus, a view it opens) while a question card may wait (`questionPill`,
     /// `questionSession`, nil when none). Not when the card waits on that pill for another session:
