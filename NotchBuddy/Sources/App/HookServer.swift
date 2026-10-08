@@ -1437,8 +1437,8 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - Claude Code installed-state detection
 
-    /// True when ~/.claude/settings.json already routes Claude Code events to Klayer Island.
-    /// Cursor sessions ride on these same hooks, so they share this state.
+    /// True when ~/.claude/settings.json already routes Claude Code events to Klayer Island,
+    /// for every Claude Code session, whatever editor or terminal runs it.
     static func claudeHooksInstalled() -> Bool {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
