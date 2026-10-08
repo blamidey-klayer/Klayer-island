@@ -37,6 +37,10 @@ struct OverviewView: View {
 
     var agent: AgentTask? { state.focusTask }
 
+    /// Height of the cards drawn for the 160 pt island (GitHub, Spotify, plan detail), kept
+    /// as a band centred in the 168 pt card of the home.
+    static let legacyCardHeight: CGFloat = 98
+
     /// The home (conversations in progress, last choices) shows for the Claude pills and when no
     /// pill has the focus. GitHub and Spotify keep their own card (spec §6).
     private var showsHome: Bool {
@@ -52,32 +56,44 @@ struct OverviewView: View {
 
                 if showsHome {
                     homeContent
-                } else if let agent = agent {
-                    IntegrationCardView(task: agent, showingDetail: $showingIntegrationDetail)
+                } else {
+                    // GitHub and Spotify cards are drawn for a 98 pt card: they sit, with their ↗
+                    // button, in a 98 pt band centred in the taller home card, so they line up with
+                    // Klay exactly as on the 160 pt island.
+                    ZStack(alignment: .topLeading) {
+                        if let agent = agent {
+                            IntegrationCardView(task: agent, showingDetail: $showingIntegrationDetail)
+                        }
+
+                        // ↗ opens the service of the GitHub or Spotify pill: last in the band so it
+                        // renders on top, hidden while any detail is open
+                        if !showingIntegrationDetail && !state.showingPlanDetail {
+                            Button(action: { openServiceTarget(agent) }) {
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundColor(Color(hex: "#5F646D"))
+                                    .frame(width: 16, height: 16)
+                                    .background(Color.white.opacity(0.07))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 8)
+                            .padding(.trailing, 10)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                    .frame(height: Self.legacyCardHeight)
+                    .frame(maxHeight: .infinity)
                 }
 
-                // Plan detail overlays on top of normal content (home view only)
+                // Plan detail overlays on top of normal content (home view only), in the same
+                // 98 pt band as the service cards: it is drawn for that height too
                 if state.showingPlanDetail {
                     CardBackground(wash: nil)
                     ClaudePlanCardView(usage: state.claudePlanUsage)
+                        .frame(height: Self.legacyCardHeight)
+                        .frame(maxHeight: .infinity)
                         .transition(.opacity)
-                }
-
-                // ↗ opens the service of the GitHub or Spotify pill: last in ZStack so it renders on
-                // top, hidden on the home and while any detail is open
-                if !showsHome && !showingIntegrationDetail && !state.showingPlanDetail {
-                    Button(action: { openServiceTarget(agent) }) {
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(Color(hex: "#5F646D"))
-                            .frame(width: 16, height: 16)
-                            .background(Color.white.opacity(0.07))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 8)
-                    .padding(.trailing, 10)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
             .frame(width: 322)
