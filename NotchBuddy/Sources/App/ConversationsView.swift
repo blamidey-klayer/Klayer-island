@@ -4,21 +4,41 @@ import AppKit
 // MARK: - Conversations in progress (home of the open island)
 
 /// The running Claude sessions, on the home of the open island (spec §6): one row per session of
-/// `AppState.sessions`, newest activity first, 3 at most. Without any, one line in grey says so.
+/// `AppState.sessions`, newest activity first, 3 at most. Without any, one line in grey says so,
+/// and a second one says when the Claude Code hooks are missing, with a way to Settings.
 struct ConversationsView: View {
     /// The roster, newest activity first.
     let sessions: [SessionRow]
+    /// The Claude Code hooks are not in ~/.claude/settings.json: no session can show up. Read by
+    /// the caller when the home shows, never here (it reads a file).
+    var hooksMissing: Bool = false
 
     /// Rows shown at most.
     static let limit = 3
 
     var body: some View {
         if sessions.isEmpty {
-            Text("Aucune conversation en cours.")
-                .font(.system(size: 12))
-                .foregroundColor(Color(hex: "#8E939C"))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Aucune conversation en cours.")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#8E939C"))
+                    .lineLimit(1)
+                if hooksMissing {
+                    HStack(spacing: 8) {
+                        Text("Hooks Claude Code non installés")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(hex: "#6B7079"))
+                            .lineLimit(1)
+                        Button("Réglages…") {
+                            NotificationCenter.default.post(name: .openFullSettings, object: "agents")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "#8E939C"))
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(sessions.prefix(Self.limit)) { row in

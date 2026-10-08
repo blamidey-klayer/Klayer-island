@@ -11561,6 +11561,26 @@
           }
         }
       }
+    },
+    "Hooks Claude Code non installés": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks Claude Code non installés"
+          }
+        }
+      }
+    },
+    "Réglages…": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

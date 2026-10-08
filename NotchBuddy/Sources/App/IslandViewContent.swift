@@ -34,6 +34,9 @@ struct IslandViewContent: View {
 struct OverviewView: View {
     @ObservedObject var state: AppState
     @State private var showingIntegrationDetail = false
+    /// The Claude Code hooks are missing from ~/.claude/settings.json. Read when the home shows
+    /// (`refreshHome`), never in `body`: it reads a file.
+    @State private var hooksMissing = false
 
     var agent: AgentTask? { state.focusTask }
 
@@ -103,16 +106,14 @@ struct OverviewView: View {
                 AgentPillsView(state: state)
             }
         }
-        // The roster is pruned when the home shows, not on a timer: a session that ended without
-        // telling (no hook since) is gone before the user reads the list.
-        .onAppear { state.pruneSessions() }
+        .onAppear { refreshHome() }
         .onChange(of: state.focusId) { _, new in
             showingIntegrationDetail = false
             withAnimation(.easeIn(duration: 0.16)) { state.showingPlanDetail = false }
             if new == "integration_github" { GithubPoller.shared.refreshIfStale() }
         }
         .onChange(of: state.view) { _, v in
-            if v == .overview { state.pruneSessions() } else { state.showingPlanDetail = false }
+            if v == .overview { refreshHome() } else { state.showingPlanDetail = false }
         }
         .onChange(of: state.mode) { _, m in
             if m != .expanded { state.showingPlanDetail = false }
@@ -126,7 +127,7 @@ struct OverviewView: View {
     /// most, right of Klay. A permission or a question waiting has its own view, shown first.
     private var homeContent: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ConversationsView(sessions: state.sessions)
+            ConversationsView(sessions: state.sessions, hooksMissing: hooksMissing)
             if !state.recentChoices.isEmpty {
                 ChoiceHistoryView(choices: state.recentChoices)
             }
@@ -137,6 +138,14 @@ struct OverviewView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // The card shrinks to the 98 pt frame of an inactive view while it fades out
         .clipped()
+    }
+
+    /// When the home shows (the island opens, or comes back to it): the roster is pruned, not on a
+    /// timer, so a session that ended without telling (no hook since) is gone before the user reads
+    /// the list; and the hooks are checked once, for the hint under an empty list.
+    private func refreshHome() {
+        state.pruneSessions()
+        hooksMissing = !HookServer.claudeHooksInstalled()
     }
 
     /// Target of the ↗ button: the pull requests on GitHub, the Spotify app.
