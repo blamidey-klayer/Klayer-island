@@ -1,4 +1,4 @@
-# Notch Buddy — intégrations
+# Klayer Island : intégrations
 
 Règle d'or : **vérifier la doc officielle au moment d'implémenter**. Les formats ci-dessous sont le plan, pas une garantie. Sources à relire :
 - Hooks Claude Code : https://code.claude.com/docs/en/hooks
@@ -6,20 +6,20 @@ Règle d'or : **vérifier la doc officielle au moment d'implémenter**. Les form
 
 ---
 
-## 1. Claude Code (sessions de Louis)
+## 1. Claude Code (vos sessions)
 
 ### Architecture
 ```
 claude (terminal, VS Code, app Claude)
-  └─ hook "command" ─► nb-hook (petit exécutable Swift, livré avec l'app)
-                         └─ socket Unix ─► Notch Buddy.app
-                         ◄─ décision (pour PermissionRequest)
+  └─ hook "command" ─► nb-hook (script shell) ─► nb-hook.py (relais Python)
+                         └─ socket Unix ─► KlayerIsland.app
+                         ◄─ décision (PermissionRequest, question)
 ```
-- `nb-hook` (script shell) et `nb-hook.py` (relais Python) : écrits par l'app (`HookServer.swift`) au lancement, dans `~/Library/Application Support/NotchBuddy/`. Voir `docs/AGENTS.md` pour les sessions de l'app de bureau Claude, qui utilisent ces mêmes scripts.
+- `nb-hook` (script shell) et `nb-hook.py` (relais Python) : écrits par l'app (`HookServer.swift`) à chaque lancement, dans `~/Library/Application Support/NotchBuddy/`. `nb-hook` lance `nb-hook.py` avec `/usr/bin/python3` seulement si les Command Line Tools sont installés (`xcode-select -p`), et sort toujours en code 0. Voir `docs/AGENTS.md` pour les sessions de l'app de bureau Claude, qui utilisent ces mêmes scripts.
 - Socket : `~/Library/Application Support/NotchBuddy/nb.sock`. Dossier en 0700, socket en 0600. Connexions du même utilisateur seulement (vérification `getpeereid`). 1 Mio et 5 s maximum par message, 32 connexions simultanées.
 - Historique des choix : `~/Library/Application Support/NotchBuddy/choices.json` garde les 20 dernières demandes de Claude auxquelles vous avez répondu depuis l'île, la plus récente en premier : date, projet, demande et réponse (« Autorisé », « Refusé », « Toujours », les options choisies ou le texte libre), 300 caractères au plus chacune. Avant l'écriture, les secrets évidents sont masqués et gardent leur préfixe : jeton après `Bearer`, clés `sk-…`, jetons GitHub `ghp_…`, `gho_…`, `github_pat_…`, jetons Slack `xox…-…` (par exemple « Bearer ••• », « sk-••• »). Une expiration, une demande traitée ailleurs et « Reply in terminal » n'y laissent rien. Fichier local, jamais envoyé nulle part ; absent ou illisible, il repart de zéro sans bloquer l'app.
 - `nb-hook` lit le JSON du hook sur stdin, ajoute le contexte du terminal (`TERM_PROGRAM`, `ITERM_SESSION_ID`, `TERM_SESSION_ID`, `__CFBundleIdentifier`, le tty trouvé en remontant les processus parents, `cwd`) et, pour une session de l'app de bureau Claude, le champ `klayer_agent`, puis l'envoie à l'app. Le relais ne traduit plus aucun nom d'événement : seuls les événements de Claude Code passent tels quels.
-- **Si l'app ne répond pas en 300 ms, `nb-hook` sort en code 0 sans rien écrire** : Claude Code continue normalement. Jamais de blocage.
+- **Si l'app n'est pas lancée, `nb-hook` sort tout de suite en code 0 sans rien écrire** : Claude Code continue normalement. Un événement simple part sans attendre de réponse (0,3 s au plus). Seules une demande d'autorisation (118 s au plus) et une question (125 s au plus) attendent la réponse de l'île, toujours sous le délai du hook (120 s et 130 s). Jamais de blocage.
 - Champ optionnel `klayer_agent` : vide pour Claude Code (pastille Claude), `claude-desktop` pour une session lancée depuis l'app de bureau Claude (le relais le déduit de `CLAUDE_CODE_ENTRYPOINT`). Les demandes d'autorisation et les questions de ces deux sources s'affichent dans l'île, et la première réponse (l'île ou l'app Claude) s'applique. Toute autre valeur est ignorée : pas de pastille, et une demande d'autorisation reçoit `{"permissionDecision":"ask"}`. Voir `docs/AGENTS.md`.
 
 ### Événements à brancher et état du bonhomme
@@ -27,28 +27,28 @@ claude (terminal, VS Code, app Claude)
 |---|---|
 | `SessionStart` | crée la tâche (nom = dossier), état `idle` |
 | `UserPromptSubmit` | état `thinking`, dernière action de la session = début du prompt |
-| `PreToolUse` | état `working`, ligne = outil + cible (« Edit Invoice.swift », « Bash npm test ») |
-| `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; un échec reste `working` |
+| `PreToolUse` | état `working`, ligne = outil + cible (« Edit Invoice.swift », « Bash npm test ») ; état `searching` (jumelles, ligne « Cherche ») pour Grep, Glob, LS, WebSearch, WebFetch et une commande Bash de recherche (`rg`, `grep`, `find`, `fd`, `ls`, `tree`, `wc`) |
+| `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; repasse en `working`, mais garde les jumelles d'une recherche au moins 1,5 s (`SessionPhase.searchDwell`, comparaison de dates, sans minuteur) ; un échec reste `working` |
 | `PermissionRequest` | alerte `approval` (voir plus bas) |
 | `Notification` | selon le type : attente d'entrée → `question` si une question est posée, sinon rien ; limite d'usage → `ratelimit` |
 | `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette session, que sa pastille ait le focus ou non. Sauf si une autorisation ou une question attend, ou si l'île déjà ouverte sert à autre chose (chat, mail, envoi de fichier, résultat, réglages) ou est épinglée avec ⌘P : la pastille reçoit alors seulement un badge et la ligne du registre est mise à jour (`FinishPresentation`) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
-| `StopFailure` (si présent dans la doc) | alerte `error`, même règle d'ouverture que `Stop` (badge seul si une carte attend, si l'île sert à autre chose ou est épinglée) |
+| `StopFailure` | alerte `error`, même règle d'ouverture que `Stop` (badge seul si une carte attend, si l'île sert à autre chose ou est épinglée). La vue `error` nomme la session en échec (`AppState.failedSession`) et montre le texte de l'erreur : `last_assistant_message`, sinon `error_details`, sinon `error` (champs de la doc des hooks) ; la ligne de la session le reprend |
 | `SubagentStart` / `SubagentStop` | étape « + sous-agent » sur la pastille, la ligne de la session ne change pas |
 | `SessionEnd` | retire la tâche |
 
 Vérifier dans la doc la liste exacte des événements et leurs champs.
 
-**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase, dernière action (80 caractères au plus) et app où tourne la session (le terminal reconnu, sinon le `bundle_id` du hook : un éditeur, l'app Claude). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes est retirée, toute autre depuis 2 heures, sauf `approval` et `question`. Le ménage se fait à chaque événement et quand la maison de l'île s'affiche, jamais sur minuterie. La maison montre les 3 lignes les plus récentes (voir `docs/SPEC.md`, Maison) ; un clic ouvre l'app Claude pour une session de l'app, l'app où tourne une session Claude Code si elle est ouverte, sinon l'app Claude (`claude://`).
+**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase (« Cherche » pendant une recherche, voir plus haut), dernière action (80 caractères au plus) et app où tourne la session (le terminal reconnu, sinon le `bundle_id` du hook : un éditeur, l'app Claude). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes est retirée, toute autre (`searching` comprise) depuis 2 heures, sauf `approval` et `question`. Le ménage se fait à chaque événement et quand la maison de l'île s'affiche, jamais sur minuterie. La maison montre les 3 lignes les plus récentes (voir `docs/SPEC.md`, Maison) ; un clic ouvre l'app Claude pour une session de l'app, l'app où tourne une session Claude Code si elle est ouverte, sinon l'app Claude (`claude://`).
 
 ### Approuver depuis le notch
-- Sur `PermissionRequest`, `nb-hook` **attend** la décision de l'app (défaut 110 s, réglable) puis écrit sur stdout le JSON de décision du hook (d'après la doc actuelle : `hookSpecificOutput` avec `decision.behavior` = `allow` ou `deny`). Timeout du hook dans settings.json : décision + 10 s.
-- Pas de réponse avant le délai, ou app fermée → aucune sortie, le terminal affiche sa demande habituelle. Si Louis répond dans le terminal, l'app retire l'alerte au prochain événement de la session.
+- Sur `PermissionRequest`, `nb-hook` **attend** la décision de l'app (118 s au plus) puis écrit sur stdout le JSON de décision du hook (`hookSpecificOutput` avec `decision.behavior` = `allow` ou `deny`). Timeout du hook dans settings.json : 120 s.
+- Sans réponse après 115 s, l'île ferme la connexion sans décision et affiche « Still waiting in … » 3 s : la demande revient dans le terminal ou dans l'app Claude. App fermée : aucune sortie, la demande habituelle s'affiche. Si vous répondez dans le terminal ou dans l'app d'abord, Claude Code ferme la connexion du hook : la carte se ferme aussitôt et l'île affiche « Handled in … » 3 s.
 - Un bug a été signalé où `deny` était ignoré sur `PermissionRequest` (issue GitHub anthropics/claude-code #19298). **Tester allow et deny** ; si deny ne marche pas, basculer la décision sur `PreToolUse` (`permissionDecision`) pour les outils concernés.
-- « Toujours autoriser » : si la doc permet de renvoyer une règle de permission persistante, l'utiliser. Sinon l'app garde sa propre liste (projet + outil + motif de commande) et répond `allow` automatiquement ensuite. Liste visible et supprimable dans les réglages.
-- Raccourcis Y / N quand la vue `approval` est ouverte.
+- « Toujours » (Always) : la décision `allow` part avec `updatedPermissions` = les `permission_suggestions` du hook, et Claude Code enregistre la règle lui-même. L'app ne garde aucune liste.
+- Pas de raccourci clavier sur la carte : la réponse se donne au clic, boutons actifs 0,6 s après l'arrivée de la demande (SPEC, règle 12).
 
 ### Répondre aux questions (`AskUserQuestion`)
-- **Claude Code 2.1.85+** : `AskUserQuestion` arrive en `PreToolUse` (avec `matcher: "AskUserQuestion"`), non plus en `PermissionRequest`. Un hook dédié avec `--ask` et un timeout de 130 s est requis dans `settings.json`. Si ce hook manque, l'app affiche la bannière « Hooks outdated — update them to answer Claude's questions from the notch » dans les réglages et propose la mise à jour.
+- **Claude Code 2.1.85+** : `AskUserQuestion` arrive en `PreToolUse` (avec `matcher: "AskUserQuestion"`), non plus en `PermissionRequest`. Un hook dédié avec `--ask` et un timeout de 130 s est requis dans `settings.json`. Si ce hook manque, ou si le hook `PermissionRequest` a un timeout sous 120 s, les réglages signalent des hooks obsolètes (`hooks.outdated`) et proposent « Mettre à jour les hooks » (Update hooks), avec le même aperçu que l'installation.
 - `PermissionRequest` pour `AskUserQuestion` : l'app répond `{"permissionDecision":"ask"}` immédiatement (no-op) et n'affiche pas de carte.
 - `PreToolUse` général pour `AskUserQuestion` : l'app ignore l'événement (pas de mise à jour de l'état `.working`).
 - `tool_input.questions` : tableau de 1 à 4 questions, chacune avec `question` (texte), `header` (≤ 12 car.), `options` (2 à 4, chacune `label` + `description`), `multiSelect`.
@@ -56,7 +56,7 @@ Vérifier dans la doc la liste exacte des événements et leurs champs.
 - La vue `question` affiche une question à la fois (compteur 1/N), les options en grille fluide (`ChipFlowLayout`), un champ libre « Other… », et un lien « Reply in terminal » dans l'en-tête (« Répondre dans Claude » pour une question d'une session de l'app Claude) qui envoie `ask`, sans aucune sortie.
 - Single-select : clic = réponse immédiate (pas de bouton Send). Multi-select : toggles + bouton Send/Next, désactivé tant qu'aucun choix.
 - Réponse via socket : `{"decision":"answer","answers":{"<question>":"<label>"}}`. Multi-select : valeur `[String]` (tableau, Claude Code 2.1.136+). Single-select et « Other… » : valeur `String`.
-- nb-hook.py `--ask` : si `decision == 'answer'` → émet `hookSpecificOutput` avec `hookEventName: "PreToolUse"`, `permissionDecision: "allow"` et `updatedInput: {questions, answers}` — Claude Code reçoit les réponses et continue.
+- nb-hook.py `--ask` : si `decision == 'answer'` → émet `hookSpecificOutput` avec `hookEventName: "PreToolUse"`, `permissionDecision: "allow"` et `updatedInput: {questions, answers}` : Claude Code reçoit les réponses et continue.
 - Fallback : si l'app ne répond pas (absente, timeout 125 s) ou renvoie `ask`, nb-hook n'émet rien → Claude Code re-pose la question dans le terminal.
 
 ### Sauter au terminal
@@ -82,7 +82,7 @@ Demande l'autorisation Automatisation la première fois (normal).
 
 ## 1bis. Jauge de forfait Claude (statusLine)
 
-**Affichage** : petit pill dans l'en-tête de l'île (vue home uniquement) — plus de pastille dans le catalogue Active pills.  
+**Affichage** : petit pill dans l'en-tête de l'île (vue home uniquement), plus de pastille dans le catalogue Active pills.  
 **Plateforme** : macOS uniquement  
 **Plans** : Pro et Max uniquement (le champ `rate_limits` n'est présent que pour ces plans)
 
@@ -170,7 +170,7 @@ Données gardées en mémoire (`AppState.githubActivity`). Remises à nil si tok
 
 Premier poll après lancement : toujours silencieux. Polls suivants :
 
-**Même `headSha` (oid) qu'au poll précédent** — règles classiques de transition :
+**Même `headSha` (oid) qu'au poll précédent** : règles classiques de transition :
 - CI passe de `!failure` → `failure` : `.ciFailed` / `.mainFailed`
 - CI passe de `pending` → `success` : `.ciPassed`
 
@@ -215,7 +215,7 @@ Stripe, n8n, Resend, Cal.com, Notion, Vercel et Apple Music ne sont plus pris en
 4. Vue `prompt` avec la pastille « Safari, escale.fr » (app + domaine), focus sur le champ.
 5. Le halo reste pendant `searching`, disparaît quand le résultat s'affiche ou quand l'island se ferme.
 
-Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur). Si refusées : on continue sans capture ou sans URL, et on le dit en une ligne dans la vue.
+Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur). Si elles sont refusées, l'attache continue sans capture ou sans URL, et la vue le dit en une ligne.
 
 ---
 
@@ -258,7 +258,7 @@ Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur
 
 ---
 
-## 7. Permissions macOS demandées (récapitulatif pour Louis)
+## 7. Permissions macOS demandées (récapitulatif)
 
 | Permission | Pourquoi | Quand |
 |---|---|---|

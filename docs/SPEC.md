@@ -1,4 +1,4 @@
-# Klayer Island — spécification
+# Klayer Island : spécification
 
 Toutes les mesures sont en points macOS. Les valeurs viennent de `reference/notch-buddy.html` (constantes `NW`, `NH`, `EW`, `VIEWS`, `STATES`, `EMOTES`, `PISTES`, `AGENTS`, classe `Bot`). En cas de doute, relire le code du prototype.
 
@@ -22,7 +22,7 @@ Toutes les mesures sont en points macOS. Les valeurs viennent de `reference/notc
 - Suivi de la souris : polling de `NSEvent.mouseLocation` à chaque frame. Aucune permission nécessaire.
 
 ### Forme de l'island
-- Rectangle noir `#000`, coins hauts carrés (il se fond dans le bord de l'écran), coins bas arrondis : 14 pt en hidden/peek/compact, 30 pt en expanded.
+- Rectangle noir `#000`, coins hauts carrés (il se fond dans le bord de l'écran), coins bas arrondis : 14 pt en hidden et compact, 22 pt en expanded.
 - Deux « oreilles » concaves de 14 pt aux coins hauts, à l'extérieur, pour que la forme coule dans le bord de l'écran (voir `#island::before/::after` du prototype).
 
 ## 2. Modes de l'island
@@ -30,8 +30,7 @@ Toutes les mesures sont en points macOS. Les valeurs viennent de `reference/notc
 | Mode | Largeur | Hauteur | Bonhomme | Agents secondaires |
 |---|---|---|---|---|
 | `hidden` | wN | hN | invisible | invisibles |
-| `peek` | wN + 64 | hN | Ø 18, centre x = 19 | invisibles |
-| `compact` | wN + 104 | hN | Ø 20, centre x = 27 | aucun ; le bouton Granola occupe l'oreille droite |
+| `compact` | wN + 160 | hN | Ø 20 (hauteur − 6 sur une barre plus basse), centre x = 40 | aucun ; le bouton Granola occupe l'oreille droite |
 | `expanded` | 640 | selon la vue (§5) | selon la vue | selon la vue |
 
 (Ø = diamètre du corps. Le canvas du personnage fait Ø / 0,6 de côté : le corps occupe 60 % du canvas, le reste sert aux particules, mains et badge.)
@@ -42,11 +41,11 @@ Bouton Granola (île `compact` uniquement, jamais en `hidden` ni en `expanded`) 
 
 1. **Rien ne tourne** → `hidden`. Totalement invisible.
 2. **Souris à moins de 120 pt de l'encoche** → Klay sort en `compact` (son `peek`) et fait coucou de la main (`BotEngine.greet()` par la notification `.botGreet`, son `greet`). Il salue une fois par approche, aussi quand il est déjà sorti, et recommence quand la souris s'est éloignée puis revient ; jamais quand l'île est ouverte ni pendant le salut de lancement, ni quand Klay est sur le bureau. L'approche n'ouvre jamais l'île. Tant que la souris reste dans la zone, l'île réduite ne se cache pas ; une fois la souris partie, elle se cache après 60 s. La zone s'arrête au bord haut de l'écran : un écran placé au-dessus ne compte pas. Changer d'écran, passer à une autre app ou à une autre session, ou mettre les écrans en veille compte comme un départ : la prochaine approche salue de nouveau.
-3. **Des tâches tournent et Louis est actif** → `compact` : très fin, le bonhomme visible, il suit la souris des yeux partout sur l'écran.
+3. **Claude travaille** (un événement d'une session arrive, île cachée) → Klay sort en `compact` (son `peek`), sans saluer : très fin, le bonhomme visible, il suit la souris des yeux partout sur l'écran. Il se cache 60 s plus tard si la souris est loin (règle 2).
 4. **Souris sur l'encoche** (forme de l'île, plus 6 pt de marge) → l'île s'ouvre après 250 ms si la souris y est toujours (sur l'autorisation en attente, sinon la question en attente, sinon la vue `overview`, ou `empty` s'il n'y a aucune tâche), son `open`. Partir avant annule l'ouverture. Le bouton Granola de l'île réduite ne compte pas comme l'île : la souris posée dessus n'ouvre rien, et la quitter pour le reste de l'île relance les 250 ms.
 5. **Clic sur l'île fermée ou réduite** → rien : l'île ne s'ouvre jamais au clic. Seule exception, le bouton Granola de l'île réduite : son clic ouvre Granola sans ouvrir l'île, sans passer par la machine d'états et sans démarrer un glisser de Klay. Dans l'île ouverte, les clics gardent leur rôle (boutons, chat) ; un clic sur Klay le claque (émote agacé), le glisser l'installe sur le bureau ou l'attache à une fenêtre.
 6. **Fermeture** : une île ouverte au survol se replie en `compact` 0,6 s après la sortie de la souris ; revenir avant annule. Après un clic dedans, elle se replie une fois la souris sortie, après le délai **Close after** des réglages (15 s par défaut), pour pouvoir écrire dans le chat la souris ailleurs. Une île que l'app ou un raccourci ouvre alors qu'elle était fermée (alerte, fin de session, chat, pastille) n'a aucun minuteur : elle reste ouverte jusqu'au prochain survol suivi d'une sortie, ou jusqu'à un clic ailleurs. Un raccourci sur une île déjà ouverte compte comme un clic dedans. Ce repli après un clic dedans est le seul à minuteur visible : pendant ses 10 dernières secondes (60 % du délai s'il est plus court), un trait de 2 pt en bas au centre (160 pt → 0, blanc 35 %) montre le compte à rebours et l'île se replie quand il atteint zéro. Le trait suit l'échéance que la machine d'états publie (`IslandStateMachine.foldDeadline`) et disparaît dès que le repli est annulé ; il n'existe ni pour le repli au survol, ni pour une île ouverte par l'app, ni quand une demande tient l'île.
-7. **Clic hors de l'île ouverte** → l'île se referme (`hidden`), son `close`. Un clic gauche ou droit dans une autre app, ou dans une autre fenêtre de Klayer Island (Réglages, menu), compte ; un clic sur l'île elle-même ou sur Klay posé sur le bureau ne compte pas. Si une autorisation ou une question est en attente, l'île se replie en `compact` : Klay garde son badge et l'île se rouvre au survol sur la demande. Seule une île épinglée avec ⌘P, sans demande en attente, reste ouverte. Les moniteurs de clic n'existent que tant que l'île est ouverte.
+7. **Clic hors de l'île ouverte** → l'île se referme (`hidden`), son `close`. Un clic gauche ou droit dans une autre app, ou dans une autre fenêtre de Klayer Island (Réglages, menu), compte ; un clic sur l'île elle-même ou sur Klay posé sur le bureau ne compte pas. Si une autorisation ou une question est en attente, l'île se replie en `compact` : Klay garde son badge et l'île se rouvre au survol sur la demande. Seule une île épinglée avec ⌘P, sans demande en attente, reste ouverte. ⌘P ne protège que des clics ailleurs et d'Échap tapé dans une autre app (règle 8). Il garde aussi la vue à la fin d'une session. La sortie de la souris et le délai **Close after** replient quand même l'île épinglée (règle 6), et ce repli retire l'épingle. Les moniteurs de clic n'existent que tant que l'île est ouverte.
 8. **Échap** → comme un clic ailleurs, sauf si la vue qui a le focus le traite d'abord (le détail GitHub, par exemple, se ferme). Tapé dans une autre app, Échap ne ferme pas une île épinglée (autorisation ou question en attente, ⌘P).
 9. (Retirée.) Il n'y a plus de masquage après une absence : l'île réduite se cache 60 s après le départ de la souris (règle 2). Le numéro reste pour ne pas casser les renvois.
 10. **Alertes** (permission, question, erreur) : l'île s'ouvre seule sur la vue de l'alerte, même sans survol et même cachée. Une autorisation ou une question en attente tient l'île ouverte jusqu'à la réponse, y compris quand elle arrive alors que l'île est déjà ouverte ou pendant le salut de lancement : aucun minuteur ni aucune sortie de la souris ne la replie. Un clic ailleurs, Échap, le raccourci de fermeture ou le saut au terminal la replient seulement en `compact`, avec le badge (règle 7). La demande ne quitte l'île qu'à la réponse, au choix « répondre dans le terminal », ou quand la connexion du hook se ferme ou expire : changer de vue ou replier l'île ne la renvoie jamais au terminal. Tant qu'une demande attend, les autres alertes ne prennent pas sa place dans l'île ouverte ; sinon elles suivent la règle 6 (île ouverte par l'app).
@@ -58,7 +57,7 @@ Bouton Granola (île `compact` uniquement, jamais en `hidden` ni en `expanded`) 
 
 - Ouverture / agrandissement : 520 ms, ressort avec léger dépassement, équivalent `cubic-bezier(.32,1.22,.42,1)`. En SwiftUI, partir de `.spring(response: 0.5, dampingFraction: 0.72)` et ajuster à l'œil contre le prototype.
 - Fermeture / rétrécissement : 340 ms, `cubic-bezier(.45,0,.2,1)`, sans dépassement.
-- Largeur, hauteur, rayon, position et taille du bonhomme, position et taille des mini-bonhommes animent **ensemble** (effet « élément partagé » : les mini-bonhommes passent de la grille aux pastilles puis à la colonne sans disparaître).
+- Largeur, hauteur, rayon, position et taille du bonhomme, position et taille des mini-bonhommes animent **ensemble** (effet « élément partagé » : les mini-bonhommes passent des pastilles de la maison à la colonne des autres vues sans disparaître).
 - Contenu des vues : sortie 160 ms (opacité 0, flou 8, échelle 0,97) ; entrée 300 ms avec 160 ms de retard (après que le conteneur a commencé à grandir). L'en-tête apparaît avec 300 ms de retard.
 - Mini-bonhommes : décalage de 35 ms par index.
 - Libellés des pastilles : apparaissent 220 ms après le début du mouvement.
@@ -75,22 +74,23 @@ Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, cen
 | Vue | Hauteur | Bonhomme (x, Ø) | Contenu | Capture |
 |---|---|---|---|---|
 | `overview` | 220 | 68, 58 | carte gauche 322 de large : maison (conversations en cours, derniers choix), ou carte GitHub ou Spotify ; carte droite : pastilles | 03 |
-| `empty` | 150 | 70, 62 | « Rien ne tourne pour l'instant. » + bouton « Demander à Claude » | 16 |
-| `approval` | 206 | 62, 56 | projet de la session + « needs permission », bloc code avec la demande (`ApprovalSummary` : la commande d'un Bash ; l'outil et le fichier, relatif au projet, pour Write, Edit, MultiEdit, NotebookEdit, Read ; l'adresse de WebFetch, la requête de WebSearch, le motif et le chemin de Grep et Glob ; « serveur · outil » et un argument court pour un outil MCP ; sinon le JSON compact, coupé à 200 caractères), Refuser, Autoriser, Toujours (estompés 0,6 s, règle 12) | 04 |
-| `question` | 196 | 62, 56 | agent + question (1/N) + options en boutons (single-select ou multi-select) + « Reply in terminal » ; bouton Send/Next pour multi-select ou multi-questions ; « Other… » → saisie libre | 05 |
-| `error` | 190 | 62, 58 | projet de la session en échec (`failedSession`, comme `finishedSession`) + « Failed », « Claude s'est arrêté sur une erreur », détail en rouge `#FF8D97` sur une ligne : le texte de l'erreur du hook `StopFailure` (`last_assistant_message`, sinon `error_details`, sinon `error`), ou « Aucun détail d'erreur disponible. » ; Ouvrir le terminal (Ouvrir Claude pour une session de l'app Claude) et OK, mêmes règles que la vue `finished` | 06 |
-| `finished` | 170 | 62, 58 | agent + résumé, Voir le terminal, OK | 07 |
+| `empty` | 160 | 70, 62 | « Rien ne tourne pour l'instant. » + bouton « Demander à Claude » | 16 |
+| `approval` | 160 | 62, 56 | projet de la session + « needs permission », bloc code avec la demande (`ApprovalSummary` : la commande d'un Bash ; l'outil et le fichier, relatif au projet, pour Write, Edit, MultiEdit, NotebookEdit, Read ; l'adresse de WebFetch, la requête de WebSearch, le motif et le chemin de Grep et Glob ; « serveur · outil » et un argument court pour un outil MCP ; sinon le JSON compact, coupé à 200 caractères), Refuser, Autoriser, Toujours (estompés 0,6 s, règle 12) | 04 |
+| `question` | 160, plus si la question l'exige (`AskQuestion.estimatedIslandHeight`) | 62, 56 | agent + question (1/N) + options en boutons (single-select ou multi-select) + « Reply in terminal » ; bouton Send/Next pour multi-select ou multi-questions ; « Other… » → saisie libre | 05 |
+| `error` | 160 | 62, 58 | projet de la session en échec (`failedSession`, comme `finishedSession`) + « Failed », « Claude s'est arrêté sur une erreur », détail en rouge `#FF8D97` sur une ligne : le texte de l'erreur du hook `StopFailure` (`last_assistant_message`, sinon `error_details`, sinon `error`), ou « Aucun détail d'erreur disponible. » ; Ouvrir le terminal (Ouvrir Claude pour une session de l'app Claude) et OK, mêmes règles que la vue `finished` | 06 |
+| `finished` | 160 | 62, 58 | agent + résumé, Voir le terminal, OK | 07 |
 | `confused` | 160 | 76, 66 | « Trop de claques d'un coup. » | 08 |
 | `upload` | 176 | 140, 62 | zone pointillée, Klay les bras ouverts et « Dépose ton fichier » | 09 |
-| `uploading` | 150 | sur la barre, Ø 28 | « Envoi de fichier » + %, barre verte, le bonhomme est le curseur de la barre | 10 |
-| `choose` | 170 | 60, 52 | « fichier est prêt. », Poser une question dessus, Envoyer par mail | 11 |
-| `mail` | 210 | 56, 46 | champs À, Objet (+ Message optionnel), Envoyer, Annuler | 12 |
-| `prompt` | 156 | 52, 44 | pastille de contexte + champ + micro + envoyer | 13 |
-| `searching` | 156 | 52, 44 | contexte + texte scintillant « Claude lit la page et cherche sur le web… » | 14 |
-| `result` | 262 (s'adapte au contenu, max 320) | 52, 44 | titre, 3 lignes de résultat, boutons | 15 |
-| `note` | 136 | 60, 50 | message court (mail envoyé, copié…), se ferme seul après 2 s | — |
+| `uploading` | 176 | sur la barre, Ø 20 | « Envoi de fichier » + %, barre verte, le bonhomme est le curseur de la barre | 10 |
+| `choose` | 176 | 60, 52 | « fichier est prêt. », Poser une question dessus, Envoyer par mail | 11 |
+| `mail` | 240 | 56, 46 | champs À, Objet (+ Message optionnel), Envoyer, Annuler | 12 |
+| `prompt` | 160 | 52, 44 | pastille de contexte + champ + micro + envoyer | 13 |
+| `searching` | 160 | 52, 44 | contexte + texte scintillant « Claude lit la page et cherche sur le web… » | 14 |
+| `result` | 160 | 52, 44 | titre, 3 lignes de résultat, boutons | 15 |
+| `note` | 160 | 60, 50 | message court (mail envoyé, copié…), se ferme seul après 2 s | aucune |
+| `settings` | 160 | 54, 46 | son et volume, délai **Close after** (10, 15 ou 30 s), état des hooks Claude Code et de la clé API (lu quand la vue s'affiche), « Réglages… » | aucune |
 
-Centre vertical du bonhomme : 36 + (hauteur − 46) / 2, sauf `result` (y = 86).
+Centre vertical du bonhomme : le centre de la carte de 84 pt sous l'en-tête, soit hauteur / 2 + 21 (101 pour une île de 160, 131 pour la maison), sauf `upload` (104), `uploading` (118) et `choose` (101), fixes.
 
 ### Maison (overview)
 
@@ -140,7 +140,7 @@ Remplace la carte principale quand `showingDetail && githubHasPulse`. En-tête :
 Section `.activity` de `GitHubDetailView`. En-tête : chevron.left + « Activity » à gauche ; à droite (11 pt #8E939C) : « 1,234 past year · N repos » (clic → `github.com/<login>`). Au survol / clic sur un carré : texte remplacé par « Oct 3 · 12 contributions » (ou « 1 contribution », ou « No contributions »). Grille de contributions : colonnes = semaines (la plus ancienne à gauche, carrés de 7 pt, espacement 1,5 pt, nombre de semaines calculé selon la largeur disponible, environ 23), lignes = jours de la semaine (dimanche = ligne 0). Couleurs des niveaux : 0 = blanc 6 %, 1 = `#0E4429`, 2 = `#006D32`, 3 = `#26A641`, 4 = `#39D353`. Pas de ScrollView, `.clipped()`. `refreshActivityIfStale()` à l'apparition.
 
 ### Boutons
-- Pilule, 12,5 pt medium, fond blanc 9 % (survol 15 %), primaire : fond `#F5F6F8` texte `#0B0C0E`. Appui : échelle 0,94. Raccourcis affichés en petite pastille bordée (Y, N).
+- Pilule, 12,5 pt medium, fond blanc 9 % (survol 15 %), primaire : fond `#F5F6F8` texte `#0B0C0E`. Appui : échelle 0,94. Aucun raccourci clavier sur les cartes d'autorisation : la réponse se donne au clic (règle 12).
 
 ## 6. Couleurs des agents (fixes)
 
@@ -213,11 +213,11 @@ Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `searching`
 | Émote | Yeux | Extra | Son | Déclencheur |
 |---|---|---|---|---|
 | Amour | cœurs `#FF4D6D` | joues à fond, cœurs qui montent | `love` | souris immobile 1,9 s sur le bonhomme |
-| Surpris | petits points | saut + yeux agrandis | `pop` | quand on l'attrape |
+| Surpris | petits points | saut + yeux agrandis | `pop` | quand vous l'attrapez (glisser) |
 | Fier | étoiles `#F7B32B` | étoiles, tête en arrière | `proud` | résultat de recherche affiché |
 | Clin d'œil | un œil fermé | tête penchée | `wink` | mail envoyé, fenêtre attrapée |
 | Bâille | fatigués puis fermés | étirement vertical, « z » | `yawn` | juste avant de passer en `sleeping` |
-| Content | arcs | joues | — | après une décision, un fichier avalé |
+| Content | arcs | joues | aucun | après une décision, un fichier avalé |
 | Agacé | fentes inclinées | halo violet `#A855F7` | `annoyed` | une claque |
 
 ## 8. Interactions avec le bonhomme
@@ -262,7 +262,7 @@ Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Integrations** : jeton personnel GitHub (Trousseau).
 - **Sound** : son on/off, volume.
 - **Behavior** : **Close after** N s, le délai du repli après un clic dans l'île (règle 6).
-- **Display** : écran de l'island — Screen with the notch (défaut), Main screen (menu bar), Follow the mouse, ou un écran précis par son nom (`NSScreen.localizedName`). Un écran mémorisé mais débranché s'affiche « Saved screen (not connected) ». Voir §1.
+- **Display** : écran de l'island : Screen with the notch (défaut), Main screen (menu bar), Follow the mouse, ou un écran précis par son nom (`NSScreen.localizedName`). Un écran mémorisé mais débranché s'affiche « Saved screen (not connected) ». Voir §1.
 - **Active pills** : pastilles actives (Claude Code toujours active + jusqu'à 4 autres), avec pour chacune son interrupteur et sa palette de couleur ; liste par catégorie (voir catalogue §5).
 - **Hotkey** : raccourci global pour ouvrir le notch.
 - **Startup** : lancer au démarrage (`SMAppService.mainApp`).
@@ -288,7 +288,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 
 ## 12. Critères d'acceptation
 
-- Côte à côte avec le prototype, Louis ne voit pas de différence sur le personnage, les couleurs, les timings et les sons.
+- Côte à côte avec le prototype, vous ne voyez pas de différence sur le personnage, les couleurs, les timings et les sons.
 - Aucun clic perdu à cause de la fenêtre transparente.
 - Une session Claude Code n'est jamais bloquée par l'app (app fermée, plantée ou lente → le terminal prend le relais).
 - Hidden = 0 % CPU ; compact < 3 % ; mémoire < 100 Mo.
@@ -301,7 +301,7 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 
 - **Panneau** : `NSPanel` borderless non-activating, niveau `.floating`, `collectionBehavior [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]`, taille 120 × 120 pt.
 - **Clics traversants** : `ignoresMouseEvents` activé par défaut ; désactivé à 60 Hz uniquement quand le curseur est sur le corps (rayon ≈ 24 % de la taille du panneau). Position bornée à `screen.visibleFrame` avec une marge de 24 pt.
-- Le panneau est toujours au niveau `.floating` — en dessous des panneaux de menu et de l'island, au-dessus des fenêtres normales.
+- Le panneau est toujours au niveau `.floating` : en dessous des panneaux de menu et de l'island, au-dessus des fenêtres normales.
 
 ### Installation
 
@@ -313,7 +313,7 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 
 | Geste | Effet |
 |---|---|
-| Clic simple | Slap (`engine.slap()`) — différé de `NSEvent.doubleClickInterval` |
+| Clic simple | Slap (`engine.slap()`), différé de `NSEvent.doubleClickInterval` |
 | Double-clic | Annule le slap en attente ; vol vers la notch (`flyHome()`), island réapparaît |
 | Clic droit | Émote Amour |
 | Survol du corps | Clignement, yeux ×1,08, sursaut, se penche vers le pointeur (§7, Mouvement) |
@@ -333,12 +333,12 @@ Quand `AppState.klayOnDesktop == true`, `BotPlacement` masque le bonhomme de la 
 
 ### Alertes
 
-Détection par `Publishers.CombineLatest($pendingApproval, $pendingQuestion)` — seules les transitions nil↔non-nil déclenchent l'action. La notification `.hookExpand` n'est pas utilisée (elle part aussi pour `.finished`, `.error`, le glisser de fichier, etc.).
+Détection par `Publishers.CombineLatest($pendingApproval, $pendingQuestion)` : seules les transitions nil↔non-nil déclenchent l'action. La notification `.hookExpand` n'est pas utilisée (elle part aussi pour `.finished`, `.error`, le glisser de fichier, etc.).
 
 1. `pendingApproval` ou `pendingQuestion` passe à non-`nil` → émote `surprised` sur le Klay du bureau.
 2. Après 0,45 s, `retractForAlert()` : le panneau vole vers la notch et se ferme ; `klayOnDesktop` passe à `false` (le bonhomme de la notch réapparaît pour l'alerte) ; `UserDefaults["klayOnDesktop"]` reste `true`.
 3. Quand `pendingApproval` **et** `pendingQuestion` sont tous deux `nil`, `launchFlyIfNeeded()` renvole Klay vers la position sauvegardée après 0,6 s.
-4. Si l'alerte se résout pendant l'animation de retrait, le panneau ne s'ouvre pas sur la notch — Klay repart directement vers le bureau.
+4. Si l'alerte se résout pendant l'animation de retrait, le panneau ne s'ouvre pas sur la notch : Klay repart directement vers le bureau.
 
 ### `.finished`
 
@@ -392,7 +392,7 @@ Ces raccourcis sont gérés par `NSEvent.addLocalMonitorForEvents`. L'île prend
 | ⌘↩ | Envoyer le message (vue Prompt) |
 | ⌘K | Nouvelle conversation (vue Prompt) |
 | ⌘, | Ouvrir les Réglages |
-| ⌘P | Copier le dernier message |
+| ⌘P | Épingle ou désépingle l'île ouverte. Épinglée, elle ne résiste qu'aux clics ailleurs et à Échap tapé dans une autre app, et une fin de session garde sa vue ; la sortie de la souris la replie quand même (règles 6 et 7) |
 
 ### 14.3 Personnalisation
 
