@@ -5,7 +5,7 @@ enum IslandAutoCloseTests {
     @MainActor
     static func main() async throws {
         // A configured 2-second delay replaces the default 15 seconds.
-        let configured = openedMachine(delay: 2)
+        let configured = try await openedMachine(delay: 2)
         let start = DispatchTime.now().uptimeNanoseconds
         configured.mouseLeft()
         try await waitForCompact(configured)
@@ -14,13 +14,13 @@ enum IslandAutoCloseTests {
         print(String(format: "Configured 2-second close: %.3f s", elapsed))
 
         // Editing the setting during a pending countdown must replace its timer.
-        let edited = openedMachine(delay: 15)
+        let edited = try await openedMachine(delay: 15)
         edited.mouseLeft()
         edited.homeToPetitDelay = 0.05
         try await waitForCompact(edited, timeout: 1)
 
         // Increasing the delay must also cancel the previous, shorter timer.
-        let extended = openedMachine(delay: 0.05)
+        let extended = try await openedMachine(delay: 0.05)
         extended.mouseLeft()
         extended.homeToPetitDelay = 0.25
         try await Task.sleep(for: .milliseconds(100))
@@ -28,7 +28,7 @@ enum IslandAutoCloseTests {
         try await waitForCompact(extended, timeout: 1)
 
         // Returning to the island cancels the countdown; leaving starts it again.
-        let hovered = openedMachine(delay: 0.05)
+        let hovered = try await openedMachine(delay: 0.05)
         hovered.mouseLeft()
         hovered.mouseEntered()
         try await Task.sleep(for: .milliseconds(100))
@@ -37,7 +37,7 @@ enum IslandAutoCloseTests {
         try await waitForCompact(hovered, timeout: 1)
 
         // A setting edit while hovering must not start a countdown.
-        let hoveredEdit = openedMachine(delay: 15)
+        let hoveredEdit = try await openedMachine(delay: 15)
         hoveredEdit.homeToPetitDelay = 0.05
         try await Task.sleep(for: .milliseconds(100))
         precondition(hoveredEdit.state == .home)
@@ -55,7 +55,7 @@ enum IslandAutoCloseTests {
         try await waitForCompact(greeting, timeout: 1)
 
         // An unanswered approval holds the island open even after a delay edit.
-        let heldOpen = openedMachine(delay: 0.05)
+        let heldOpen = try await openedMachine(delay: 0.05)
         var approvalPending = true
         heldOpen.isHeldOpen = { approvalPending }
         heldOpen.mouseLeft()
@@ -67,7 +67,7 @@ enum IslandAutoCloseTests {
         try await waitForCompact(heldOpen, timeout: 1)
 
         // An approval arriving during a countdown also blocks its replacement timer.
-        let heldCountdown = openedMachine(delay: 0.2)
+        let heldCountdown = try await openedMachine(delay: 0.2)
         var newApprovalPending = false
         heldCountdown.isHeldOpen = { newApprovalPending }
         heldCountdown.mouseLeft()
@@ -82,13 +82,19 @@ enum IslandAutoCloseTests {
         print("Island auto-close: 8 cases passed")
     }
 
+    /// An island opened by hovering, then clicked inside: the normal auto-close delay applies.
     @MainActor
-    private static func openedMachine(delay: TimeInterval) -> IslandStateMachine {
+    private static func openedMachine(delay: TimeInterval) async throws -> IslandStateMachine {
         let machine = IslandStateMachine()
         machine.homeToPetitDelay = delay
+        machine.hoverOpenDelay = 0.01
         machine.mouseEntered()
-        machine.click()
-        precondition(machine.state == .home)
+        let deadline = Date().addingTimeInterval(2)
+        while machine.state != .home && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        precondition(machine.state == .home, "Hovering did not open the island")
+        machine.userInteracted()
         return machine
     }
 
