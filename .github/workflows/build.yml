@@ -28,6 +28,9 @@ jobs:
       - name: Test hook routing
         run: bash scripts/test-hook-routing.sh
 
+      - name: Test Claude host
+        run: bash scripts/test-claude-host.sh
+
       - name: Test display choice
         run: bash scripts/test-display-choice.sh
 
@@ -90,6 +93,9 @@ jobs:
 
       - name: Removed feature cleanup tests
         run: bash scripts/test-removed-feature-cleanup.sh
+
+      - name: Shortcut tests
+        run: bash scripts/test-shortcuts.sh
 
       - name: Build
         run: |
