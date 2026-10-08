@@ -11411,6 +11411,36 @@
           }
         }
       }
+    },
+    "Claude Code n'est pas installé sur ce Mac.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code n'est pas installé sur ce Mac."
+          }
+        }
+      }
+    },
+    "Connecte Claude Code : ouvre un terminal, lance claude puis /login.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecte Claude Code : ouvre un terminal, lance claude puis /login."
+          }
+        }
+      }
+    },
+    "Installer Claude Code": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer Claude Code"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         HotKeyCenter.shared.unregisterAll()
+        // The chat's Claude Code process does not outlive the island.
+        ChatSession.shared.stop()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

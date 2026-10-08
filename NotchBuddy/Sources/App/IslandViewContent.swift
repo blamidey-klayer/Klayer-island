@@ -999,6 +999,8 @@ struct MailView: View {
 
 struct PromptView: View {
     @ObservedObject var state: AppState
+    /// The chat runs through the Claude Code installed on the Mac (ChatSession).
+    @ObservedObject private var chat = ChatSession.shared
     @State private var text: String = ""
     @FocusState private var focused: Bool
 
@@ -1019,7 +1021,7 @@ struct PromptView: View {
                                 ForEach(state.chatHistory) { msg in
                                     ChatBubble(message: msg).id(msg.id)
                                 }
-                                if state.stateOverride != nil {
+                                if state.stateOverride == .thinking {
                                     HStack { TypingDotsView(); Spacer(minLength: 32) }
                                         .id("typing")
                                 }
@@ -1032,7 +1034,7 @@ struct PromptView: View {
                             }
                         }
                         .onChange(of: state.stateOverride) { _, v in
-                            if v != nil {
+                            if v == .thinking {
                                 withAnimation { proxy.scrollTo("typing", anchor: .bottom) }
                             } else if let last = state.chatHistory.last(where: { !$0.content.isEmpty }) {
                                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -1049,41 +1051,56 @@ struct PromptView: View {
                     Spacer()
                 }
 
-                HStack(spacing: 8) {
-                    TextField(state.chatHistory.isEmpty ? String(localized: "Ask me anything…") : String(localized: "Continue…"), text: $text)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .focused($focused)
-                        .onSubmit { sendMessage() }
+                if let notice = unavailableNotice {
+                    // Claude Code missing or not logged in: what to do, in place of the field.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(notice)
+                            .font(.system(size: 12.5))
+                            .foregroundColor(Color(hex: "#9398A1"))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if chat.knownAvailability == .missingCLI {
+                            SecondaryButton("Installer Claude Code") {
+                                NSWorkspace.shared.open(ClaudeCLI.installURL)
+                            }
+                        }
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        TextField(state.chatHistory.isEmpty ? String(localized: "Ask me anything…") : String(localized: "Continue…"), text: $text)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .focused($focused)
+                            .onSubmit { sendMessage() }
 
-                    // Dictate instead of typing (on-device speech recognition when available)
-                    Button {
-                        Task { await dictation.toggle(startingFrom: text) }
-                    } label: {
-                        Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(dictation.isRecording ? Color(hex: "#F4505E") : Color(hex: "#8E939C"))
-                            .frame(width: 18, height: 18)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(dictation.isRecording ? String(localized: "Stop dictation") : String(localized: "Dictate"))
-                    .onChange(of: dictation.transcript) { _, _ in
-                        if dictation.isRecording { text = dictation.text }
-                    }
+                        // Dictate instead of typing (on-device speech recognition when available)
+                        Button {
+                            Task { await dictation.toggle(startingFrom: text) }
+                        } label: {
+                            Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(dictation.isRecording ? Color(hex: "#F4505E") : Color(hex: "#8E939C"))
+                                .frame(width: 18, height: 18)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(dictation.isRecording ? String(localized: "Stop dictation") : String(localized: "Dictate"))
+                        .onChange(of: dictation.transcript) { _, _ in
+                            if dictation.isRecording { text = dictation.text }
+                        }
 
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(Color(hex: "#0B0C0E"))
+                        Button(action: sendMessage) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(hex: "#0B0C0E"))
+                        }
+                        .buttonStyle(SendButtonStyle())
+                        .disabled(text.isEmpty)
                     }
-                    .buttonStyle(SendButtonStyle())
-                    .disabled(text.isEmpty)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.white.opacity(0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .simultaneousGesture(TapGesture().onEnded { focused = true })
                 }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.white.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .simultaneousGesture(TapGesture().onEnded { focused = true })
             }
             .padding(.leading, 84)
             .padding(.trailing, 16)
@@ -1091,7 +1108,17 @@ struct PromptView: View {
             .padding(.bottom, 14)
         }
         .padding(.bottom, 10)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            if state.view == .prompt { checkChat() }
+        }
+        // Every view stays in the tree: the check runs when the chat comes on screen.
+        .onChange(of: state.view) { _, view in
+            if view == .prompt { checkChat() }
+        }
+        .onChange(of: chat.isAnswering) { _, answering in
+            if !answering && state.view == .prompt { focused = true }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .islandSendMessage)) { _ in
             guard state.view == .prompt else { return }
             sendMessage()
@@ -1100,23 +1127,34 @@ struct PromptView: View {
             guard state.view == .prompt else { return }
             text = ""
             state.chatHistory = []
-            ClaudeService.shared.clearConversation()
+            ChatSession.shared.reset()
             focused = true
         }
+    }
+
+    /// Claude Code missing or not logged in, as the last check found it.
+    private var unavailableNotice: LocalizedStringKey? {
+        switch chat.knownAvailability {
+        case .missingCLI?:  return "Claude Code n'est pas installé sur ce Mac."
+        case .notLoggedIn?: return "Connecte Claude Code : ouvre un terminal, lance claude puis /login."
+        default:            return nil
+        }
+    }
+
+    private func checkChat() {
+        Task { _ = await ChatSession.shared.availability() }
     }
 
     private func sendMessage() {
         dictation.stop()
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return }
+        // One answer at a time: what is typed during an answer stays in the field.
+        guard !query.isEmpty, unavailableNotice == nil, !chat.isAnswering else { return }
         text = ""
         focused = false
-        state.chatHistory.append(ChatMessage(role: .user, content: query))
-        state.stateOverride = .thinking
-        Task {
-            await ClaudeService.shared.chat(query: query, context: state.promptContext, state: state)
-            await MainActor.run { focused = true }
-        }
+        var file: URL?
+        if case .file(_, let url)? = state.promptContext { file = url }
+        ChatSession.shared.send(query, attachment: file, context: state.promptContext, into: state)
     }
 }
 
