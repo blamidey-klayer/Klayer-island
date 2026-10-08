@@ -247,6 +247,27 @@ Demande de Baptiste (8 octobre) : animations fluides et très vivantes, Klay sui
 - [ ] **Step 4:** Run le test ; attendu : `Hook routing: 6 cases passed`.
 - [ ] **Step 5:** Commit, push, CI verte.
 
+### Task 11a: Registre des sessions en cours et ouverture en fin de session
+
+> Ajout du contrôleur (règle du registre SDD) : la spec §6 demande « une ligne par session », alors qu'une pastille ne porte qu'une session à la fois ; et la spec §4 veut que l'île s'ouvre seule à chaque fin de session, alors que `Stop` n'ouvre aujourd'hui que si la pastille a le focus.
+
+**Files:**
+- Create: `NotchBuddy/Sources/App/SessionRoster.swift`, `tests/SessionRosterTests.swift`, `scripts/test-session-roster.sh`
+- Modify: `HookServer.swift` (`processEvent`, `processPermissionRequest`, `processQuestionRequest`), `AppState.swift`, `.github/workflows/build.yml`
+
+**Interfaces:**
+- Produces (Foundation seulement) :
+  - `enum SessionPhase: String, Equatable { case idle, thinking, working, approval, question, ratelimit, error, finished }` (mêmes valeurs brutes que `BotState`).
+  - `struct SessionRow: Equatable, Identifiable { let id: String /* session_id */; var pillId: String; var title: String; var phase: SessionPhase; var lastAction: String; var updatedAt: Date }`.
+  - `struct SessionRoster { private(set) var rows: [SessionRow] /* activité la plus récente d'abord */; mutating func update(sessionId: String, pillId: String, title: String, phase: SessionPhase, lastAction: String?, at: Date); mutating func end(sessionId: String); mutating func prune(now: Date); func visible(limit: Int) -> [SessionRow] }`. `update` garde la dernière action quand `lastAction` est nil et la coupe à 80 caractères ; `prune` retire une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes, et toute ligne sans activité depuis 2 heures sauf `approval` et `question`.
+  - `AppState` : `@Published private(set) var sessions: [SessionRow]` et `func updateSession(…)`, `func endSession(_ id: String)`, qui appellent `prune(now:)` à chaque mise à jour (aucune minuterie).
+
+- [ ] **Step 1: Write the failing tests** : `newest_activity_first` ; `last_action_kept_when_nil_and_capped_at_80` ; `end_removes_the_row` ; `prune_keeps_waiting_rows` (une `question` vieille de 3 h reste, une `finished` vieille de 31 min part, une `working` vieille de 3 h part) ; `visible_limit`.
+- [ ] **Step 2:** Run `bash scripts/test-session-roster.sh` ; attendu : échec de compilation.
+- [ ] **Step 3:** Implémenter ; `HookServer` alimente le registre : `SessionStart` → `idle` « Session démarrée », `UserPromptSubmit` → `thinking` (début de la demande), `PreToolUse` → `working` (même libellé que l'étape), `Notification` limite → `ratelimit`, autorisation → `approval`, question → `question`, `Stop` → `finished` (dernière phrase), `StopFailure` → `error`, `SessionEnd` → `end`. Le titre est le nom du dossier du projet. En fin de session (`Stop`), l'île s'ouvre seule sur la vue `.finished` de cette pastille, qu'elle ait le focus ou non, sauf si une autorisation ou une question attend.
+- [ ] **Step 4:** Run le test ; attendu : `Session roster: 5 cases passed`.
+- [ ] **Step 5:** Commit, push, CI verte.
+
 ### Task 11: Île ouverte : conversations en cours et derniers choix
 
 **Files:**
@@ -254,8 +275,8 @@ Demande de Baptiste (8 octobre) : animations fluides et très vivantes, Klay sui
 - Modify: `IslandViewContent.swift:35-265` (vue overview), `:186-264` (`openAgentTarget`), `:594`, `:2020-2060` (boutons terminal, VS Code, Cursor), `:645` (`DiffCardView`), `:3547` (`TickerView` réduit à une ligne), `:3779` (`AgentPillsView`), `IslandRootView.swift:487-551` (en-tête), `PillCatalog.swift` (pastilles d'éditeurs), `SettingsView.swift:464-500` (Active pills), `AppState.swift:126`, `:302`, `:604-624`
 
 **Interfaces:**
-- Consumes: `ChoiceHistory.latest(5)` (Task 9), tâches de `AppState`.
-- Produces: la carte GitHub existante sous les deux listes, inchangée ; `ConversationsView` (une ligne par tâche : mini-Klay couleur de l'état, titre, état en clair, dernière action ; clic → `NSWorkspace.shared.open(URL(string: "claude://")!)`), `ChoiceHistoryView` (5 lignes grises 55 % d'opacité : heure `HH:mm`, session, prompt tronqué à 1 ligne, réponse) ; la carte de demande en attente passe au-dessus des deux.
+- Consumes: `AppState.recentChoices` (Task 9), `AppState.sessions` (Task 11a), tâches de `AppState`.
+- Produces: la carte GitHub existante sous les deux listes, inchangée ; `ConversationsView` (une ligne par session de `AppState.sessions` : mini-Klay couleur de l'état, titre, état en clair, dernière action ; clic → `NSWorkspace.shared.open(URL(string: "claude://")!)`), `ChoiceHistoryView` (5 lignes grises 55 % d'opacité : heure `HH:mm`, session, prompt tronqué à 1 ligne, réponse) ; la carte de demande en attente passe au-dessus des deux.
 
 - [ ] **Step 1:** Construire les deux vues et la nouvelle overview ; retirer pastilles d'éditeurs, boutons terminal et éditeur, cartes de diff, réglages Active pills.
 - [ ] **Step 2:** Run `grep -rnE "VS ?Code|vscode|Cursor|DiffCardView|AgentPillsView|jumpToTerminal|TerminalTarget" NotchBuddy/Sources` ; attendu : seules les détections encore utiles au routage des hooks (relire chaque ligne).
