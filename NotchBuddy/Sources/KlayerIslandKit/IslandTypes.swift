@@ -110,9 +110,11 @@ enum IslandConst {
     static let expandedCorner: CGFloat = 22
 
     static let viewLayouts: [IslandView: ViewLayout] = [
-        // Home is the reference: height 150
-        .overview:  ViewLayout(height: 160, botX: 68,  botY: nil, botDiameter: 58, agentMode: .pills),
-        // All non-chat views match home height (150) — law
+        // Home: 3 conversation rows (26 pt) above 5 choice rows (12 pt) need a 168 pt card, so the
+        // home is 220 tall (8 top + 34 header + 168 card + 10 bottom). Klay stays centred on its card.
+        .overview:  ViewLayout(height: 220, botX: 68,  botY: nil, botDiameter: 58, agentMode: .pills),
+        // The other non-chat views keep the 160 of the 98 pt card they were drawn for. `empty` keeps
+        // its single card too: the main pill always loads, so the island has a task to show the home.
         .empty:     ViewLayout(height: 160, botX: 70,  botY: nil, botDiameter: 62, agentMode: .none),
         .approval:  ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 56, agentMode: .column),
         .question:  ViewLayout(height: 160, botX: 62,  botY: nil, botDiameter: 56, agentMode: .column),

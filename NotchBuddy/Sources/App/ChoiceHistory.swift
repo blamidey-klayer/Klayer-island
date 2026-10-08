@@ -56,16 +56,27 @@ extension ChoiceRecord {
 
 extension ChoiceRecord {
     /// One row of the last choices on the open island (spec §6): the time as "HH:mm", the
-    /// session, the prompt on one line and the answer. The view truncates the prompt.
+    /// session, the prompt on one line and the answer.
     struct Row: Equatable {
+        /// Longest answer on a row, ellipsis included: the answer is shown whole next to the
+        /// prompt, so several options chosen at once must not push the prompt out.
+        static let answerLimit = 20
+
         let time: String
         let session: String
         let prompt: String
         let answer: String
+
+        /// "HH:mm · session · prompt", the parts that are not empty: the view shows it on one
+        /// line and cuts its end, the prompt, when the row is too narrow.
+        var summary: String {
+            [time, session, prompt].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
     }
 
     /// The row of this choice, its time read in `timeZone` on 24 hours. Line breaks and tabs of
-    /// the prompt become one space and its ends are trimmed; nothing is cut.
+    /// the prompt become one space and its ends are trimmed, the prompt is not cut (the view
+    /// does it); an answer longer than 20 characters is cut to 19 followed by « … ».
     func row(in timeZone: TimeZone = .current) -> Row {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -75,7 +86,10 @@ extension ChoiceRecord {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        return Row(time: time, session: session, prompt: oneLine, answer: answer)
+        let shortAnswer = answer.count > Row.answerLimit
+            ? String(answer.prefix(Row.answerLimit - 1)) + "…"
+            : answer
+        return Row(time: time, session: session, prompt: oneLine, answer: shortAnswer)
     }
 }
 

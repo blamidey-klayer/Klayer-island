@@ -22,6 +22,7 @@ enum ChoiceHistoryTests {
             ("empty_answers_record_nothing", emptyAnswersRecordNothing),
             ("row_time_is_hh_mm_in_the_given_time_zone", rowTimeIsHHmmInTheGivenTimeZone),
             ("row_prompt_is_one_line_session_and_answer_kept", rowPromptIsOneLineSessionAndAnswerKept),
+            ("row_summary_and_short_answer", rowSummaryAndShortAnswer),
         ]
         for (name, run) in cases {
             run()
@@ -231,5 +232,25 @@ enum ChoiceHistoryTests {
         let long = String(repeating: "x", count: 300)
         let longRow = ChoiceRecord(date: when, session: "Projet A", kind: .permission, prompt: long, answer: "Refusé")
         precondition(longRow.row(in: utc).prompt == long, "the row does not cut the prompt")
+    }
+
+    static func rowSummaryAndShortAnswer() {
+        let r = ChoiceRecord(date: when, session: "Projet A", kind: .permission,
+                             prompt: "git push\norigin main", answer: "Autorisé")
+        precondition(r.row(in: utc).summary == "22:13 · Projet A · git push origin main",
+                     "time, session and prompt read as one line, got \(r.row(in: utc).summary)")
+        let noPrompt = ChoiceRecord(date: when, session: "Projet A", kind: .question, prompt: " \n", answer: "Oui")
+        precondition(noPrompt.row(in: utc).summary == "22:13 · Projet A", "an empty part leaves no dangling separator")
+
+        // The answer stays whole on the row: a long one (several options) is cut to 20 characters.
+        let many = ChoiceRecord(date: when, session: "Projet A", kind: .question, prompt: "Quels modules ?",
+                                answer: "Authentification, Facturation, Export")
+        let answer = many.row(in: utc).answer
+        precondition(answer.count == ChoiceRecord.Row.answerLimit && answer.hasSuffix("…"),
+                     "a long answer is cut to \(ChoiceRecord.Row.answerLimit) characters with « … », got \(answer)")
+        precondition(answer == "Authentification, F…", "the start of the answer is kept, got \(answer)")
+        let exact = String(repeating: "a", count: ChoiceRecord.Row.answerLimit)
+        precondition(ChoiceRecord(date: when, session: "P", kind: .question, prompt: "Q", answer: exact)
+                        .row(in: utc).answer == exact, "an answer at the limit is kept whole")
     }
 }

@@ -34,68 +34,26 @@ struct IslandViewContent: View {
 struct OverviewView: View {
     @ObservedObject var state: AppState
     @State private var showingIntegrationDetail = false
-    @State private var activeDiffId: Int? = nil
 
     var agent: AgentTask? { state.focusTask }
 
+    /// The home (conversations in progress, last choices) shows for the Claude pills and when no
+    /// pill has the focus. GitHub and Spotify keep their own card (spec §6).
+    private var showsHome: Bool {
+        guard let id = agent?.id else { return true }
+        return id == "integration_claude" || id == HookRouting.desktopPillId
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            // Left card: title row + ticker below + ↗ button overlay
+            // Left card: the home, or the card of the GitHub or Spotify pill with its ↗ button
             ZStack(alignment: .topLeading) {
                 CardBackground(wash: nil)
 
-                // Title row + ticker stacked (or integration card)
-                if let agent = agent {
-                    if agent.isIntegration {
-                        IntegrationCardView(task: agent, showingDetail: $showingIntegrationDetail, onDiffTap: { diffIdx in
-                            withAnimation(.easeIn(duration: 0.16)) { activeDiffId = diffIdx }
-                        })
-                    } else {
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(Color(hex: agent.color))
-                                    .frame(width: 7, height: 7)
-                                Text(agent.name)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(Color(hex: "#F5F6F8"))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .layoutPriority(1)
-                                Text({ () -> String in
-                                    switch agent.source {
-                                    case .claudeCode:  return "Claude Code"
-                                    case .agent:       return "Agent"
-                                    case .integration: return "Integration"
-                                    }
-                                }())
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "#8E939C"))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer(minLength: 2)
-                                if agent.steps.count > 1 {
-                                    Text("\(min(agent.stepIndex + 1, agent.steps.count))/\(agent.steps.count)")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(Color(hex: "#6B7079"))
-                                        .fixedSize()
-                                }
-                            }
-                            .padding(.top, 6)
-                            .padding(.leading, 108)
-                            .padding(.trailing, 36)
-
-                            TickerView(task: agent, onDiffTap: { diffIdx in
-                                withAnimation(.easeIn(duration: 0.16)) { activeDiffId = diffIdx }
-                            })
-                                .frame(height: 44)
-                                .padding(.top, 6)
-                                .padding(.leading, 108)
-                                .padding(.trailing, 12)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .padding(.top, 4)
-                    }
+                if showsHome {
+                    homeContent
+                } else if let agent = agent {
+                    IntegrationCardView(task: agent, showingDetail: $showingIntegrationDetail)
                 }
 
                 // Plan detail overlays on top of normal content (home view only)
@@ -105,19 +63,10 @@ struct OverviewView: View {
                         .transition(.opacity)
                 }
 
-                // Diff overlay — replaces ticker when a diff step is tapped
-                if let diffId = activeDiffId,
-                   let task = agent,
-                   let diff = state.sessionDiffs[task.id]?.first(where: { $0.id == diffId }) {
-                    CardBackground(wash: nil)
-                    DiffCardView(diff: diff, onDismiss: { activeDiffId = nil })
-                        .transition(.opacity)
-                }
-
-                // ↗ jump button — last in ZStack so it renders on top; hidden while any detail is open
-                let hideJumpButton = showingIntegrationDetail || state.showingPlanDetail || activeDiffId != nil
-                if !hideJumpButton {
-                    Button(action: { openAgentTarget(agent) }) {
+                // ↗ opens the service of the GitHub or Spotify pill: last in ZStack so it renders on
+                // top, hidden on the home and while any detail is open
+                if !showsHome && !showingIntegrationDetail && !state.showingPlanDetail {
+                    Button(action: { openServiceTarget(agent) }) {
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 8, weight: .medium))
                             .foregroundColor(Color(hex: "#5F646D"))
@@ -138,57 +87,51 @@ struct OverviewView: View {
                 AgentPillsView(state: state)
             }
         }
+        // The roster is pruned when the home shows, not on a timer: a session that ended without
+        // telling (no hook since) is gone before the user reads the list.
+        .onAppear { state.pruneSessions() }
         .onChange(of: state.focusId) { _, new in
             showingIntegrationDetail = false
-            activeDiffId = nil
             withAnimation(.easeIn(duration: 0.16)) { state.showingPlanDetail = false }
             if new == "integration_github" { GithubPoller.shared.refreshIfStale() }
         }
         .onChange(of: state.view) { _, v in
-            if v != .overview { state.showingPlanDetail = false; activeDiffId = nil }
+            if v == .overview { state.pruneSessions() } else { state.showingPlanDetail = false }
         }
         .onChange(of: state.mode) { _, m in
-            if m != .expanded { state.showingPlanDetail = false; activeDiffId = nil }
+            if m != .expanded { state.showingPlanDetail = false }
             if m == .expanded && state.focusId == "integration_github" {
                 GithubPoller.shared.refreshIfStale()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .islandToggleDiff)) { _ in
-            if let id = activeDiffId {
-                withAnimation(.easeIn(duration: 0.16)) { activeDiffId = nil }
-                _ = id
-            } else if let task = state.focusTask,
-                      let last = state.sessionDiffs[task.id]?.last {
-                withAnimation(.easeIn(duration: 0.16)) { activeDiffId = last.id }
-            }
-        }
     }
 
-    private func openAgentTarget(_ task: AgentTask?) {
-        guard let task else { return }
-        switch task.id {
-        case "integration_claude":
-            if ClaudeHost.activate(task.hostApp) { return }
-            let vscodeBundleId = "com.microsoft.VSCode"
-            if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == vscodeBundleId }) {
-                app.activate(options: .activateIgnoringOtherApps)
-            } else {
-                NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Visual Studio Code.app"))
+    /// The home (spec §6): the conversations in progress, 3 at most, above the last choices, 5 at
+    /// most, right of Klay. A permission or a question waiting has its own view, shown first.
+    private var homeContent: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ConversationsView(sessions: state.sessions)
+            if !state.recentChoices.isEmpty {
+                ChoiceHistoryView(choices: state.recentChoices)
             }
+        }
+        .padding(.top, 9)
+        .padding(.leading, 108)
+        .padding(.trailing, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The card shrinks to the 98 pt frame of an inactive view while it fades out
+        .clipped()
+    }
+
+    /// Target of the ↗ button: the pull requests on GitHub, the Spotify app.
+    private func openServiceTarget(_ task: AgentTask?) {
+        switch task?.id {
         case "integration_github":
             NSWorkspace.shared.open(URL(string: "https://github.com/pulls")!)
-        case "agent_cursor":
-            if let url = NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: "com.todesktop.230313mzl4w4u92") {
-                NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
-            }
-        case "agent_claude-desktop":
-            openClaudeDesktopApp()
         case "integration_spotify":
             SpotifyController.shared.openSpotify()
         default:
-            // Non-integration real tasks
-            TerminalTarget.activate(sessionBundleId: task.sessionBundleId)
+            break
         }
     }
 }
@@ -593,140 +536,6 @@ struct FinishedView: View {
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-}
-
-// MARK: - Diff Card
-
-struct DiffCardView: View {
-    let diff: FileDiff
-    let onDismiss: () -> Void
-
-    private var allLines: [DiffLine] { diff.hunks.flatMap { $0.lines } }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(spacing: 6) {
-                Button(action: onDismiss) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 8, weight: .medium))
-                        Text(diff.name)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(Color(hex: "#F5F6F8"))
-                }
-                .buttonStyle(.plain)
-                Spacer(minLength: 2)
-                if diff.added > 0 {
-                    Text("+\(diff.added)")
-                        .font(.system(size: 10, weight: .medium).monospaced())
-                        .foregroundColor(Color(hex: "#22C55E"))
-                }
-                if diff.removed > 0 {
-                    Text("−\(diff.removed)")
-                        .font(.system(size: 10, weight: .medium).monospaced())
-                        .foregroundColor(Color(hex: "#F4505E"))
-                }
-                Button(action: { openInEditor(diff) }) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(Color(hex: "#5F646D"))
-                        .frame(width: 14, height: 14)
-                        .background(Color.white.opacity(0.07))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 6)
-            .padding(.bottom, 3)
-
-            // Content
-            if diff.tooLarge {
-                Text("Diff too large")
-                    .font(.system(size: 10.5))
-                    .foregroundColor(Color(hex: "#6B7079"))
-            } else if allLines.isEmpty {
-                Text("No changes")
-                    .font(.system(size: 10.5))
-                    .foregroundColor(Color(hex: "#6B7079"))
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(allLines.enumerated()), id: \.offset) { _, line in
-                            DiffLineRowView(line: line)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.leading, 108)
-        .padding(.trailing, 10)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onExitCommand { onDismiss() }
-    }
-
-    private func openInEditor(_ diff: FileDiff) {
-        let path = diff.path
-        let codePaths = ["/opt/homebrew/bin/code", "/usr/local/bin/code", "/usr/bin/code",
-                         "\(NSHomeDirectory())/.nvm/current/bin/code"]
-        if let codePath = codePaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: codePath)
-            // Write: open at line 1; Edit/MultiEdit: open file without line number
-            p.arguments = diff.isNewFile ? ["-g", "\(path):1"] : [path]
-            try? p.run()
-            return
-        }
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
-    }
-}
-
-struct DiffLineRowView: View {
-    let line: DiffLine
-
-    private var bgColor: Color {
-        switch line.kind {
-        case .added:   return Color(hex: "#22C55E").opacity(0.12)
-        case .removed: return Color(hex: "#F4505E").opacity(0.12)
-        case .context: return Color.clear
-        }
-    }
-    private var fgColor: Color {
-        switch line.kind {
-        case .added:   return Color(hex: "#86EFAC")
-        case .removed: return Color(hex: "#FCA5A5")
-        case .context: return Color(hex: "#6B7079")
-        }
-    }
-    private var symbol: String {
-        switch line.kind {
-        case .added:   return "+"
-        case .removed: return "−"
-        case .context: return " "
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Text(symbol)
-                .font(.system(size: 10.5).monospaced())
-                .foregroundColor(line.kind == .added ? Color(hex: "#22C55E") :
-                                 line.kind == .removed ? Color(hex: "#F4505E") :
-                                 Color(hex: "#454850"))
-                .frame(width: 12, alignment: .leading)
-            Text(line.text)
-                .font(.system(size: 10.5).monospaced())
-                .foregroundColor(fgColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(bgColor)
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -1357,18 +1166,13 @@ struct NoteView: View {
 struct IntegrationCardView: View {
     let task: AgentTask
     @Binding var showingDetail: Bool
-    var onDiffTap: ((Int) -> Void)? = nil
     @ObservedObject private var appState = AppState.shared
     @State private var githubDetailSection: GitHubDetailSection = .myPRs
 
+    // The overview shows this card for the service pills only (GitHub, Spotify): the Claude
+    // pills show the home instead.
     private var isConfigured: Bool {
         switch task.id {
-        // Cursor sessions are Claude Code running in Cursor's integrated terminal,
-        // so the Cursor pill is set up exactly when the Claude Code hooks are.
-        case "integration_claude", "agent_cursor":
-            return HookServer.claudeHooksInstalled()
-        case "agent_claude-desktop":
-            return true  // nothing to install: the relay tags desktop sessions on its own
         case "integration_github":  return KeychainStore.shared.get("github-token")   != nil
         default: return false
         }
@@ -1376,17 +1180,9 @@ struct IntegrationCardView: View {
 
     private var openURL: URL? {
         switch task.id {
-        case "integration_claude":  return nil  // uses terminal button below
         case "integration_github":  return URL(string: "https://github.com")
         default: return nil
         }
-    }
-
-    // Workspace/agent pill with active session: show ticker layout
-    private var agentSessionActive: Bool {
-        guard let def = PillCatalog.definition(for: task.id) else { return false }
-        guard def.category == .workspace || def.category == .agent else { return false }
-        return task.state != .idle || !task.steps.isEmpty
     }
 
     // GitHub with stats or pulse loaded
@@ -1411,19 +1207,7 @@ struct IntegrationCardView: View {
 
     private var statusLabel: String {
         if PillCatalog.definition(for: task.id)?.comingSoon == true { return String(localized: "Coming soon") }
-        // Pills driven by hooks, never by a key: the idle card reports whether the
-        // hooks are in place. integration_claude read "Connected · loading…" with
-        // nothing left to load — a session replaces this card, it never resolves here.
-        let isHooks = task.id == "integration_claude" || task.id == "agent_cursor"
-        if isConfigured {
-            if isHooks { return String(localized: "Hooks installed") }
-            // No key or poller behind this pill: it only reflects hook events.
-            if task.id == "agent_claude-desktop" { return String(localized: "Ready · no setup needed") }
-            return String(localized: "Connected · loading…")
-        } else {
-            if isHooks { return String(localized: "Hooks not installed") }
-            return String(localized: "Key not configured")
-        }
+        return isConfigured ? String(localized: "Connected · loading…") : String(localized: "Key not configured")
     }
 
     var body: some View {
@@ -1455,42 +1239,6 @@ struct IntegrationCardView: View {
         } else if isSpotify {
             SpotifyCardView()
                 .transition(.opacity)
-        } else if agentSessionActive {
-            // Active session view — reuse overview layout
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color(hex: task.color))
-                        .frame(width: 7, height: 7)
-                    Text(task.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color(hex: "#F5F6F8"))
-                        .lineLimit(1).truncationMode(.tail)
-                        .layoutPriority(1)
-                    Text(PillCatalog.definition(for: task.id)?.sessionSubtitle ?? "Agent")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(hex: "#8E939C"))
-                        .lineLimit(1).truncationMode(.tail)
-                    Spacer(minLength: 2)
-                    if task.steps.count > 1 {
-                        Text("\(min(task.stepIndex + 1, task.steps.count))/\(task.steps.count)")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "#6B7079"))
-                            .fixedSize()
-                    }
-                }
-                .padding(.top, 6)
-                .padding(.leading, 108)
-                .padding(.trailing, 36)
-
-                TickerView(task: task, onDiffTap: onDiffTap)
-                    .frame(height: 44)
-                    .padding(.top, 6)
-                    .padding(.leading, 108)
-                    .padding(.trailing, 12)
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(.top, 4)
         } else {
             // Idle / not connected view — slides in from left when returning from detail
             VStack(alignment: .leading, spacing: 6) {
@@ -1498,8 +1246,7 @@ struct IntegrationCardView: View {
                     Circle()
                         .fill(Color(hex: task.color))
                         .frame(width: 7, height: 7)
-                    Text(task.id == "integration_claude" ? ClaudeHost.pillName(hostApp: task.hostApp)
-                                                         : PillCatalog.definition(for: task.id)?.name ?? task.name)
+                    Text(PillCatalog.definition(for: task.id)?.name ?? task.name)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color(hex: "#F5F6F8"))
                     Text(PillCatalog.definition(for: task.id)?.subtitle ?? "Integration")
@@ -1521,35 +1268,14 @@ struct IntegrationCardView: View {
                 .padding(.top, 2)
 
                 HStack(spacing: 8) {
-                    if task.id == "integration_claude", task.hostApp != nil {
-                        Button("Open \(ClaudeHost.name(for: task.hostApp))") { ClaudeHost.activate(task.hostApp) }
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: task.color).opacity(0.7))
-                            .buttonStyle(.plain)
-                    } else if task.id == "integration_claude" {
-                        Button("Open Visual Studio Code") { openVSCode() }
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: task.color).opacity(0.7))
-                            .buttonStyle(.plain)
-                    } else if task.id == "agent_cursor" {
-                        if let url = NSWorkspace.shared.urlForApplication(
-                            withBundleIdentifier: "com.todesktop.230313mzl4w4u92") {
-                            Button("Open Cursor") {
-                                NSWorkspace.shared.openApplication(at: url, configuration: .init(),
-                                                                   completionHandler: nil)
-                            }
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: task.color).opacity(0.85))
-                            .buttonStyle(.plain)
-                        }
-                    } else if let url = openURL {
+                    if let url = openURL {
                         Button("Open \(task.name)") { NSWorkspace.shared.open(url) }
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(hex: task.color).opacity(0.85))
                             .buttonStyle(.plain)
                     }
-                    // Settings button: shown when not configured, except cursor
-                    if !isConfigured && task.id != "agent_cursor" {
+                    // Settings button: shown when not configured
+                    if !isConfigured {
                         Button("Settings…") {
                             let section: String
                             switch PillCatalog.definition(for: task.id)?.category {
@@ -1571,34 +1297,6 @@ struct IntegrationCardView: View {
             .transition(.opacity)
         }
     }
-
-    private func openVSCode() {
-        let ids = ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium.codium"]
-        let appURL = ids.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
-
-        // If we have a project folder, open it directly in VS Code
-        if let cwd = task.sessionCwd, !cwd.isEmpty, let appURL = appURL {
-            NSWorkspace.shared.open(
-                [URL(fileURLWithPath: cwd)],
-                withApplicationAt: appURL,
-                configuration: .init(),
-                completionHandler: nil
-            )
-            return
-        }
-
-        // No cwd: activate running instance or launch fresh
-        if let running = ids.compactMap({ id in
-            NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == id }
-        }).first {
-            running.activate(options: .activateIgnoringOtherApps)
-            return
-        }
-        if let appURL = appURL {
-            NSWorkspace.shared.openApplication(at: appURL, configuration: .init(), completionHandler: nil)
-        }
-    }
-
 }
 
 // MARK: - GitHub Pulse Card View
@@ -2216,238 +1914,6 @@ private struct StatRow: View {
                 .monospacedDigit()
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-// MARK: - Ticker (overview scrolling task steps) V2
-
-struct TickerView: View {
-    let task: AgentTask?
-    var onDiffTap: ((Int) -> Void)? = nil
-
-    @State private var rowA: String = "…"   // completed (above, left-shifted)
-    @State private var rowB: String = "…"   // current (below) → animates diagonally up-left
-    @State private var rowC: String = ""    // incoming current — slides in from below
-
-    @State private var rowAOffset: CGFloat = 0
-    @State private var rowAOpacity: Double = 1
-    @State private var rowBOffset: CGFloat = 22
-    @State private var rowBPhase:  Double  = 0   // 0=current, 1=completed (drives X+scale)
-    @State private var rowCOffset: CGFloat = 44
-    @State private var rowCOpacity: Double = 0
-
-    @State private var displayIndex: Int = -1
-    @State private var isTransitioning = false
-
-    private let completedScale: CGFloat = 11.5 / 13   // 0.885 — matches completed font size
-
-    var steps: [String] {
-        let raw = task?.steps ?? []
-        return raw.isEmpty ? ["…"] : raw
-    }
-
-    var body: some View {
-        let isActive = task?.state == .thinking || task?.state == .working
-        let rowADiffTap: (() -> Void)? = rowA.parseDiffStep().map { dp in { onDiffTap?(dp.diffId) } }
-        let rowBDiffTap: (() -> Void)? = rowB.parseDiffStep().map { dp in { onDiffTap?(dp.diffId) } }
-
-        ZStack(alignment: .topLeading) {
-            Color.clear
-
-            // Row A: completed row — always rendered at phase=1 + completedScale
-            TickerRowView(text: rowA, phase: 1.0, isActive: isActive, onDiffTap: rowADiffTap)
-                .scaleEffect(completedScale, anchor: .leading)
-                .offset(x: -10, y: rowAOffset)
-                .opacity(rowAOpacity)
-
-            // Row B: current step → animates diagonally up-left, phase 0→1, scale 1→completedScale
-            TickerRowView(text: rowB, phase: rowBPhase, isActive: isActive, onDiffTap: rowBDiffTap)
-                .scaleEffect(1 - rowBPhase * (1 - completedScale), anchor: .leading)
-                .offset(x: -rowBPhase * 10, y: rowBOffset)
-
-            // Row C: incoming new step — slides in from below at phase=0
-            TickerRowView(text: rowC, phase: 0.0, isActive: isActive)
-                .offset(y: rowCOffset)
-                .opacity(rowCOpacity)
-        }
-        .frame(height: 44)
-        .clipped()
-        .mask(LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0),
-                .init(color: .black, location: 0.12),
-                .init(color: .black, location: 0.85),
-                .init(color: .clear, location: 1)
-            ],
-            startPoint: .top, endPoint: .bottom
-        ))
-        .onAppear {
-            let idx = task?.stepIndex ?? -1
-            displayIndex = idx
-            if idx >= 0, !steps.isEmpty {
-                rowA = idx > 0 ? steps[max(0, idx - 1)] : "…"
-                rowB = steps[min(idx, steps.count - 1)]
-            }
-        }
-        .onChange(of: task?.steps.count) { _, _ in
-            guard let task, !task.steps.isEmpty, !isTransitioning else { return }
-            let newIdx = task.stepIndex
-            if displayIndex < 0 {
-                displayIndex = newIdx
-                rowA = newIdx > 0 ? steps[max(0, newIdx - 1)] : "…"
-                rowB = steps[min(newIdx, steps.count - 1)]
-                return
-            }
-            guard newIdx != displayIndex else { return }
-            tickerAnimate(to: newIdx)
-        }
-    }
-
-    private func tickerAnimate(to newIdx: Int) {
-        isTransitioning = true
-        rowC = steps[min(newIdx, steps.count - 1)]
-        rowCOffset = 44
-        rowCOpacity = 0
-
-        // Old completed (rowA): fades + slides further up
-        withAnimation(.easeOut(duration: 0.28)) {
-            rowAOffset  = -22
-            rowAOpacity = 0
-        }
-
-        // Current (rowB): moves diagonally up-left + shrinks to completed size
-        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38)) {
-            rowBOffset = 0
-            rowBPhase  = 1
-        }
-
-        // New current (rowC): slides in from below
-        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38)) {
-            rowCOffset  = 22
-            rowCOpacity = 1
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) {
-            self.displayIndex    = newIdx
-            self.rowA            = self.rowB
-            self.rowAOffset      = 0
-            self.rowAOpacity     = 1
-            self.rowB            = self.rowC
-            self.rowBOffset      = 22
-            self.rowBPhase       = 0
-            self.rowCOffset      = 44
-            self.rowCOpacity     = 0
-            self.isTransitioning = false
-        }
-    }
-}
-
-struct TickerRowView: View {
-    let text: String
-    let phase: Double   // 0 = current (shimmer, large), 1 = completed (dim, scaled down by caller)
-    var isActive: Bool = true
-    var onDiffTap: (() -> Void)? = nil
-
-    var body: some View {
-        let chevronOpacity:   Double = isActive ? max(0, 1 - phase * 2)       : 0
-        let checkmarkOpacity: Double = isActive ? max(0, phase * 2 - 1)       : 1
-        let shimmerOpacity:   Double = isActive ? max(0, 1 - phase * 1.6)     : 0
-        let staticOpacity:    Double = isActive ? min(1, max(0, phase * 2 - 0.4)) : 1
-        let staticColor = (!isActive && phase < 0.5) ? Color(hex: "#C9CDD4") : Color(hex: "#6B7079")
-
-        if let dp = text.parseDiffStep() {
-            HStack(spacing: 6) {
-                ZStack {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(hex: "#8E939C"))
-                        .opacity(chevronOpacity)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 8, weight: .regular))
-                        .foregroundColor(Color(hex: "#454850"))
-                        .opacity(checkmarkOpacity)
-                }
-                .frame(width: 12, alignment: .center)
-                // Filename + counts
-                HStack(spacing: 0) {
-                    ZStack(alignment: .leading) {
-                        TickerShimmerText(text: dp.filename)
-                            .opacity(shimmerOpacity)
-                        Text(dp.filename)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(staticColor)
-                            .lineLimit(1).truncationMode(.tail)
-                            .opacity(staticOpacity)
-                    }
-                    if dp.added > 0 {
-                        Text(" +\(dp.added)")
-                            .font(.system(size: 10, weight: .medium).monospaced())
-                            .foregroundColor(Color(hex: "#22C55E"))
-                            .fixedSize()
-                    }
-                    if dp.removed > 0 {
-                        Text(" −\(dp.removed)")
-                            .font(.system(size: 10, weight: .medium).monospaced())
-                            .foregroundColor(Color(hex: "#F4505E"))
-                            .fixedSize()
-                    }
-                }
-            }
-            .frame(height: 22, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture { onDiffTap?() }
-        } else {
-            HStack(spacing: 6) {
-                // Icon: chevron fades out first half, checkmark fades in second half
-                ZStack {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(hex: "#8E939C"))
-                        .opacity(chevronOpacity)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 8, weight: .regular))
-                        .foregroundColor(Color(hex: "#454850"))
-                        .opacity(checkmarkOpacity)
-                }
-                .frame(width: 12, alignment: .center)
-
-                // Text: shimmer fades out, dim completed text fades in (overlapping cross-fade)
-                ZStack(alignment: .leading) {
-                    TickerShimmerText(text: text)
-                        .opacity(shimmerOpacity)
-                    Text(text)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(staticColor)
-                        .lineLimit(1).truncationMode(.tail)
-                        .opacity(staticOpacity)
-                }
-            }
-            .frame(height: 22, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-struct TickerShimmerText: View {
-    let text: String
-
-    var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            let p = CGFloat(t.truncatingRemainder(dividingBy: 2.2) / 2.2)
-            // phase sweeps -0.1 → 1.1 so white peak enters from left and exits right
-            let phase = p * 1.2 - 0.1
-            Text(text)
-                .font(.system(size: 13, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(LinearGradient(stops: [
-                    .init(color: Color(hex: "#7c818a"), location: max(0, phase - 0.3)),
-                    .init(color: Color(hex: "#F2F3F5"), location: max(0, min(1, phase))),
-                    .init(color: Color(hex: "#7c818a"), location: min(1, phase + 0.3)),
-                ], startPoint: .leading, endPoint: .trailing))
-        }
     }
 }
 

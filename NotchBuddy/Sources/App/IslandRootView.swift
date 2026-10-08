@@ -370,7 +370,9 @@ func botPosition(mode: IslandMode, view: IslandView, islandW: CGFloat, islandH: 
         if let fixedY = layout.botY {
             cy = fixedY
         } else {
-            // Center of the fixed 84pt card (VStack top=8, header=34 → content starts at y=42)
+            // Center of the fixed 84pt card (VStack top=8, header=34 → content starts at y=42).
+            // The formula only uses the island height: on the 220pt home Klay stays centred on
+            // the taller card the same way (y = 131).
             let headerBottom: CGFloat = 42
             let cardH: CGFloat = 84
             cy = headerBottom + (islandH - headerBottom - cardH) / 2 + cardH / 2
@@ -438,9 +440,9 @@ struct IslandContentView: View {
                 ForEach(IslandView.allCases, id: \.self) { v in
                     let active = state.view == v
                     // Views that fill available height instead of the fixed 98pt content frame:
-                    // chat (prompt) is always flexible; mail is flexible only when active so
-                    // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || (v == .mail && active)
+                    // chat (prompt) is always flexible; mail and the home (overview, 168 pt card) are
+                    // flexible only when active so they don't push the ZStack taller when inactive.
+                    let isTall = v == .prompt || ((v == .mail || v == .overview) && active)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
                         : .easeIn(duration: 0.16)
