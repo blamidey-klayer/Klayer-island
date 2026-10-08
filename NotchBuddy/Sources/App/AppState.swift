@@ -211,6 +211,10 @@ final class AppState: ObservableObject {
     // project, its last sentence, the app it runs in) even when its pill is shared with another
     // session or gone. Nil falls back to the pill in focus.
     @Published var finishedSession: SessionRow? = nil
+    // The session the error view tells about, set when a StopFailure opens the island on it, like
+    // `finishedSession`: its project, its error text (`lastAction`, empty when the hook gave none)
+    // and the app it runs in. Nil falls back to the pill in focus.
+    @Published var failedSession: SessionRow? = nil
 
     /// `hostBundleId`: the app the session runs in, nil keeps the one the row has.
     func updateSession(sessionId: String, pillId: String, title: String, phase: SessionPhase,

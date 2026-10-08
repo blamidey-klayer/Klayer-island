@@ -516,19 +516,43 @@ struct QuestionView: View {
 struct ErrorView: View {
     @ObservedObject var state: AppState
 
+    /// The pill of the session that failed (nil once the pill is gone), else the pill in focus.
+    private var pillTask: AgentTask? {
+        guard let session = state.failedSession else { return state.focusTask }
+        return state.tasks.first { $0.id == session.pillId }
+    }
+
+    /// Who failed: the project of that session on the color of its pill.
+    private var who: AgentTask? {
+        guard let session = state.failedSession else { return state.focusTask }
+        let color = pillTask?.color ?? PillCatalog.definition(for: session.pillId)?.color ?? "#C0C4CC"
+        return AgentTask(id: session.pillId, name: session.title, color: color, state: .error,
+                         steps: [], source: .agent)
+    }
+
+    /// The error text of the StopFailure hook, else a line saying there is none.
+    private var detail: Text {
+        if let text = state.failedSession?.lastAction, !text.isEmpty { return Text(verbatim: text) }
+        return Text("No error details available.")
+    }
+
     var body: some View {
         ZStack {
             CardBackground(wash: .error)
             VStack(alignment: .leading, spacing: 5) {
-                AgentWho(task: state.focusTask, label: "Failed")
-                Text("Workflow stopped.")
+                AgentWho(task: who, label: "Failed")
+                Text("Claude s'est arrêté sur une erreur")
                     .font(.system(size: 15, weight: .semibold))
-                Text("No error details available.")
+                detail
                     .font(.system(size: 12))
                     .foregroundColor(Color(hex: "#FF8D97"))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 HStack(spacing: 8) {
-                    PrimaryButton("Retry") { /* retry */ }
-                    SecondaryButton("Open") { /* open */ }
+                    SessionOpenButton(session: state.failedSession, pillTask: pillTask)
+                    SecondaryButton("OK") {
+                        NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                    }
                 }
             }
             .padding(.leading, 116)
@@ -545,6 +569,47 @@ private let claudeDesktopBundleId = "com.anthropic.claudefordesktop"
 private func openClaudeDesktopApp() {
     if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeDesktopBundleId) {
         NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
+    }
+}
+
+/// The open button of the finished and error views, then the island folds. A session of the Claude
+/// desktop app opens the app (« Open Claude »); a Claude Code session brings forward the app it runs
+/// in, its terminal or its editor, then any known terminal (« Open terminal »). `session` is the
+/// session the view tells about, nil for the pill in focus (`pillTask`).
+private struct SessionOpenButton: View {
+    let session: SessionRow?
+    let pillTask: AgentTask?
+
+    /// Sessions from the Claude desktop app live there, not in a terminal.
+    private var isDesktopSession: Bool {
+        (session?.pillId ?? pillTask?.id) == HookRouting.desktopPillId
+    }
+
+    var body: some View {
+        if isDesktopSession {
+            PrimaryButton("Open Claude") {
+                openClaudeDesktopApp()
+                NotificationCenter.default.post(name: .islandCollapse, object: nil)
+            }
+        } else {
+            PrimaryButton("Open terminal") {
+                // The app the session runs in (its terminal or its editor), then any known terminal.
+                // The session's own host: its pill may carry another session now.
+                let opened: Bool
+                if let session {
+                    opened = ClaudeHost.activate(session.hostBundleId)
+                        || TerminalTarget.activate(sessionBundleId: session.hostBundleId)
+                } else {
+                    let task = pillTask
+                    opened = (task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp))
+                        || TerminalTarget.activate(sessionBundleId: task?.sessionBundleId)
+                }
+                if !opened {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+                }
+                NotificationCenter.default.post(name: .islandCollapse, object: nil)
+            }
+        }
     }
 }
 
@@ -567,11 +632,6 @@ struct FinishedView: View {
                          steps: [], source: .agent)
     }
 
-    /// Sessions from the Claude desktop app live there, not in a terminal.
-    private var isDesktopSession: Bool {
-        (state.finishedSession?.pillId ?? state.focusTask?.id) == HookRouting.desktopPillId
-    }
-
     var body: some View {
         ZStack {
             CardBackground(wash: .finished)
@@ -589,30 +649,7 @@ struct FinishedView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 HStack(spacing: 8) {
-                    if isDesktopSession {
-                        PrimaryButton("Open Claude") {
-                            openClaudeDesktopApp()
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
-                        }
-                    } else {
-                        PrimaryButton("Open terminal") {
-                            // The app the finished session runs in (its terminal or its editor), then any
-                            // known terminal. The session's own host: its pill may carry another session now.
-                            let opened: Bool
-                            if let session = state.finishedSession {
-                                opened = ClaudeHost.activate(session.hostBundleId)
-                                    || TerminalTarget.activate(sessionBundleId: session.hostBundleId)
-                            } else {
-                                let task = pillTask
-                                opened = (task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp))
-                                    || TerminalTarget.activate(sessionBundleId: task?.sessionBundleId)
-                            }
-                            if !opened {
-                                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
-                            }
-                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
-                        }
-                    }
+                    SessionOpenButton(session: state.finishedSession, pillTask: pillTask)
                     SecondaryButton("OK") {
                         NotificationCenter.default.post(name: .islandCollapse, object: nil)
                     }

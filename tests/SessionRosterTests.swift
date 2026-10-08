@@ -27,6 +27,8 @@ enum SessionRosterTests {
             ("a_bash_search_raises_them_other_commands_work", aBashSearchRaisesThemOtherCommandsWork),
             ("post_tool_use_keeps_the_binoculars_1_5_s", postToolUseKeepsTheBinoculars15s),
             ("a_searching_row_is_pruned_like_a_working_one", aSearchingRowIsPrunedLikeAWorkingOne),
+            ("a_failure_says_the_error_claude_shows", aFailureSaysTheErrorClaudeShows),
+            ("a_failure_without_text_has_none", aFailureWithoutTextHasNone),
         ]
         for (name, run) in cases {
             run()
@@ -385,5 +387,29 @@ enum SessionRosterTests {
         precondition(roster.rows.count == 1, "a search is work in progress, not an ended session")
         roster.prune(now: at(minutes: 121))
         precondition(roster.rows.isEmpty, "after 2 hours of silence it goes like a working row")
+    }
+
+    // MARK: - What the error view says (review I6)
+
+    static func aFailureSaysTheErrorClaudeShows() {
+        // The StopFailure input of the Claude Code hooks reference: `error` (the type),
+        // optional `error_details`, optional `last_assistant_message` (the rendered error text).
+        let full: [String: Any] = ["hook_event_name": "StopFailure", "error": "rate_limit",
+                                   "error_details": "429 Too Many Requests",
+                                   "last_assistant_message": "API Error: Rate limit reached"]
+        precondition(SessionRoster.failureText(of: full) == "API Error: Rate limit reached",
+                     "the error text Claude shows comes first")
+        precondition(SessionRoster.failureText(of: ["error": "server_error", "error_details": "500 Internal\nServer Error"])
+                     == "500 Internal Server Error", "then the details, on one line")
+        precondition(SessionRoster.failureText(of: ["error": "billing_error", "last_assistant_message": "  "])
+                     == "billing_error", "then the error type")
+        let long = SessionRoster.failureText(of: ["last_assistant_message": String(repeating: "x", count: 200)]) ?? ""
+        precondition(long.count == SessionRoster.lastActionLimit && long.hasSuffix("…"), "cut like a row line")
+    }
+
+    static func aFailureWithoutTextHasNone() {
+        precondition(SessionRoster.failureText(of: ["hook_event_name": "StopFailure"]) == nil)
+        precondition(SessionRoster.failureText(of: ["error": "", "error_details": 42]) == nil,
+                     "empty or non-text fields say nothing: the view says no details are available")
     }
 }

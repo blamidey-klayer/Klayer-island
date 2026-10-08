@@ -135,6 +135,18 @@ struct SessionRoster {
             : collapsed
     }
 
+    /// What went wrong in a `StopFailure`, as one line of a row, nil when the hook says nothing.
+    /// Its input (Claude Code hooks reference) carries `error`, the type (`rate_limit`,
+    /// `server_error`…), and optionally `error_details` and `last_assistant_message`, the error text
+    /// Claude shows in the conversation (« API Error: Rate limit reached »): that text first, then
+    /// the details, then the type.
+    static func failureText(of payload: [String: Any]) -> String? {
+        for key in ["last_assistant_message", "error_details", "error"] {
+            if let text = payload[key] as? String, let one = line(text) { return one }
+        }
+        return nil
+    }
+
     /// The app a session runs in, from its hook event: the terminal the routing found (from the
     /// bundle id or TERM_PROGRAM), else the bundle id the hook reported (an editor, the Claude
     /// app), nil when there is none.

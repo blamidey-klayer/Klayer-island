@@ -606,6 +606,13 @@ final class HookServer: @unchecked Sendable {
                 expanded: state.mode == .expanded, view: state.view.rawValue, pinned: state.isPinned,
                 requestPending: state.pendingApproval != nil || state.pendingQuestion != nil)
             if presentation == .open, state.tasks.contains(where: { $0.id == agentId }) {
+                // The error view tells which session failed and why, like the finished view: its
+                // project, the error text of the hook (none: the view says so), the app it runs in.
+                var failed = state.sessions.first { $0.id == sessionId }
+                    ?? SessionRow(id: sessionId, pillId: agentId, title: projectName, phase: .error,
+                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost)
+                failed.lastAction = SessionRoster.failureText(of: payload) ?? ""
+                state.failedSession = failed
                 if state.focusId != agentId {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
                 }
@@ -1159,6 +1166,7 @@ final class HookServer: @unchecked Sendable {
             action = SessionRoster.line(Self.finalText(of: payload))
         case "StopFailure":
             phase = .error
+            action = SessionRoster.failureText(of: payload)
         case "SessionEnd":
             AppState.shared.endSession(sessionId)
             return
