@@ -33,6 +33,7 @@ final class HookServer: @unchecked Sendable {
     private var questionFDSource: (any DispatchSourceRead)? = nil  // monitors pendingQuestionFD
 
     private var questionPillId: String = ""           // pill that owns the pending question
+    private var questionSessionId: String? = nil      // session that owns the pending question
     private var focusBeforeQuestion: String? = nil    // saved focus to restore after question
     private var activeSessionId: String? = nil        // current Claude Code session
     private var focusBeforeApproval: String? = nil    // saved focus to restore after approval
@@ -57,9 +58,11 @@ final class HookServer: @unchecked Sendable {
         pendingApprovalFD = -1
         let state = AppState.shared
         let pillId = state.pendingApproval?.pillId ?? "integration_claude"
+        let sessionId = state.pendingApproval?.sessionId
         state.pendingApproval = nil
         state.isPinned = false
         state.updateTask(id: pillId, state: .working)
+        resumeSession(sessionId)
         clearPillBadge(id: pillId)
         // Restore focus to the pill that was focused before the approval card appeared.
         if let prev = focusBeforeApproval {
@@ -89,6 +92,8 @@ final class HookServer: @unchecked Sendable {
         pendingQuestionFD = -1
         let state = AppState.shared
         let pillId = questionPillId
+        resumeSession(questionSessionId)
+        questionSessionId = nil
         state.pendingQuestion = nil
         state.isPinned = false
         state.updateTask(id: pillId, state: .working)
@@ -386,9 +391,30 @@ final class HookServer: @unchecked Sendable {
                 }
             default: break
             }
-            if !resolved { return }
+            if !resolved {
+                // Another session of the pill keeps its own row; the one that owns the card stays on "approval".
+                if sessionId != pending.sessionId {
+                    trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName)
+                }
+                return
+            }
             // Approval dismissed — fall through so the resolving event updates state normally.
         }
+
+        // A question card of this pill waits for its answer. A turn that ends in ANOTHER session of the
+        // same pill must not put the pill on finished or error under the card, nor open over it: that
+        // session's row is updated, the pill is badged, the card stays. (The session that owns the
+        // question goes on below: its Stop only badges the pill while the card waits.)
+        if name == "Stop" || name == "StopFailure",
+           state.pendingQuestion != nil, agentId == questionPillId,
+           let owner = questionSessionId, sessionId != owner {
+            trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName)
+            SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
+            setPillBadge(id: agentId, badge: name == "Stop" ? .finished : .error)
+            return
+        }
+
+        trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName)
 
         switch name {
 
@@ -441,8 +467,7 @@ final class HookServer: @unchecked Sendable {
 
         case "Notification":
             let message = payload["message"] as? String ?? ""
-            let lower = message.lowercased()
-            if lower.contains("rate limit") || lower.contains("limite d") {
+            if Self.isRateLimit(message) {
                 state.updateTask(id: agentId, state: .ratelimit)
                 SoundEngine.shared.play("rate")
             } else if message.hasSuffix("?") {
@@ -452,9 +477,7 @@ final class HookServer: @unchecked Sendable {
 
         case "Stop":
             state.updateTask(id: agentId, state: .finished)
-            let rawFinal = (payload["last_assistant_message"] as? String)
-                ?? (payload["message"] as? String) ?? ""
-            let finalText = DiffEngine.toOneLine(rawFinal)
+            let finalText = Self.finalText(of: payload)
             if !finalText.isEmpty {
                 appendStep(id: agentId, step: finalText)
                 if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) {
@@ -462,10 +485,13 @@ final class HookServer: @unchecked Sendable {
                 }
             }
             SoundEngine.shared.play("finish")
-            if focused {
-                expandIfNeeded(to: .finished)
-            } else {
+            if state.pendingApproval != nil || state.pendingQuestion != nil {
+                // A permission or a question waits for the user: its card keeps the island, the pill is only badged.
                 setPillBadge(id: agentId, badge: .finished)
+            } else if state.tasks.contains(where: { $0.id == agentId }) {
+                // Claude finished a session: the island opens on its end (spec §4), whether or not its pill has the focus.
+                if !focused { withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) } }
+                expandIfNeeded(to: .finished)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
                 if isExternalAgent {
@@ -643,6 +669,8 @@ final class HookServer: @unchecked Sendable {
         upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName, cwd: cwd,
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .approval)
+        state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .approval,
+                            lastAction: rosterLine(command))
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
                                               command: command, inputKey: inputKey, pillId: pillId)
         state.isPinned = true
@@ -711,9 +739,11 @@ final class HookServer: @unchecked Sendable {
                                                 command: info.command, date: Date()) {
             state.recordChoice(record)
         }
+        let answeredSessionId = state.pendingApproval?.sessionId
         state.pendingApproval = nil
         state.isPinned = false
         state.updateTask(id: pillId, state: .working)
+        resumeSession(answeredSessionId)
         clearPillBadge(id: pillId)
         // Restore focus to the pill that was focused before the approval card appeared.
         if let prev = focusBeforeApproval {
@@ -763,10 +793,13 @@ final class HookServer: @unchecked Sendable {
         pendingQuestionFD = fd
         activeSessionId = sessionId
         questionPillId = pillId
+        questionSessionId = sessionId
 
         upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName, cwd: cwd,
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .question)
+        state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .question,
+                            lastAction: parsed.questions.first.flatMap { rosterLine($0.question) })
         state.pendingQuestion = parsed
         state.isPinned = true
         SoundEngine.shared.play("approval")
@@ -907,6 +940,77 @@ final class HookServer: @unchecked Sendable {
         state.tasks[idx].steps.append(step)
         if state.tasks[idx].steps.count > 20 { state.tasks[idx].steps.removeFirst() }
         state.tasks[idx].stepIndex = state.tasks[idx].steps.count - 1
+    }
+
+    // MARK: - Session roster
+
+    /// Feeds the roster of running sessions (one row per session) from a hook event, titled with the
+    /// project folder name. Events that say nothing new about a session (PostToolUse, SubagentStart…)
+    /// leave its row alone. Permissions and questions feed it from their own request.
+    @MainActor
+    private func trackSession(event name: String, payload: [String: Any], sessionId: String,
+                              pillId: String, title: String) {
+        let phase: SessionPhase
+        var action: String? = nil
+        switch name {
+        case "SessionStart":
+            phase = .idle
+            action = "Session démarrée"
+        case "UserPromptSubmit":
+            phase = .thinking
+            if let prompt = payload["prompt"] as? String { action = rosterLine(String(prompt.prefix(60))) }
+        case "PreToolUse":
+            let tool = payload["tool_name"] as? String ?? "Tool"
+            // AskUserQuestion has its own card: processQuestionRequest puts the row on "question".
+            guard tool != "AskUserQuestion" else { return }
+            phase = .working
+            action = rosterLine(localizedStep(tool: tool, input: payload["tool_input"] as? [String: Any] ?? [:]))
+        case "Notification":
+            guard Self.isRateLimit(payload["message"] as? String ?? "") else { return }
+            phase = .ratelimit
+        case "Stop":
+            phase = .finished
+            action = rosterLine(Self.finalText(of: payload))
+        case "StopFailure":
+            phase = .error
+        case "SessionEnd":
+            AppState.shared.endSession(sessionId)
+            return
+        default:
+            return
+        }
+        AppState.shared.updateSession(sessionId: sessionId, pillId: pillId, title: title,
+                                      phase: phase, lastAction: action)
+    }
+
+    /// The card of a session was answered or closed: its row leaves "approval" or "question" and goes
+    /// back to "working", like its pill. A row that moved on since (finished, failed) stays as it is.
+    @MainActor
+    private func resumeSession(_ sessionId: String?) {
+        let state = AppState.shared
+        guard let sessionId,
+              let row = state.sessions.first(where: { $0.id == sessionId }),
+              row.phase == .approval || row.phase == .question else { return }
+        state.updateSession(sessionId: sessionId, pillId: row.pillId, title: row.title,
+                            phase: .working, lastAction: nil)
+    }
+
+    /// A text as one row line, nil when empty so the row keeps its last action.
+    private func rosterLine(_ text: String) -> String? {
+        let line = oneLine(text, limit: SessionRoster.lastActionLimit)
+        return line.isEmpty ? nil : line
+    }
+
+    /// One line of the last assistant message of a Stop ("" when there is none).
+    private static func finalText(of payload: [String: Any]) -> String {
+        let raw = (payload["last_assistant_message"] as? String) ?? (payload["message"] as? String) ?? ""
+        return DiffEngine.toOneLine(raw)
+    }
+
+    /// A Notification that says the usage limit was reached.
+    private static func isRateLimit(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("rate limit") || lower.contains("limite d")
     }
 
     // MARK: - Project name alias mapping

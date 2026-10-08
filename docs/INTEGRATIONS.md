@@ -31,12 +31,14 @@ claude (terminal, VS Code, app Claude)
 | `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; un échec reste `working` |
 | `PermissionRequest` | alerte `approval` (voir plus bas) |
 | `Notification` | selon le type : attente d'entrée → `question` si une question est posée, sinon rien ; limite d'usage → `ratelimit` |
-| `Stop` | état `finished` → vue `finished` 5,2 s, résumé = dernière phrase utile de la réponse si disponible |
+| `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette pastille, qu'elle ait le focus ou non (sauf si une autorisation ou une question attend : la pastille reçoit alors un badge) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
 | `StopFailure` (si présent dans la doc) | alerte `error` |
 | `SubagentStart` / `SubagentStop` | afficher « + sous-agent » dans le défilé |
 | `SessionEnd` | retire la tâche |
 
 Vérifier dans la doc la liste exacte des événements et leurs champs.
+
+**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase, dernière action (80 caractères au plus). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes est retirée, toute autre depuis 2 heures, sauf `approval` et `question`. Le ménage se fait à chaque événement, jamais sur minuterie.
 
 ### Approuver depuis le notch
 - Sur `PermissionRequest`, `nb-hook` **attend** la décision de l'app (défaut 110 s, réglable) puis écrit sur stdout le JSON de décision du hook (d'après la doc actuelle : `hookSpecificOutput` avec `decision.behavior` = `allow` ou `deny`). Timeout du hook dans settings.json : décision + 10 s.
