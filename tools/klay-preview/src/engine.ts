@@ -284,6 +284,15 @@ export function limbTargets(
   return { lh, rh, lf, rf };
 }
 
+/**
+ * The "arms open" pose of the drop zone: both hands out to the sides, a little above
+ * the eyes, welcoming the file. In Klay's frame (glyph units). Mirror of
+ * KlayPaint.armsOpenTargets on the Mac.
+ */
+export function armsOpenTargets(): { lh: P; rh: P } {
+  return { lh: { x: -200, y: -40 }, rh: { x: 200, y: -40 } };
+}
+
 /** The glyph, white, placed so that its hub sits on Klay's origin. */
 export function drawKlayGlyph(x: CanvasRenderingContext2D) {
   x.save();
@@ -351,6 +360,35 @@ export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: str
     x.arc(sh.x, sh.y, LIMB_W / 2 + LIMB_RIM + 1, 0, Math.PI * 2);
     x.fill();
   }
+  x.restore();
+}
+
+/**
+ * Klay in the drop zone: the glyph, wide eyes, legs at rest and both arms open
+ * (armsOpenTargets), centred on (cx, cy) in canvas px. `height` is the figure's
+ * height, from the top of the glyph to the soles. `t` (seconds) drives the idle
+ * motion: a slow bob, hands that sway, a blink every 3.6 s. `look` is where he
+ * looks, −1…1 each way. Mirror of KlayPaint.drawDropInvite on the Mac.
+ */
+export function drawKlayDrop(
+  x: CanvasRenderingContext2D, cx: number, cy: number, height: number, t: number,
+  look: { yaw: number; pitch: number } = { yaw: 0, pitch: 0 },
+) {
+  const s = height / (BOTTOM - TOP); // px per glyph unit
+  const bob = Math.sin(t * 1.8) * 8;
+  const arms = armsOpenTargets();
+  const lh = { x: arms.lh.x, y: arms.lh.y + Math.sin(t * 1.8 - 1) * 6 };
+  const rh = { x: arms.rh.x, y: arms.rh.y + Math.sin(t * 1.8 + 1) * 6 };
+  const ph = t % 3.6;
+  const open = ph < 0.14 ? Math.abs(ph / 0.07 - 1) : 1;
+  x.save();
+  x.translate(cx, cy - CENTER_Y * s);
+  x.scale(s, s);
+  x.translate(0, bob);
+  drawKlayLegs(x, { x: -FOOT_REST.x, y: FOOT_REST.y }, FOOT_REST);
+  drawKlayGlyph(x);
+  drawKlayArms(x, lh, rh);
+  drawKlayEyes(x, { shape: "wide", open, es: 1, yaw: look.yaw, pitch: look.pitch, ink: INK }, 1, 0, 0);
   x.restore();
 }
 

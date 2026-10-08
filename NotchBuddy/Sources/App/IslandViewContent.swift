@@ -745,23 +745,21 @@ struct UploadView: View {
                     colors: [Color(hex: "#22C55E").opacity(state.fileDragOver ? 0.13 : 0), Color.clear],
                     center: .bottom, startRadius: 0, endRadius: 200
                 ))
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Drop your files here")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(state.fileDragOver ? Color(hex: "#34D399") : Color(hex: "#D5D7DB"))
-                HStack(spacing: 6) {
-                    ForEach(["PDF", "Images", "Code", "Docs"], id: \.self) { label in
-                        Text(label)
-                            .font(.system(size: 11))
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Color.white.opacity(0.07))
-                            .foregroundColor(Color(hex: "#B9BDC4"))
-                            .clipShape(Capsule())
+            // The invitation: Klay himself, arms open, then the text (same figure as the
+            // drag-over canvas, UploadCanvasView).
+            VStack(spacing: 8) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                    Canvas { ctx, size in
+                        KlayPaint.drawDropInvite(ctx, center: CGPoint(x: size.width / 2, y: size.height / 2),
+                                                 height: 72, time: tl.date.timeIntervalSinceReferenceDate)
                     }
                 }
+                .frame(width: 160, height: 76)
+                Text("Dépose ton fichier")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(state.fileDragOver ? Color(hex: "#34D399") : Color(hex: "#D5D7DB"))
             }
-            .padding(.leading, 196)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .onChange(of: state.view) { _, newView in
             newView == .upload ? startTimer() : stopTimer()

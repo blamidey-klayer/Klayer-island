@@ -3,7 +3,7 @@
 // Not part of the app. ?freeze=<seconds> stops every engine after that long,
 // for screenshots; ?size=<px> changes the cell size.
 
-import { BotEngine, hexToRGB } from "./engine";
+import { BotEngine, drawKlayDrop, hexToRGB } from "./engine";
 import type { BotEmoteName, BotStateName } from "./types";
 
 const STATES: BotStateName[] = [
@@ -15,6 +15,8 @@ const EMOTES: BotEmoteName[] = ["love", "surprised", "proud", "wink", "yawn", "h
 const grid = document.getElementById("grid")!;
 const minis = document.getElementById("minis")!;
 const engines: { e: BotEngine; c: HTMLCanvasElement; size: number }[] = [];
+// Cells drawn by a function instead of an engine (the drop zone).
+const drawers: { c: HTMLCanvasElement; w: number; h: number; draw: (x: CanvasRenderingContext2D, t: number) => void }[] = [];
 
 const SIZE = Number(new URLSearchParams(location.search).get("size") ?? "180");
 function cell(label: string, size = SIZE, host: HTMLElement = grid) {
@@ -48,6 +50,60 @@ box.morph = 1;
 box.slotH = 0.35;
 box.slotHTarget = 0.35;
 
+// The drop zone: Klay with wide eyes and both arms open, welcoming the file.
+// First the pose in a sheet cell, then at real size in the island's drop card
+// (620 × 124), with the mailbox that follows the cursor and the text, as the Mac
+// app lays them out (UploadCanvasView, drag over the island).
+function drawerCell(label: string, w: number, h: number, draw: (x: CanvasRenderingContext2D, t: number) => void, host: HTMLElement = grid) {
+  const d = document.createElement("div");
+  d.className = "cell";
+  const c = document.createElement("canvas");
+  c.width = w * 2;
+  c.height = h * 2;
+  c.style.width = `${w}px`;
+  c.style.height = `${h}px`;
+  d.append(c, label);
+  host.append(d);
+  drawers.push({ c, w, h, draw });
+}
+
+drawerCell("dépôt", SIZE, SIZE, (x, t) => {
+  drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.7, t);
+});
+
+const CARD_W = 620, CARD_H = 124;
+const actor = new BotEngine();
+actor.morph = 1;
+actor.slotH = 0.2;
+actor.slotHTarget = 0.2;
+drawerCell("dépôt, taille réelle (carte 620 × 124)", CARD_W, CARD_H, (x, t) => {
+  x.fillStyle = "#0D0E10";
+  x.beginPath();
+  x.roundRect(0, 0, CARD_W, CARD_H, 20);
+  x.fill();
+  x.strokeStyle = "rgba(255,255,255,0.14)";
+  x.lineWidth = 1.5;
+  x.setLineDash([6, 5]);
+  x.beginPath();
+  x.roundRect(0.75, 0.75, CARD_W - 1.5, CARD_H - 1.5, 19.5);
+  x.stroke();
+  x.setLineDash([]);
+  // The mailbox that follows the cursor, at its resting place (140, 104 on the island).
+  const W = 99.4;
+  x.save();
+  x.translate(130 - W / 2, 62 - W / 2);
+  actor.update(0.016);
+  actor.draw(x, W, W);
+  x.restore();
+  // The invitation: Klay 72 px tall and the text, centred on the card.
+  drawKlayDrop(x, CARD_W / 2, 50, 72, t);
+  x.fillStyle = "#D5D7DB";
+  x.font = `500 13px system-ui, sans-serif`;
+  x.textAlign = "center";
+  x.textBaseline = "middle";
+  x.fillText("Dépose ton fichier", CARD_W / 2, 102);
+}, minis);
+
 for (const [state, color] of [
   ["working", "#D97757"], ["approval", "#635BFF"], ["finished", "#24292F"], ["idle", "#10323B"], ["sleeping", "#3E7280"],
 ] as const) {
@@ -69,6 +125,12 @@ function loop(now: number) {
     x.setTransform(2, 0, 0, 2, 0, 0);
     x.clearRect(0, 0, size, size);
     e.draw(x, size, size);
+  }
+  for (const { c, w, h, draw } of drawers) {
+    const x = c.getContext("2d")!;
+    x.setTransform(2, 0, 0, 2, 0, 0);
+    x.clearRect(0, 0, w, h);
+    draw(x, (now - t0) / 1000);
   }
   if (!freeze || now - t0 < freeze * 1000) requestAnimationFrame(loop);
 }

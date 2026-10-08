@@ -133,9 +133,9 @@ struct UploadCanvasView: View {
                              style: StrokeStyle(lineWidth:1.5, dash:[6,5], dashPhase: dashPhase))
         }
 
-        // ── Drop zone text ─────────────────────────────────────────
+        // ── Drop zone: Klay, arms open, and the invitation ─────────
         if f.zoneAlpha > 0 && f.textAlpha > 0 {
-            drawDropText(ctx: &c, f: f)
+            drawDropZone(ctx: &c, f: f, wallTime: wallTime)
         }
 
         // ── Progress bar ──────────────────────────────────────────
@@ -155,28 +155,33 @@ struct UploadCanvasView: View {
         if f.fileVisible { drawFile(ctx: &c, f: f) }
     }
 
-    // MARK: - Drop zone text + chips
+    // MARK: - Drop zone (Klay with open arms)
 
-    private func drawDropText(ctx: inout GraphicsContext, f: USFrame) {
+    /// The invitation: Klay himself, arms open, centred on the card with « Dépose ton
+    /// fichier » under him. He is drawn by KlayPaint.drawDropInvite (same recipe as the
+    /// "dépôt" cell of tools/klay-preview) and looks at the file being dragged. Like the
+    /// text it replaces, he fades with the zone and dims while the mailbox passes over him
+    /// (f.textAlpha). The mailbox sequence that follows is not touched.
+    private func drawDropZone(ctx: inout GraphicsContext, f: USFrame, wallTime: Double) {
         var tCtx = ctx
         tCtx.opacity = f.textAlpha
 
-        let label = Text("Drop your files here")
-            .font(.system(size:13, weight:.medium))
-            .foregroundColor(Color(hex:"#D5D7DB"))
-        tCtx.draw(label, at: CGPoint(x: USC.TEXT_X, y: USC.TEXT_Y - 4), anchor: .leading)
+        let cx = CGFloat(USC.CARD_X + USC.CARD_W / 2)
+        let klayCY = CGFloat(USC.CARD_Y + 50)      // 72 px figure: 14 px under the card's top edge
+        let textY  = CGFloat(USC.CARD_Y + 102)
 
-        let chips = ["PDF","Images","Code","Docs"]
-        var cx = USC.TEXT_X
-        for chip in chips {
-            let chipText = Text(chip).font(.system(size:11, weight:.medium)).foregroundColor(Color(hex:"#B9BDC4"))
-            // measure approximate width
-            let estW = Double(chip.count) * 6.5 + 16
-            tCtx.fill(roundedRect(CGRect(x:cx, y:USC.TEXT_Y+9, width:estW, height:18), r:9),
-                      with: .color(Color.white.opacity(0.07)))
-            tCtx.draw(chipText, at: CGPoint(x: cx + 8, y: USC.TEXT_Y + 18), anchor: .leading)
-            cx += estW + 6
-        }
+        // Gaze: towards the cursor, with the same reach as the mailbox's.
+        let lx = max(-1, min(1, (f.cursorX - Double(cx)) / 200))
+        let ly = max(-1, min(1, (f.cursorY + 10 - Double(klayCY)) / 150))
+        let look = CGPoint(x: CGFloat(lx) * 14, y: CGFloat(ly) * 12)
+
+        KlayPaint.drawDropInvite(tCtx, center: CGPoint(x: cx, y: klayCY), height: 72,
+                                 look: look, time: wallTime)
+
+        let label = Text("Dépose ton fichier")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(Color(hex: "#D5D7DB"))
+        tCtx.draw(label, at: CGPoint(x: cx, y: textY), anchor: .center)
     }
 
     // MARK: - Progress bar

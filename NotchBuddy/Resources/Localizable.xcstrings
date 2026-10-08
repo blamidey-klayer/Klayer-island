@@ -2049,70 +2049,6 @@
         }
       }
     },
-    "Drop your files here": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أسقط ملفاتك هنا"
-          }
-        },
-        "bn": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "আপনার ফাইলগুলি এখানে ড্রপ করুন"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop your files here"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suelta tus archivos aquí"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dépose tes fichiers ici"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "अपनी फ़ाइलें यहाँ छोड़ें"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Letakkan file Anda di sini"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solte seus arquivos aqui"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перетащите файлы сюда"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "把文件拖到这里"
-          }
-        }
-      }
-    },
     "Enable sounds": {
       "localizations": {
         "ar": {
@@ -12104,6 +12040,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nouvelle note Granola"
+          }
+        }
+      }
+    },
+    "Dépose ton fichier": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dépose ton fichier"
           }
         }
       }

@@ -33,6 +33,11 @@ enum KlayPaint {
     static let handRest = CGPoint(x: 168, y: 150)
     static let footRest = CGPoint(x: 36, y: 212)
     static let limbW: CGFloat = 26
+    /// Teal-deep rim around the arms drawn in front of the glyph (drawArms).
+    static let limbRim: CGFloat = 7
+    /// Shoulders of the arms drawn in front of the glyph, relative to the hub centre
+    /// (right side; the left mirrors). They sit on the hub, inside the rays.
+    static let armShoulder = CGPoint(x: 82, y: 50)
     static let handR: CGFloat = 26
     static let footRX: CGFloat = 32
     static let footRY: CGFloat = 15
@@ -153,6 +158,12 @@ enum KlayPaint {
         CGPoint(x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k)
     }
 
+    /// The "arms open" pose of the drop zone: both hands out to the sides at (±200, −40),
+    /// welcoming the file. In Klay's frame (glyph units).
+    static func armsOpenTargets() -> (lh: CGPoint, rh: CGPoint) {
+        (lh: CGPoint(x: -200, y: -40), rh: CGPoint(x: 200, y: -40))
+    }
+
     // MARK: - Body parts (all in Klay's frame, glyph units)
 
     /// The glyph itself, filled white, positioned so the hub sits on the origin.
@@ -162,10 +173,10 @@ enum KlayPaint {
         c.fill(KlayGlyph.path, with: .color(body))
     }
 
-    /// Arms and legs: noodles with round hands and little oval feet, drawn behind the glyph.
-    static func drawLimbs(_ ctx: GraphicsContext, _ limbs: Limbs) {
+    /// Legs with little oval feet, drawn behind the glyph.
+    static func drawLegs(_ ctx: GraphicsContext, lf: CGPoint, rf: CGPoint) {
         let style = StrokeStyle(lineWidth: limbW, lineCap: .round, lineJoin: .round)
-        let legs: [(CGFloat, CGPoint)] = [(-1, limbs.lf), (1, limbs.rf)]
+        let legs: [(CGFloat, CGPoint)] = [(-1, lf), (1, rf)]
         for (sd, foot) in legs {
             let hipPt = CGPoint(x: sd * hip.x, y: hip.y)
             let knee = CGPoint(x: (hipPt.x + foot.x) / 2 + sd * 8, y: (hipPt.y + foot.y) / 2)
@@ -177,6 +188,12 @@ enum KlayPaint {
                                   width: footRX * 2, height: footRY * 2)
             ctx.fill(Path(ellipseIn: footRect), with: .color(body))
         }
+    }
+
+    /// Arms and legs: noodles with round hands and little oval feet, drawn behind the glyph.
+    static func drawLimbs(_ ctx: GraphicsContext, _ limbs: Limbs) {
+        drawLegs(ctx, lf: limbs.lf, rf: limbs.rf)
+        let style = StrokeStyle(lineWidth: limbW, lineCap: .round, lineJoin: .round)
         let arms: [(CGFloat, CGPoint)] = [(-1, limbs.lh), (1, limbs.rh)]
         for (sd, hand) in arms {
             let sh = CGPoint(x: sd * shoulder.x, y: shoulder.y)
@@ -189,6 +206,62 @@ enum KlayPaint {
             let handRect = CGRect(x: hand.x - handR, y: hand.y - handR, width: handR * 2, height: handR * 2)
             ctx.fill(Path(ellipseIn: handRect), with: .color(body))
         }
+    }
+
+    /// Noodle arms with round hands, in front of the glyph and rimmed in teal-deep like
+    /// the eyes, so a hand held out over the white rays still reads. A white disc over each
+    /// shoulder hides where the rim starts, inside the hub. Used by the drop zone;
+    /// drawLimbs keeps the arms of the other surfaces as they are. Port of drawKlayArms
+    /// in tools/klay-preview/src/engine.ts.
+    static func drawArms(_ ctx: GraphicsContext, lh: CGPoint, rh: CGPoint) {
+        let style = StrokeStyle(lineWidth: limbW, lineCap: .round, lineJoin: .round)
+        let rimStyle = StrokeStyle(lineWidth: limbW + 2 * limbRim, lineCap: .round, lineJoin: .round)
+        let arms: [(CGFloat, CGPoint)] = [(-1, lh), (1, rh)]
+        for (sd, hand) in arms {
+            let sh = CGPoint(x: sd * armShoulder.x, y: armShoulder.y)
+            // The elbow bows outwards and down, which keeps the noodle look in every pose.
+            let elbow = CGPoint(x: (sh.x + hand.x) / 2 + sd * 26, y: (sh.y + hand.y) / 2 + 20)
+            var arm = Path()
+            arm.move(to: sh)
+            arm.addQuadCurve(to: hand, control: elbow)
+            let rimR = handR + limbRim
+            ctx.stroke(arm, with: .color(ink), style: rimStyle)
+            ctx.fill(Path(ellipseIn: CGRect(x: hand.x - rimR, y: hand.y - rimR, width: rimR * 2, height: rimR * 2)),
+                     with: .color(ink))
+            ctx.stroke(arm, with: .color(body), style: style)
+            ctx.fill(Path(ellipseIn: CGRect(x: hand.x - handR, y: hand.y - handR, width: handR * 2, height: handR * 2)),
+                     with: .color(body))
+            let discR = limbW / 2 + limbRim + 1
+            ctx.fill(Path(ellipseIn: CGRect(x: sh.x - discR, y: sh.y - discR, width: discR * 2, height: discR * 2)),
+                     with: .color(body))
+        }
+    }
+
+    /// Klay in the drop zone: the glyph, wide eyes, legs at rest and both arms open
+    /// (armsOpenTargets), centred on `center` in the context's coordinates. `height` is
+    /// the figure's height, from the top of the glyph to the soles. `time` (seconds)
+    /// drives the idle motion: a slow bob, hands that sway, a blink every 3.6 s. `look` is
+    /// the gaze offset in glyph units, as in drawEyes. Port of drawKlayDrop in
+    /// tools/klay-preview/src/engine.ts.
+    static func drawDropInvite(_ ctx: GraphicsContext, center: CGPoint, height: CGFloat,
+                               look: CGPoint = .zero, time: Double) {
+        let s = height / (bottom - top)
+        let t = CGFloat(time)
+        let bob = sin(t * 1.8) * 8
+        let pose = armsOpenTargets()
+        let lh = CGPoint(x: pose.lh.x, y: pose.lh.y + sin(t * 1.8 - 1) * 6)
+        let rh = CGPoint(x: pose.rh.x, y: pose.rh.y + sin(t * 1.8 + 1) * 6)
+        let phase = time.truncatingRemainder(dividingBy: 3.6)
+        let eyeOpen: CGFloat = phase < 0.14 ? CGFloat(abs(phase / 0.07 - 1)) : 1
+
+        var c = ctx
+        c.translateBy(x: center.x, y: center.y - centerY * s)
+        c.scaleBy(x: s, y: s)
+        c.translateBy(x: 0, y: bob)
+        drawLegs(c, lf: Limbs.rest.lf, rf: Limbs.rest.rf)
+        drawGlyph(c)
+        drawArms(c, lh: lh, rh: rh)
+        drawEyes(c, shape: .wide, mult: 1, look: look, open: eyeOpen, time: t)
     }
 
     /// Pink cheeks under the eyes, `amount` 0…1.
