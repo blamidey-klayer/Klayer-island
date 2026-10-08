@@ -106,3 +106,16 @@
 - [ ] **Step 1:** `docs/TEST-MAC.md`, section lot 4 : `claude auth status` affiche `claude.ai` ; une question rapide répond sans rien configurer dans l'île ; une `ANTHROPIC_API_KEY` exportée dans `~/.zshrc` ne change rien ; « Nouvelle conversation » pendant une réponse ; un PDF et une image déposés puis questionnés ; un brouillon Gmail créé, visible dans Gmail, jamais envoyé ; le nom exact de l'outil Gmail lu dans `claude -p --output-format stream-json --verbose "ok"` (événement `system`/`init`, champ `tools`) et comparé à `mcp__claude_ai_Gmail__create_draft` ; Claude Code absent (renommer le binaire) : message d'installation.
 - [ ] **Step 2:** README et SPEC : le chat passe par le Claude Code du Mac et le forfait de l'utilisateur, Haiku fixe, sans outils ; l'email devient un brouillon Gmail, la pièce jointe s'ajoute dans Gmail ; la clé API Anthropic disparaît de « Configurer ». Rappeler que la lecture des conditions d'Anthropic (spec §7) attend la validation d'un fondateur avant diffusion à l'équipe.
 - [ ] **Step 3:** Commit, push.
+
+### Task 16b: Finitions reportées de la revue des lots 1 à 3
+
+> Ajout du contrôleur : points mineurs relevés par la re-revue finale des lots 1 à 3, regroupés ici pour ne pas rouvrir ce lot.
+
+**Files:**
+- Modify: `IslandWindowController.swift` (réouverture sur l'autre demande), `AppState.swift` (`toggleIntegration`), `HookServer.swift` (détection et aperçu de la ligne d'état), `UploadCanvasView.swift`, `Localizable.xcstrings`, les vues qui portent les deux textes à tiret cadratin
+
+- [ ] **Step 1:** Après un repli avec deux demandes en attente, le survol rouvre sur l'autorisation : mettre à jour le focus, la pose de Klay et le badge de la pastille comme le fait l'affichage d'une demande retenue (`showHeldRequest` ou équivalent).
+- [ ] **Step 2:** Activer ou retirer une pastille dans Réglages ne fait plus sortir Klay (`syncMode(revealing: false)` depuis `toggleIntegration`).
+- [ ] **Step 3:** La détection et l'aperçu de la ligne d'état (`statusLineInstalled()` et son aperçu) ne reconnaissent que la commande de Klayer Island (chemin cité de `HookServer.hookScriptPath`, comme les hooks), jamais une commande de l'utilisateur qui contiendrait « nb-hook ». Test Foundation.
+- [ ] **Step 4:** `"%@ is ready."` (zone de dépôt) reçoit son entrée française au catalogue ; les deux textes visibles à tiret cadratin (« Give me a sec — back to work in three seconds. » et le texte de remplacement « Claude — » de la jauge) sont réécrits sans tiret cadratin, en français.
+- [ ] **Step 5:** Run les `scripts/test-*.sh` compilables sous Linux ; commit, push, CI verte.
