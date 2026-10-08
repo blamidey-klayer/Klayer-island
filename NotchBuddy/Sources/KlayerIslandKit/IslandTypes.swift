@@ -36,7 +36,7 @@ struct ApprovalInfo: Sendable {
     var command: String
     /// tool_input serialized to JSON with sortedKeys, "" if absent — used to match PostToolUse.
     var inputKey: String
-    /// Pill that owns this approval: "integration_claude", "agent_cursor", or "agent_codex".
+    /// Pill that owns this approval: "integration_claude".
     var pillId: String
 }
 
@@ -66,83 +66,23 @@ struct AgentTask: Identifiable, Equatable {
 
 enum AgentSource: Equatable {
     case claudeCode
-    case integration   // persistent pill of a service or chat provider (GitHub, Spotify, AI for the chat)
-    case agent         // third-party agent via klayer_agent field
+    case integration   // persistent pill of a service (GitHub, Spotify)
+    case agent         // session tagged with the klayer_agent field (Claude desktop app) or the Cursor editor pill
 }
 
 // MARK: - Chat provider
 
+/// The chat talks to Anthropic only, with the API key kept in the Keychain.
 enum ChatProvider: String, CaseIterable, Codable {
     case anthropic = "anthropic"
-    case google    = "google"
-    case openai    = "openai"
-    case ollama    = "ollama"
-    case lmstudio  = "lmstudio"
 
-    var displayName: String {
-        switch self {
-        case .anthropic: "Anthropic"
-        case .google:    "Google"
-        case .openai:    "OpenAI"
-        case .ollama:    "Ollama"
-        case .lmstudio:  "LM Studio"
-        }
-    }
+    var displayName: String { "Anthropic" }
 
-    var accentHex: String {
-        switch self {
-        case .anthropic: "#E07950"
-        case .google:    "#4285F4"
-        case .openai:    "#10A37F"
-        case .ollama:    "#FACC15"
-        case .lmstudio:  "#A3E635"
-        }
-    }
+    var accentHex: String { "#E07950" }
 
-    var defaultModel: String {
-        switch self {
-        case .anthropic: "claude-sonnet-4-6"
-        case .google:    "gemini-2.0-flash"
-        case .openai:    "gpt-4o"
-        case .ollama:    "llama3.2"
-        case .lmstudio:  "local-model"
-        }
-    }
+    var defaultModel: String { "claude-sonnet-4-6" }
 
-    var keychainKey: String {
-        switch self {
-        case .anthropic: "anthropic-api-key"
-        case .google:    "google-api-key"
-        case .openai:    "openai-api-key"
-        case .ollama:    ""
-        case .lmstudio:  ""
-        }
-    }
-
-    var isLocal: Bool {
-        self == .ollama || self == .lmstudio
-    }
-
-    var pillID: String {
-        switch self {
-        case .anthropic: "ai_anthropic"
-        case .google:    "ai_google"
-        case .openai:    "ai_openai"
-        case .ollama:    "ai_ollama"
-        case .lmstudio:  "ai_lmstudio"
-        }
-    }
-
-    init?(pillID: String) {
-        switch pillID {
-        case "ai_anthropic": self = .anthropic
-        case "ai_google":    self = .google
-        case "ai_openai":    self = .openai
-        case "ai_ollama":    self = .ollama
-        case "ai_lmstudio":  self = .lmstudio
-        default:             return nil
-        }
-    }
+    var keychainKey: String { "anthropic-api-key" }
 }
 
 // MARK: - View dimensions (from VIEWS in prototype)

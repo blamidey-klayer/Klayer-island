@@ -15,11 +15,11 @@ claude (terminal, VS Code, app Claude)
                          └─ socket Unix ─► Notch Buddy.app
                          ◄─ décision (pour PermissionRequest)
 ```
-- `nb-hook` (script shell) et `nb-hook.py` (relais Python) : écrits par l'app (`HookServer.swift`). Version GitHub : au lancement, dans `~/Library/Application Support/NotchBuddy/`. Version App Store : à l'installation des hooks, dans `~/.claude/klayer/`. Voir `docs/AGENTS.md` pour les autres agents qui utilisent ces scripts.
+- `nb-hook` (script shell) et `nb-hook.py` (relais Python) : écrits par l'app (`HookServer.swift`). Version GitHub : au lancement, dans `~/Library/Application Support/NotchBuddy/`. Version App Store : à l'installation des hooks, dans `~/.claude/klayer/`. Voir `docs/AGENTS.md` pour les sessions de l'app de bureau Claude, qui utilisent ces mêmes scripts.
 - Socket : `~/Library/Application Support/NotchBuddy/nb.sock` (version GitHub) ou `~/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock` (version App Store). Dossier en 0700, socket en 0600. Connexions du même utilisateur seulement (vérification `getpeereid`). 1 Mio et 5 s maximum par message, 32 connexions simultanées.
-- `nb-hook [--agent <nom>] <Event>` lit le JSON du hook sur stdin, ajoute le contexte du terminal (`TERM_PROGRAM`, `ITERM_SESSION_ID`, `TERM_SESSION_ID`, `__CFBundleIdentifier`, le tty trouvé en remontant les processus parents, `cwd`) et, si `--agent` est fourni, le champ `klayer_agent`, puis l'envoie à l'app.
+- `nb-hook` lit le JSON du hook sur stdin, ajoute le contexte du terminal (`TERM_PROGRAM`, `ITERM_SESSION_ID`, `TERM_SESSION_ID`, `__CFBundleIdentifier`, le tty trouvé en remontant les processus parents, `cwd`) et, pour une session de l'app de bureau Claude, le champ `klayer_agent`, puis l'envoie à l'app. Le relais ne traduit plus aucun nom d'événement : seuls les événements de Claude Code passent tels quels.
 - **Si l'app ne répond pas en 300 ms, `nb-hook` sort en code 0 sans rien écrire** : Claude Code continue normalement. Jamais de blocage.
-- Champ optionnel `klayer_agent` : nom en minuscules, chiffres et tirets, 24 caractères au plus. Si absent ou invalide, l'événement va dans la pastille Claude. Voir `docs/AGENTS.md` pour les autres agents.
+- Champ optionnel `klayer_agent` : vide pour Claude Code (pastille Claude), `claude-desktop` pour une session lancée depuis l'app de bureau Claude (le relais le déduit de `CLAUDE_CODE_ENTRYPOINT`). Toute autre valeur est ignorée : pas de pastille, et une demande d'autorisation reçoit `{"permissionDecision":"ask"}`. Voir `docs/AGENTS.md`.
 
 ### Événements à brancher et état du bonhomme
 | Hook | Effet dans l'app |
@@ -115,7 +115,7 @@ Réglages → Agents → Plan usage → **Uninstall relay**. Remet l'objet `stat
 
 ## 1ter. Diff en direct (live diff)
 
-Sur `PostToolUse` pour `Edit`, `MultiEdit` et `Write` (Claude Code, Cursor), l'app calcule un diff ligne à ligne et l'affiche dans le fil de l'île.
+Sur `PostToolUse` pour `Edit`, `MultiEdit` et `Write` (Claude Code), l'app calcule un diff ligne à ligne et l'affiche dans le fil de l'île.
 
 **Données**
 - `Edit` : `old_string → new_string`
@@ -234,7 +234,7 @@ Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur
 ## 5. API Claude (recherche)
 
 - `POST https://api.anthropic.com/v1/messages`, en-têtes `x-api-key`, `anthropic-version`, `content-type: application/json` (versions à vérifier dans la doc).
-- Modèle par défaut : `claude-sonnet-4-6`, choisi dans Settings → Anthropic API **ou depuis la puce de modèle dans la vue `.prompt`**. La liste est récupérée à l'ouverture des réglages via `GET /v1/models?limit=100` (en-têtes `x-api-key` et `anthropic-version: 2023-06-01`) ; si l'appel échoue ou qu'il n'y a pas de clé, une liste de secours est utilisée (`claude-sonnet-4-6`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-4-5-20251001`). Un champ libre permet d'entrer n'importe quel identifiant. Si le modèle sauvegardé n'est pas dans la liste, le sélecteur reste sur « Custom… ». Dans le chat, si le modèle enregistré n'est pas dans la liste reçue, le premier dont l'identifiant contient « sonnet », sinon le premier de la liste.
+- Modèle par défaut : `claude-sonnet-4-6`, choisi dans Settings → Anthropic API. La liste est récupérée à l'ouverture des réglages via `GET /v1/models?limit=100` (en-têtes `x-api-key` et `anthropic-version: 2023-06-01`) ; si l'appel échoue ou qu'il n'y a pas de clé, une liste de secours est utilisée (`claude-sonnet-4-6`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-4-5-20251001`). Un champ libre permet d'entrer n'importe quel identifiant. Si le modèle sauvegardé n'est pas dans la liste, le sélecteur reste sur « Custom… ».
 - Erreurs de l'API : affiche `error.message` au lieu du JSON brut. Pour un `not_found_error`, affiche « Model not found: \<id\>. Pick another one in Settings. »
 - Outil de recherche web côté serveur de l'API : l'identifiant de type à jour est dans la doc (au moment d'écrire, `web_search_20250305`) ; `max_uses` 5.
 - Prompt système (français) : répondre court, pour un affichage dans le notch, au format JSON strict :
@@ -247,45 +247,6 @@ Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur
 - Boutons du résultat : « Ouvrir » (premier lien, seulement s'il est en http ou https ; sinon le bouton est grisé), « Copier » (texte), « Fermer ».
 - Erreur réseau ou clé invalide : état `error`, vue `note` avec la raison en une phrase et « Ouvre les réglages pour vérifier la clé ».
 - Micro (bouton du champ) : dictée `SFSpeechRecognizer` en `fr-FR`, sur l'appareil si possible. Optionnel (M9). Si la permission est refusée, masquer le bouton.
-
----
-
-## 5bis. Autres fournisseurs du chat (Google AI, OpenAI)
-
-Clés dans Settings → Chat — other providers (Trousseau : `google-api-key`, `openai-api-key`). La liste des modèles est récupérée à l'ouverture du chat selon le fournisseur :
-
-- **Google AI (Gemini)** : `GET https://generativelanguage.googleapis.com/v1beta/openai/models` (en-tête `Authorization: Bearer <clé>`) — on retire le préfixe `models/`, on filtre les modèles dont l'identifiant contient `embed`, `imagen`, `veo`, `aqa`, `tts`, `audio` ou `live`. Dans le chat, si le modèle enregistré n'est pas dans la liste reçue, le premier dont l'identifiant contient « flash », sinon le premier de la liste. Endpoint du chat : `POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`.
-- **OpenAI** : `GET https://api.openai.com/v1/models` (en-tête `Authorization: Bearer <clé>`) — triés par champ `created` décroissant, on filtre les modèles dont l'identifiant contient `embed`, `tts`, `whisper`, `dall-e`, `audio`, `realtime`, `moderat`, `codex`, `computer-use`, `transcribe`, `image`, `sora`, `babbage`, `davinci` ou `instruct`. Dans le chat, si le modèle enregistré n'est pas dans la liste reçue, le premier dont l'identifiant contient « mini », sinon le premier de la liste. Endpoint du chat : `POST https://api.openai.com/v1/chat/completions`.
-
-Ce qui est envoyé au fournisseur lors d'un échange : le texte saisi et la conversation en cours. Si une fenêtre est attachée : nom de l'app, titre et URL. Si un fichier est attaché : son nom seulement (le contenu d'un fichier ne part que chez Anthropic).
-
-Voir le catalogue de pastilles dans `docs/SPEC.md` (section « Catalogue de pastilles ») pour les pastilles `ai_google` et `ai_openai`.
-
----
-
-## 5ter. Modèles locaux (Ollama / LM Studio)
-
-**IDs de pastilles** : `ai_ollama` (jaune `#FACC15`), `ai_lmstudio` (vert citron `#A3E635`)  
-**Catégorie** : AI for the chat  
-**Plateforme** : macOS uniquement
-
-Connexion à un serveur local compatible OpenAI. Aucune clé d'API requise.
-
-### Connexion
-
-Réglages → Chat → Local models → **Connect**. Klayer Island envoie une requête `GET /v1/models` au serveur. Si le serveur répond avec des modèles, l'URL est sauvegardée et le fournisseur apparaît dans le sélecteur de modèle. Les modèles d'embedding (`nomic-embed-text`, `bge-*`, etc.) sont filtrés automatiquement.
-
-### Streaming
-
-Les messages sont diffusés token par token via `POST /v1/chat/completions` avec `"stream": true`. Les blocs de raisonnement (`<think>…</think>`, utilisés par des modèles comme DeepSeek-R1) sont masqués dans la bulle de chat tant que le bloc est ouvert, puis retirés de la réponse finale.
-
-### Pièces jointes
-
-Les fichiers texte sont envoyés en ligne, tronqués à 24 000 caractères. Images et PDF : seul le nom du fichier est envoyé.
-
-### Déconnexion
-
-Réglages → Chat → Local models → **Disconnect**. Efface l'URL sauvegardée et le cache des modèles. Si un fournisseur local était actif dans le chat, le chat revient sur Anthropic.
 
 ---
 

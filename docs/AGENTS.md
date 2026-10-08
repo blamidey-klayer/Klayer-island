@@ -1,55 +1,43 @@
-# Klayer Island — third-party agent integration
+# Klayer Island: session sources
 
-Any tool that can write to a Unix domain socket can send events to Klayer Island and have its own pill next to Claude Code.
+Klayer Island follows two kinds of session: Claude Code, and Claude Code sessions started from the Claude desktop app. Every other agent is out of scope: no pill, no approval card.
 
 ## The `klayer_agent` field
 
-Add the optional field `klayer_agent` to any hook JSON payload. Klayer Island will create a pill labelled with the agent name and route all events to it.
+The relay adds the optional field `klayer_agent` to the hook JSON it forwards. Klayer Island reads it to decide where a session belongs.
 
-**Validation:** the name must match `^[a-z0-9-]{1,24}$` (lowercase letters, digits and hyphens, 1–24 characters). An absent or invalid name routes the event to the Claude Code pill instead.
+| `klayer_agent` | Session | Pill |
+|---|---|---|
+| absent or empty | Claude Code | `integration_claude` |
+| `claude-desktop` | Claude Code started from the Claude desktop app | `agent_claude-desktop` |
+| any other value | not followed | none |
 
-## Hook command (macOS)
+An event with any other value is dropped. A `PermissionRequest` carrying one is answered `{"permissionDecision":"ask"}`, so that tool asks in its own window.
 
-Configure your tool to call the Klayer Island relay with `--agent <your-name>` after the hook executable:
+## Claude Code
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "type": "command", "command": "/path/to/nb-hook --agent my-tool" }
-    ]
-  }
-}
-```
+Settings → Agents → **Install hooks** writes the Klayer Island hooks into `~/.claude/settings.json`. The app backs the file up, merges its hooks, shows the diff and writes only after you confirm. The hook command is `nb-hook`, a shell wrapper around a Python relay that forwards each event to Klayer Island over a Unix domain socket and always exits 0, so Claude Code is never blocked.
 
-The shell wrapper passes `"$@"` to the Python relay, which extracts the agent name and injects it into the payload before forwarding to Klayer Island.
+Events installed: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`, plus a dedicated `PreToolUse` hook for `AskUserQuestion` (`nb-hook --ask`).
 
-## Payload format
+Where the session runs decides how it is routed:
 
-The relay adds `klayer_agent` to the JSON it forwards. You can also add it yourself if you talk to the socket directly:
+- VS Code or Cursor (the integrated terminal): `integration_claude`. Cursor is recognised by its bundle identifier only.
+- A known terminal (Warp, Terminal, iTerm, Ghostty, kitty, and so on): `integration_claude`, with the terminal recorded on the pill. Its questions and permission requests are asked in the terminal unless you turn on **Answer questions and permissions from terminal sessions in the notch**.
+- Anything else: ignored.
 
-```json
-{
-  "hook_event_name": "UserPromptSubmit",
-  "session_id": "my-session-1",
-  "klayer_agent": "my-tool",
-  "prompt": "Running task…"
-}
-```
+Permission cards (Allow, Deny, Always) and `AskUserQuestion` cards appear for Claude Code only. If the app is not running, the hook returns at once and Claude Code asks as usual.
 
-Send newline-terminated JSON to the socket:
+Send newline-terminated JSON to the socket if you talk to it directly:
+
 - **macOS (GitHub build):** `~/Library/Application Support/NotchBuddy/nb.sock`
 - **macOS (App Store build):** `~/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock`
 
-## Supported events
+## Claude desktop app
 
-All standard Claude Code hook events are supported, **except `PermissionRequest`**:
-approval cards are not yet implemented for third-party agents (only Claude Code gets
-one). A `PermissionRequest` from an external agent is answered immediately with no
-decision, so the relay writes nothing and the agent re-asks in its terminal.
-Approval support for other agents will be added with Codex support.
+Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`. The relay tags them `klayer_agent: claude-desktop` on its own, so nothing extra is installed beyond the Claude Code hooks. The sessions get the `agent_claude-desktop` pill. Their permission requests are answered `ask`: approvals stay in the Claude app. The ↗ button on the pill opens the Claude app.
 
-The pill lifecycle:
+## Pill lifecycle
 
 | Event | Effect |
 |---|---|
@@ -58,153 +46,30 @@ The pill lifecycle:
 | `PreToolUse` | State → working; tool label shown in ticker |
 | `PostToolUse` / `PostToolUseFailure` | State → working |
 | `Notification` | Rate-limit or question state if applicable |
-| `Stop` | State → finished for 5 s; active declared pills (catalog + checked in Settings) reset to idle — all others are removed |
+| `Stop` | State → finished for 5 s; active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
 | `StopFailure` | State → error |
-| `SessionEnd` | Active declared pills (catalog + checked in Settings) reset to idle — all others are removed |
+| `SessionEnd` | Active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
 | `SubagentStart` / `SubagentStop` | Step added to ticker |
 
 ## Declared pills
 
 A **declared pill** is a catalog entry (`PillCatalog.swift`) that has been enabled in **Settings → Active pills**. When a session ends for a declared pill, the pill stays visible and resets to idle instead of disappearing.
 
-A catalog pill that is not checked in Settings behaves like any other agent: it gets an automatic pill when a session starts, and that pill is removed when the session ends.
+A catalog pill that is not checked in Settings gets an automatic pill when a session starts, and that pill is removed when the session ends.
 
-The GitHub build exposes Gemini CLI (`agent_gemini`), Antigravity (`agent_antigravity`),
-GitHub Copilot CLI (`agent_copilot`), Muse Code (`agent_muse`), OpenCode (`agent_opencode`),
-Amp (`agent_amp`) and Hermes (`agent_hermes`) in Settings → Active pills. Cursor (`agent_cursor`) and Codex
-(`agent_codex`, GitHub build only) are there too — their pills can be declared and set as
-the main pill; session support is coming in a future version.
+Claude Desktop (`agent_claude-desktop`, every build) is in the catalog: declare it to keep it after the session ends. Cursor (`agent_cursor`) is there as a workspace pill that can be declared and set as the main pill; the sessions that run in Cursor appear on the Claude Code pill.
 
-Claude Desktop (`agent_claude-desktop`, every build) is there as well. Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`; the relay tags them `klayer_agent: claude-desktop` on its own (an explicit `--agent` still wins), so nothing extra is installed. Declare the pill to keep it after the session ends; the ↗ button opens the Claude app.
+## Other tools
 
-## Real-world examples
-
-### Gemini CLI (macOS)
-
-Klayer Island supports Gemini CLI out of the box via **Settings → Gemini CLI → Install hooks**.
-The installer writes to `~/.gemini/settings.json` and uses `--agent gemini` so
-Gemini sessions get their own pill. The relay translates Gemini event names to canonical
-Klayer Island events automatically.
-
-| Gemini CLI event | Canonical event |
-|---|---|
-| `BeforeTool` | `PreToolUse` |
-| `AfterTool` | `PostToolUse` |
-| `BeforeAgent` | `UserPromptSubmit` |
-| `AfterAgent` | `Stop` |
-
-`AfterModel` is not installed — it fires on every response chunk and would flood the island.
-
-### Antigravity — `agy` (macOS)
-
-Klayer Island supports Antigravity out of the box via **Settings → Antigravity → Install hooks**.
-The installer writes to `~/.gemini/config/hooks.json` (timeouts in seconds) and uses
-`--agent antigravity`. The relay translates `toolCall.name` / `conversationId` to the
-island's `tool_name` / `session_id`.
-
-| Antigravity event | Canonical event |
-|---|---|
-| `PreInvocation` | `UserPromptSubmit` |
-| `PreToolUse` | `PreToolUse` |
-| `PostToolUse` | `PostToolUse` |
-| `PostInvocation` | `PostToolUse` |
-| `Stop` | `Stop` |
-
-### GitHub Copilot CLI (macOS)
-
-Klayer Island supports Copilot CLI out of the box via **Settings → GitHub Copilot CLI Hooks → Install hooks**.
-The installer writes to `~/.copilot/hooks/klayer.json` and uses `--agent copilot`.
-Copilot CLI uses camelCase event names and `{"bash":"…","timeoutSec":N}` entries.
-Copilot CLI is fail-closed on `permissionRequest`: the relay always outputs valid JSON
-and returns `{"permissionDecision":"ask"}` on timeout so Copilot re-prompts in the terminal.
-Klayer Island shows a real Allow / Deny card for Copilot approval requests.
-
-| Copilot CLI event | Canonical event |
-|---|---|
-| `sessionStart` | `SessionStart` |
-| `userPromptSubmitted` | `UserPromptSubmit` |
-| `preToolUse` | `PreToolUse` |
-| `permissionRequest` | `PermissionRequest` |
-| `postToolUse` | `PostToolUse` |
-| `agentStop` | `Stop` |
-| `sessionEnd` | `SessionEnd` |
-| `notification` | `Notification` |
-
-### Muse Code (macOS)
-
-Klayer Island supports Muse Code out of the box via **Settings → Muse Code Hooks → Install hooks**.
-The installer merges into `~/.config/muse/settings.json` and uses `--agent muse`.
-Muse uses PascalCase event names. Klayer Island shows a real Allow / Deny card for Muse approval requests.
-
-| Muse Code event | Canonical event |
-|---|---|
-| `SessionStart` | `SessionStart` |
-| `UserPromptSubmit` | `UserPromptSubmit` |
-| `PreToolUse` | `PreToolUse` |
-| `PermissionRequest` | `PermissionRequest` |
-| `PostToolUse` | `PostToolUse` |
-| `Stop` | `Stop` |
-| `SessionEnd` | `SessionEnd` |
-
-### OpenCode (macOS)
-
-Klayer Island supports OpenCode via **Settings → OpenCode Plugin → Install plugin**.
-The installer writes a JS plugin to `~/.config/opencode/plugins/klayer.js`.
-The plugin maps OpenCode event types to canonical Klayer Island names and forwards them fire-and-forget; OpenCode is never blocked.
-
-| OpenCode event | Canonical event |
-|---|---|
-| `session.created` | `SessionStart` |
-| `session.idle` | `Stop` |
-| `session.error` | `StopFailure` |
-| `session.deleted` | `SessionEnd` |
-| `tool.execute.before` | `PreToolUse` |
-| `tool.execute.after` | `PostToolUse` |
-| `permission.asked` | `PermissionRequest` |
-
-### Amp (macOS)
-
-Klayer Island supports Amp via **Settings → Amp Plugin → Install plugin**.
-The installer writes a TypeScript plugin to `~/.config/amp/plugins/klayer.ts`.
-The `tool.call` handler returns `{ action: 'allow' }` so Amp always proceeds; all events are forwarded display-only.
-
-| Amp event | Canonical event |
-|---|---|
-| `session.start` | `SessionStart` |
-| `agent.start` | `UserPromptSubmit` |
-| `tool.call` | `PreToolUse` |
-| `tool.result` | `PostToolUse` |
-| `agent.end` | `Stop` |
-
-### Hermes Agent (macOS)
-
-Klayer Island supports Hermes via **Settings → Agents → Hermes → Install plugin**.
-The installer writes a Python plugin to `~/.hermes/plugins/klayer/` and enables it in
-`~/.hermes/config.yaml`. The plugin uses `on_session_start` (sends the platform when running
-via the gateway), `post_llm_call` (sends the final response), and a `pre_approval_request`
-observer hook that fires a `⏳ Approval pending in Hermes` step in the notch.
-Approving from the notch requires `register_approval_transport`, which is not yet available
-in Hermes 0.15.x; the Approvals toggle activates automatically once Hermes exposes it.
-Every event is fire-and-forget: if the app is closed or unreachable, nothing is sent and Hermes carries on, handling approvals itself.
-
-| Hermes event | Canonical event |
-|---|---|
-| `on_session_start` | `SessionStart` |
-| `post_llm_call` | `Stop` |
-| `pre_approval_request` | `PreToolUse` (observer only, shows "⏳ Approval pending in Hermes") |
-
-### Any other tool
-
-Follow the generic pattern: call `nb-hook --agent <your-name> <EventName>` (macOS)
-and let the relay forward the event.
+Klayer Island no longer installs hooks or plugins for other agents, and the relay no longer translates their event names. If an earlier version wired a hook for another tool, it keeps calling `nb-hook --agent <name>`: the app ignores it and answers `ask` to its permission requests. Remove those entries from the tool's own configuration when you no longer want them.
 
 ## Quick test (macOS)
 
 With Klayer Island running:
 
 ```sh
-echo '{"hook_event_name":"UserPromptSubmit","session_id":"t1","prompt":"hello","klayer_agent":"demo"}' \
-  | /bin/sh ~/Library/Application\ Support/NotchBuddy/nb-hook --agent demo
+echo '{"hook_event_name":"UserPromptSubmit","session_id":"t1","prompt":"hello"}' \
+  | /bin/sh ~/Library/Application\ Support/NotchBuddy/nb-hook --agent claude-desktop
 ```
 
-A "demo" pill should appear in the island.
+A "claude-desktop" pill should appear in the island.

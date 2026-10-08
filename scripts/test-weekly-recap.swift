@@ -77,8 +77,8 @@ let fakeTurns: [RecapTurn] = [
               end:   makeDate(dayOffset: 0, hour: 15, minute: 45),
               filesChanged: 3, linesAdded: 95, linesRemoved: 20,
               commandsRun: 5, questions: 0),
-    // Tuesday: Gemini CLI
-    RecapTurn(pillId: "agent_gemini", project: "side-project",
+    // Tuesday: Claude desktop app
+    RecapTurn(pillId: "agent_claude-desktop", project: "side-project",
               start: makeDate(dayOffset: 1, hour: 10),
               end:   makeDate(dayOffset: 1, hour: 11),
               filesChanged: 2, linesAdded: 50, linesRemoved: 10,

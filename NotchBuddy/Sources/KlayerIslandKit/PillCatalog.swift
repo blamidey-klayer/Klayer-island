@@ -5,14 +5,12 @@ import Foundation
 enum PillCategory: String, CaseIterable {
     case workspace
     case agent
-    case ai
     case service
 
     var title: String {
         switch self {
         case .workspace: return "Where you code"
         case .agent:     return "Agents"
-        case .ai:        return "AI for the chat"
         case .service:   return "Services"
         }
     }
@@ -55,8 +53,6 @@ struct PillDefinition {
         switch id {
         case "integration_claude": return "Claude Code"
         case "agent_cursor":       return "Cursor"
-        case "agent_codex":        return "Codex"
-        case "agent_hermes":       return "Hermes"
         case "agent_claude-desktop": return "Claude Desktop"
         default:                   return "Agent"
         }
@@ -73,38 +69,11 @@ enum PillCatalog {
               category: .workspace, subtitle: "Integration",  source: .claudeCode),
         .init(id: "agent_cursor",        name: "Cursor",      color: "#C0C4CC",
               category: .workspace, subtitle: "Integration",  source: .agent),
-        .init(id: "agent_antigravity",   name: "Antigravity", color: "#E879F9",
-              category: .workspace, subtitle: "Integration",  source: .agent,  githubOnly: true),
-        .init(id: "agent_codex",         name: "Codex",       color: "#2DD4BF",
-              category: .workspace, subtitle: "Integration",  source: .agent,  githubOnly: true),
         // ── Agents ───────────────────────────────────────────────────────────
-        .init(id: "agent_gemini",        name: "Gemini CLI",  color: "#8AB4F8",
-              category: .agent,     subtitle: "Agent",        source: .agent,  githubOnly: true),
-        .init(id: "agent_copilot",       name: "Copilot CLI", color: "#818CF8",
-              category: .agent,     subtitle: "Agent",        source: .agent,  githubOnly: true),
-        .init(id: "agent_muse",          name: "Muse Code",   color: "#38BDF8",
-              category: .agent,     subtitle: "Agent",        source: .agent,  githubOnly: true),
-        .init(id: "agent_opencode",      name: "OpenCode",    color: "#4ADE80",
-              category: .agent,     subtitle: "Agent",        source: .agent,  githubOnly: true),
-        .init(id: "agent_amp",           name: "Amp",         color: "#F59E0B",
-              category: .agent,     subtitle: "Agent",        source: .agent,  githubOnly: true),
-        .init(id: "agent_hermes",        name: "Hermes",      color: "#C084FC",
-              category: .agent,     subtitle: "Agent",        source: .agent,  githubOnly: true),
         // Claude Code sessions run from the Claude desktop app: the relay tags them
         // `klayer_agent: claude-desktop` from CLAUDE_CODE_ENTRYPOINT, so nothing to install.
         .init(id: "agent_claude-desktop", name: "Claude Desktop", color: "#D97757",
               category: .agent,     subtitle: "Agent",        source: .agent),
-        // ── AI for the chat ──────────────────────────────────────────────────
-        .init(id: "ai_anthropic",        name: "Anthropic",   color: ChatProvider.anthropic.accentHex,
-              category: .ai,        subtitle: "Chat",         source: .integration),
-        .init(id: "ai_google",           name: "Google AI",   color: ChatProvider.google.accentHex,
-              category: .ai,        subtitle: "Chat",         source: .integration),
-        .init(id: "ai_openai",           name: "OpenAI",      color: ChatProvider.openai.accentHex,
-              category: .ai,        subtitle: "Chat",         source: .integration),
-        .init(id: "ai_ollama",           name: "Ollama",      color: ChatProvider.ollama.accentHex,
-              category: .ai,        subtitle: "Chat",         source: .integration),
-        .init(id: "ai_lmstudio",         name: "LM Studio",   color: ChatProvider.lmstudio.accentHex,
-              category: .ai,        subtitle: "Chat",         source: .integration),
         // ── Services ─────────────────────────────────────────────────────────
         .init(id: "integration_github",  name: "GitHub",      color: "#F4505E",
               category: .service,   subtitle: "Integration",  source: .integration),

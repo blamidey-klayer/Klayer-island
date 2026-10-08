@@ -2,7 +2,6 @@ import Foundation
 import Darwin
 import AppKit
 import SwiftUI
-import CryptoKit
 
 // MARK: - HookServer
 // Listens on a Unix domain socket for events from nb-hook (Claude Code hooks).
@@ -334,59 +333,44 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - Event → AppState
     // Claude Code events route to the permanent "integration_claude" task.
-    // Events tagged with a valid klayer_agent route to a dynamic "integration_<agent>" task.
+    // Sessions from the Claude desktop app (klayer_agent "claude-desktop") route to the
+    // dynamic "agent_claude-desktop" task. Any other klayer_agent is ignored.
     // View switches only happen if VS Code (or the agent pill) is currently focused.
     // When not focused: state updates animate the mini bot in the pill; badge shown for alerts.
 
     @MainActor
     private func processEvent(name: String, payload: [String: Any]) {
         let state = AppState.shared
-        let sessionId = payload["session_id"] as? String
-                     ?? payload["conversation_id"] as? String
-                     ?? "unknown"
+        let sessionId = payload["session_id"] as? String ?? "unknown"
         let cwd = payload["cwd"] as? String ?? ""
         let rawName = URL(fileURLWithPath: cwd).lastPathComponent
         let projectName = aliasProjectName(rawName.isEmpty ? "Session" : rawName)
 
         // Determine which pill this event belongs to.
-        // klayer_agent must be lowercase, digits and hyphens, ≤ 24 chars.
+        // Only Claude Code (no klayer_agent) and the Claude desktop app ("claude-desktop") are
+        // followed: a session from any other agent gets no pill.
         let rawAgent = payload["klayer_agent"] as? String ?? ""
-        let validAgent = Self.validateAgent(rawAgent)
+        guard !isUnrecognisedAgent(rawAgent) else {
+            nbLog("Ignored \(name) from agent \(rawAgent.prefix(24)) (\(projectName))")
+            return
+        }
+        let validAgent = validateAgent(rawAgent)
 
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
-
-        // Cursor identified solely by its stable Electron bundle ID.
-        // ToDesktop builds other apps too — do not match on "todesktop" alone.
-        let isCursorEditor = bundleId.lowercased() == "com.todesktop.230313mzl4w4u92"
-        let isVSCodeEditor = !isCursorEditor && (
-            termProgram.lowercased().contains("vscode") ||
-            bundleId.lowercased().contains("vscode"))
+        let isEditorHost = Self.isEditorHost(termProgram: termProgram, bundleId: bundleId)
 
         // Routing:
-        // • "codex" → agent_codex (GitHub build only: workspace pill, approvals in the notch)
-        // • other valid klayer_agent → external pill (fire-and-forget, no approval card)
-        // • Cursor bundle ID → agent_cursor
-        // • VS Code → integration_claude
+        // • klayer_agent "claude-desktop" → the Claude desktop app pill (fire-and-forget, no approval card)
+        // • VS Code or Cursor → integration_claude
         // • a known terminal (Warp, Terminal, iTerm…) → integration_claude, host recorded on the task
-        #if !APPSTORE
-        let isCodexEvent = rawAgent == "codex"
-        #else
-        let isCodexEvent = false
-        #endif
         let agentId: String
         let isExternalAgent: Bool
         var hostApp: String? = nil
-        if isCodexEvent {
-            agentId = "agent_codex"
-            isExternalAgent = false
-        } else if let agent = validAgent {
+        if let agent = validAgent {
             agentId = "agent_\(agent)"
             isExternalAgent = true
-        } else if isCursorEditor {
-            agentId = "agent_cursor"
-            isExternalAgent = false
-        } else if isVSCodeEditor {
+        } else if isEditorHost {
             agentId = "integration_claude"
             isExternalAgent = false
         } else if let host = ClaudeHost.terminal(termProgram: termProgram, bundleId: bundleId) {
@@ -409,15 +393,7 @@ final class HookServer: @unchecked Sendable {
         // then continue normal processing. Only skip normal processing when unresolved.
         if let pending = state.pendingApproval, agentId == pending.pillId,
            pending.sessionId != "demo_session" {
-            let handledNote: String
-            switch pending.pillId {
-            case "agent_cursor":  handledNote = "Handled in Cursor."
-            case "agent_codex":   handledNote = "Handled in Codex."
-            case "agent_copilot": handledNote = "Handled in Copilot CLI."
-            case "agent_muse":    handledNote = "Handled in Muse Code."
-            case "agent_hermes":  handledNote = "Handled in Hermes."
-            default:              handledNote = "Handled in \(claudeHostName)."
-            }
+            let handledNote = "Handled in \(claudeHostName)."
             var resolved = false
             switch name {
             case "PostToolUse", "PostToolUseFailure":
@@ -429,8 +405,8 @@ final class HookServer: @unchecked Sendable {
                     dismissApprovalCard(note: handledNote)
                     resolved = true
                 }
-            case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd", "Interrupt":
-                // Turn ended or session interrupted — the permission is moot.
+            case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd":
+                // Turn ended — the permission is moot.
                 if sessionId == pending.sessionId {
                     dismissApprovalCard(note: handledNote)
                     resolved = true
@@ -451,11 +427,6 @@ final class HookServer: @unchecked Sendable {
             NotificationCenter.default.post(name: .checkMondayRecap, object: nil)
             if state.isPresent { expandIfNeeded(to: .overview) }
             SoundEngine.shared.play("work")
-            if agentId == "agent_hermes", let platform = payload["platform"] as? String,
-               !platform.isEmpty, platform != "cli" {
-                let capitalized = platform.prefix(1).uppercased() + platform.dropFirst()
-                appendStep(id: agentId, step: String(capitalized))
-            }
 
         case "UserPromptSubmit":
             activeSessionId = sessionId
@@ -548,13 +519,6 @@ final class HookServer: @unchecked Sendable {
                 setPillBadge(id: agentId, badge: .error)
             }
 
-        case "Interrupt":
-            // Codex: user stopped the turn
-            RecapStore.shared.stop(sessionId: recapSessionId)
-            activeSessionId = nil
-            state.updateTask(id: agentId, state: .idle)
-            clearPillBadge(id: agentId)
-
         case "SessionEnd":
             activeSessionId = nil
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
@@ -573,24 +537,19 @@ final class HookServer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Agent validation + dynamic pill
+    // MARK: - Agent pill (Claude desktop app)
 
-    /// Validates a klayer_agent name: lowercase, digits and hyphens, 1–24 chars.
-    /// "claude" is reserved and rejected so it cannot impersonate the Claude Code pill.
-    /// Returns the name unchanged if valid, nil otherwise.
-    private static func validateAgent(_ raw: String) -> String? {
-        guard !raw.isEmpty, raw.count <= 24, raw != "claude" else { return nil }
-        for scalar in raw.unicodeScalars {
-            let v = scalar.value
-            let ok = (v >= 0x61 && v <= 0x7A)  // a-z
-                  || (v >= 0x30 && v <= 0x39)   // 0-9
-                  || v == 0x2D                   // -
-            guard ok else { return nil }
-        }
-        return raw
+    /// VS Code and Cursor both host Claude Code in an integrated terminal.
+    /// Cursor is identified solely by its stable Electron bundle ID: ToDesktop builds other
+    /// apps too, so never match on "todesktop" alone.
+    private static func isEditorHost(termProgram: String, bundleId: String) -> Bool {
+        let bundle = bundleId.lowercased()
+        return bundle == "com.todesktop.230313mzl4w4u92"
+            || termProgram.lowercased().contains("vscode")
+            || bundle.contains("vscode")
     }
 
-    /// Creates a dynamic pill for a third-party agent on first event, then no-ops.
+    /// Creates the dynamic pill of a Claude desktop app session on first event, then no-ops.
     /// ID format: "agent_<name>" — never collides with "integration_*" pills.
     /// Inserted right after integration_claude so it appears in the visible prefix(4).
     @MainActor
@@ -654,9 +613,7 @@ final class HookServer: @unchecked Sendable {
     @MainActor
     private func processPermissionRequest(fd: Int32, payload: [String: Any]) {
         let state = AppState.shared
-        let sessionId = payload["session_id"] as? String
-                     ?? payload["conversation_id"] as? String
-                     ?? "unknown"
+        let sessionId = payload["session_id"] as? String ?? "unknown"
         let cwd       = payload["cwd"]        as? String ?? ""
         let rawName   = URL(fileURLWithPath: cwd).lastPathComponent
         let projectName = aliasProjectName(rawName.isEmpty ? "Session" : rawName)
@@ -664,31 +621,12 @@ final class HookServer: @unchecked Sendable {
         let rawAgent = payload["klayer_agent"] as? String ?? ""
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
-        let isCursorEditor = bundleId.lowercased() == "com.todesktop.230313mzl4w4u92"
-        let isVSCodeEditor = !isCursorEditor && (
-            termProgram.lowercased().contains("vscode") ||
-            bundleId.lowercased().contains("vscode"))
+        let isEditorHost = Self.isEditorHost(termProgram: termProgram, bundleId: bundleId)
 
-        // Codex, Copilot CLI and Muse Code get the same approval card as Claude Code / Cursor.
-        // Other external agents (any other klayer_agent) answer immediately with "ask"
-        // so the agent re-asks in its own terminal — they do not get a notch card.
-        #if !APPSTORE
-        let isCodexRequest   = rawAgent == "codex"
-        let isCopilotRequest = rawAgent == "copilot"
-        let isMuseRequest    = rawAgent == "muse"
-        // isHermesRequest is true only when the plugin sent klayer_has_transport: true,
-        // meaning register_approval_transport is wired and Hermes will honour our choice.
-        // Without that flag the request falls through to "ask" so Hermes handles it natively.
-        let isHermesRequest  = rawAgent == "hermes"
-            && UserDefaults.standard.bool(forKey: "hermesApprovalsEnabled")
-            && (payload["klayer_has_transport"] as? Bool == true)
-        #else
-        let isCodexRequest   = false
-        let isCopilotRequest = false
-        let isMuseRequest    = false
-        let isHermesRequest  = false
-        #endif
-        if !isCodexRequest && !isCopilotRequest && !isMuseRequest && !isHermesRequest && Self.validateAgent(rawAgent) != nil {
+        // Only Claude Code (no klayer_agent) gets an approval card. A session from the Claude
+        // desktop app, or from any other agent, answers immediately with "ask" so that tool
+        // re-asks in its own window — it does not get a notch card.
+        guard rawAgent.isEmpty else {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
@@ -696,26 +634,13 @@ final class HookServer: @unchecked Sendable {
             return
         }
 
-        // Determine which workspace pill owns the request.
-        let pillId: String
-        if isCodexRequest {
-            pillId = "agent_codex"
-        } else if isCopilotRequest {
-            pillId = "agent_copilot"
-        } else if isMuseRequest {
-            pillId = "agent_muse"
-        } else if isHermesRequest {
-            pillId = "agent_hermes"
-        } else if isCursorEditor {
-            pillId = "agent_cursor"
-        } else {
-            pillId = "integration_claude"
-        }
+        // The workspace pill that owns the request.
+        let pillId = "integration_claude"
         // Terminal sessions: only when turned on in Settings, else the terminal asks itself.
-        let terminalHost = isCursorEditor || isVSCodeEditor ? nil
+        let terminalHost = isEditorHost ? nil
             : ClaudeHost.terminal(termProgram: termProgram, bundleId: bundleId)
         let isTerminal = terminalHost != nil && ClaudeHost.terminalCardsEnabled
-        guard isCodexRequest || isCopilotRequest || isMuseRequest || isHermesRequest || isCursorEditor || isVSCodeEditor || isTerminal else {
+        guard isEditorHost || isTerminal else {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
@@ -771,42 +696,21 @@ final class HookServer: @unchecked Sendable {
 
         // Monitor fd: if the editor closes the connection (handled externally), dismiss the card.
         // The cancel handler closes the fd — never close it anywhere else.
-        let capturedPillId = pillId
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, self.pendingApprovalFD == fd else { return }
-            let note: String
-            switch capturedPillId {
-            case "agent_cursor":  note = "Handled in Cursor."
-            case "agent_codex":   note = "Handled in Codex."
-            case "agent_copilot": note = "Handled in Copilot CLI."
-            case "agent_muse":    note = "Handled in Muse Code."
-            case "agent_hermes":  note = "Handled in Hermes."
-            default:              note = "Handled in \(self.claudeHostName)."
-            }
-            self.dismissApprovalCard(note: note)
+            self.dismissApprovalCard(note: "Handled in \(self.claudeHostName).")
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         approvalFDSource = source
 
         // Safety timeout — show a note and cancel without sending a decision.
-        // nb-hook reads EOF from the cancel handler's close and exits; Claude Code / Codex re-asks.
-        // Copilot/Muse use 110s (their relay waits 118s but their hook timeout is 120s, leaving little margin).
-        let waitTimeout: Double = (isCopilotRequest || isMuseRequest) ? 110 : 115
+        // nb-hook reads EOF from the cancel handler's close and exits; Claude Code re-asks.
         let captured = fd
-        DispatchQueue.main.asyncAfter(deadline: .now() + waitTimeout) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 115) { [weak self] in
             guard let self, self.pendingApprovalFD == captured else { return }
-            let note: String
-            switch capturedPillId {
-            case "agent_cursor":  note = "Still waiting in Cursor."
-            case "agent_codex":   note = "Still waiting in Codex."
-            case "agent_copilot": note = "Still waiting in Copilot CLI."
-            case "agent_muse":    note = "Still waiting in Muse Code."
-            case "agent_hermes":  note = "Still waiting in Hermes."
-            default:              note = "Still waiting in \(self.claudeHostName)."
-            }
-            self.dismissApprovalCard(note: note)
+            self.dismissApprovalCard(note: "Still waiting in \(self.claudeHostName).")
         }
     }
 
@@ -871,9 +775,7 @@ final class HookServer: @unchecked Sendable {
     @MainActor
     private func processQuestionRequest(fd: Int32, parsed: AskQuestion, payload: [String: Any]) {
         let state = AppState.shared
-        let sessionId = payload["session_id"] as? String
-                     ?? payload["conversation_id"] as? String
-                     ?? "unknown"
+        let sessionId = payload["session_id"] as? String ?? "unknown"
         let cwd       = payload["cwd"]        as? String ?? ""
         let rawName   = URL(fileURLWithPath: cwd).lastPathComponent
         let projectName = aliasProjectName(rawName.isEmpty ? "Session" : rawName)
@@ -881,28 +783,14 @@ final class HookServer: @unchecked Sendable {
         let rawAgent    = payload["klayer_agent"] as? String ?? ""
         let termProgram = payload["term_program"]  as? String ?? ""
         let bundleId    = payload["bundle_id"]     as? String ?? ""
-        let isCursorEditor = bundleId.lowercased() == "com.todesktop.230313mzl4w4u92"
-        let isVSCodeEditor = !isCursorEditor && (
-            termProgram.lowercased().contains("vscode") ||
-            bundleId.lowercased().contains("vscode"))
-        #if !APPSTORE
-        let isCodexRequest = rawAgent == "codex"
-        #else
-        let isCodexRequest = false
-        #endif
-        let pillId: String
-        if isCodexRequest {
-            pillId = "agent_codex"
-        } else if isCursorEditor {
-            pillId = "agent_cursor"
-        } else {
-            pillId = "integration_claude"
-        }
+        let isEditorHost = Self.isEditorHost(termProgram: termProgram, bundleId: bundleId)
+        let pillId = "integration_claude"
         // Terminal sessions: only when turned on in Settings, else the terminal asks itself.
-        let terminalHost = isCursorEditor || isVSCodeEditor ? nil
+        let terminalHost = isEditorHost ? nil
             : ClaudeHost.terminal(termProgram: termProgram, bundleId: bundleId)
         let isTerminal = terminalHost != nil && ClaudeHost.terminalCardsEnabled
-        guard isCodexRequest || isCursorEditor || isVSCodeEditor || isTerminal else {
+        // An agent Klayer Island does not follow never gets a card.
+        guard !isUnrecognisedAgent(rawAgent), isEditorHost || isTerminal else {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
@@ -968,7 +856,7 @@ final class HookServer: @unchecked Sendable {
         ClaudeHost.name(for: AppState.shared.tasks.first { $0.id == "integration_claude" }?.hostApp)
     }
 
-    /// Updates or transiently creates a workspace pill (VS Code or Cursor) task.
+    /// Updates or transiently creates the Claude Code workspace pill task.
     /// If the task already exists (persistent), just updates name/cwd.
     /// If missing (transient), creates it and inserts after the main pill.
     @MainActor
@@ -1051,14 +939,10 @@ final class HookServer: @unchecked Sendable {
             "LS":           String(localized: "step.lists",      defaultValue: "Lists"),
             "MultiEdit":    String(localized: "step.edits",      defaultValue: "Edits"),
             "NotebookEdit": String(localized: "step.notebook",   defaultValue: "Notebook"),
-            // Codex tools
-            "apply_patch":  String(localized: "step.edits",     defaultValue: "Edits"),
-            "update_plan":  String(localized: "step.tasks",     defaultValue: "Tasks"),
-            "spawn_agent":  String(localized: "step.agent",     defaultValue: "Agent"),
         ]
         var label = labels[tool] ?? tool
 
-        // Codex MCP tools arrive as mcp__server__tool — show "server · tool"
+        // MCP tools arrive as mcp__server__tool — show "server · tool"
         if tool.hasPrefix("mcp__") {
             let rest = String(tool.dropFirst(5))
             let parts = rest.components(separatedBy: "__")
@@ -1068,19 +952,6 @@ final class HookServer: @unchecked Sendable {
         // Bash: infer a more precise verb from the command
         if tool == "Bash", let cmd = input["command"] as? String {
             return "\(bashVerb(cmd)) · \(oneLine(cmd))"
-        }
-
-        // apply_patch: extract the first file name from the patch
-        if tool == "apply_patch", let patch = input["command"] as? String {
-            for line in patch.split(separator: "\n") {
-                for prefix in ["*** Update File: ", "*** Add File: ", "*** Delete File: "] {
-                    if line.hasPrefix(prefix) {
-                        let path = String(line.dropFirst(prefix.count))
-                        return "\(label) · \(URL(fileURLWithPath: path).lastPathComponent)"
-                    }
-                }
-            }
-            return label
         }
 
         if let cmd = input["command"] as? String {
@@ -1566,1473 +1437,6 @@ final class HookServer: @unchecked Sendable {
         return klayerHooksPresent(inSettings: json)
         #endif
     }
-
-    // MARK: - Gemini CLI and Antigravity hook installers  (#if !APPSTORE only)
-
-    #if !APPSTORE
-    private static var geminiSettingsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/settings.json")
-    }
-    private static var agyHooksURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/config/hooks.json")
-    }
-
-    // MARK: Installed-state detection
-
-    static func geminiHooksInstalled() -> Bool {
-        guard let data = try? Data(contentsOf: geminiSettingsURL),
-              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let hooks = settings["hooks"] as? [String: Any] else { return false }
-        for value in hooks.values {
-            guard let groups = value as? [[String: Any]] else { continue }
-            for group in groups {
-                if let innerHooks = group["hooks"] as? [[String: Any]] {
-                    for hook in innerHooks {
-                        if let cmd = hook["command"] as? String,
-                           cmd.contains("nb-hook"), cmd.contains("--agent gemini") { return true }
-                    }
-                }
-                // Legacy flat entry
-                if let cmd = group["command"] as? String,
-                   cmd.contains("nb-hook"), cmd.contains("--agent gemini") { return true }
-            }
-        }
-        return false
-    }
-
-    static func agyHooksInstalled() -> Bool {
-        guard let data = try? Data(contentsOf: agyHooksURL),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let klayer = root["klayer"] else { return false }
-        let json = (try? JSONSerialization.data(withJSONObject: klayer))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        return json.contains("nb-hook")
-    }
-
-    // MARK: Gemini CLI – preview / write
-
-    private var _pendingGeminiData: Data?
-    private var _pendingGeminiFingerprint: String?
-
-    func previewGeminiHooks(install: Bool) throws -> String {
-        let url = Self.geminiSettingsURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install && !exists {
-            throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "No Gemini CLI hooks to remove."
-            ])
-        }
-        let current = exists ? try Data(contentsOf: url) : Data()
-        _pendingGeminiFingerprint = sha256Hex(current)
-        let newData = install ? try buildGeminiHooksData() : try withoutGeminiHooks()
-        _pendingGeminiData = newData
-        return String(data: newData, encoding: .utf8) ?? ""
-    }
-
-    func writeGeminiHooks() throws {
-        guard let data = _pendingGeminiData, let fp = _pendingGeminiFingerprint else { return }
-        let url = Self.geminiSettingsURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.gemini/settings.json changed since preview. Refresh and try again."
-            ])
-        }
-        try writeJSONFile(data, to: url, suffix: "settings.json")
-        _pendingGeminiData = nil
-        _pendingGeminiFingerprint = nil
-    }
-
-    private func buildGeminiHooksData() throws -> Data {
-        var settings = try Self.strictReadJSONObject(at: Self.geminiSettingsURL,
-                                                     label: "~/.gemini/settings.json")
-        if let raw = settings["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.gemini/settings.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        let base = hookBase()
-        // (Gemini event key, normalized event name passed via argv, timeout in ms)
-        let events: [(String, String, Int)] = [
-            ("SessionStart", "SessionStart", 10000),
-            ("SessionEnd",   "SessionEnd",   10000),
-            ("BeforeTool",   "PreToolUse",   5000),
-            ("AfterTool",    "PostToolUse",  5000),
-            ("BeforeAgent",  "UserPromptSubmit", 5000),
-            ("AfterAgent",   "Stop",         5000),
-        ]
-        var hooks = settings["hooks"] as? [String: Any] ?? [:]
-        for (geminiEvent, normalizedEvent, timeout) in events {
-            if let raw = hooks[geminiEvent], !(raw is [[String: Any]]) {
-                throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "~/.gemini/settings.json: \"hooks\"[\"\(geminiEvent)\"] has an unexpected type — Klayer Island has not touched it."
-                ])
-            }
-            var groups = hooks[geminiEvent] as? [[String: Any]] ?? []
-            // Remove legacy flat entries and groups whose inner hooks contain nb-hook
-            groups = removeNbHookEntries(from: groups)
-            let hookEntry: [String: Any] = [
-                "type": "command",
-                "command": "\(base) --agent gemini \(normalizedEvent)",
-                "timeout": timeout,
-            ]
-            groups.append(["matcher": "*", "hooks": [hookEntry]])
-            hooks[geminiEvent] = groups
-        }
-        settings["hooks"] = hooks
-        return try JSONSerialization.data(withJSONObject: settings,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    private func withoutGeminiHooks() throws -> Data {
-        var settings = try Self.strictReadJSONObject(at: Self.geminiSettingsURL,
-                                                     label: "~/.gemini/settings.json")
-        if let raw = settings["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.gemini/settings.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        if var hooks = settings["hooks"] as? [String: Any] {
-            for key in hooks.keys {
-                if let groups = hooks[key] as? [[String: Any]] {
-                    let cleaned = removeNbHookEntries(from: groups)
-                    if cleaned.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = cleaned }
-                }
-            }
-            if hooks.isEmpty { settings.removeValue(forKey: "hooks") } else { settings["hooks"] = hooks }
-        }
-        return try JSONSerialization.data(withJSONObject: settings,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    // MARK: Antigravity – preview / write
-
-    private var _pendingAgyData: Data?
-    private var _pendingAgyFingerprint: String?
-
-    func previewAgyHooks(install: Bool) throws -> String {
-        let url = Self.agyHooksURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install && !exists {
-            throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "No Antigravity hooks to remove."
-            ])
-        }
-        let current = exists ? try Data(contentsOf: url) : Data()
-        _pendingAgyFingerprint = sha256Hex(current)
-        let newData = install ? try buildAgyHooksData() : try withoutAgyHooks()
-        _pendingAgyData = newData
-        return String(data: newData, encoding: .utf8) ?? ""
-    }
-
-    func writeAgyHooks() throws {
-        guard let data = _pendingAgyData, let fp = _pendingAgyFingerprint else { return }
-        let url = Self.agyHooksURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.gemini/config/hooks.json changed since preview. Refresh and try again."
-            ])
-        }
-        try writeJSONFile(data, to: url, suffix: "hooks.json")
-        _pendingAgyData = nil
-        _pendingAgyFingerprint = nil
-    }
-
-    private func buildAgyHooksData() throws -> Data {
-        var root = try Self.strictReadJSONObject(at: Self.agyHooksURL,
-                                                 label: "~/.gemini/config/hooks.json")
-        let base = hookBase()
-        // PreToolUse / PostToolUse: tool-level hooks — use matcher group
-        // PreInvocation / PostInvocation / Stop: lifecycle hooks — direct handler, no matcher
-        var klayer: [String: Any] = [:]
-        for event in ["PreToolUse", "PostToolUse"] {
-            let hook: [String: Any] = ["type": "command",
-                                       "command": "\(base) --agent antigravity \(event)",
-                                       "timeout": 10]
-            klayer[event] = [["matcher": "*", "hooks": [hook]]]
-        }
-        for event in ["PreInvocation", "PostInvocation", "Stop"] {
-            let hook: [String: Any] = ["type": "command",
-                                       "command": "\(base) --agent antigravity \(event)",
-                                       "timeout": 10]
-            klayer[event] = [hook]
-        }
-        root["klayer"] = klayer
-        return try JSONSerialization.data(withJSONObject: root,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    private func withoutAgyHooks() throws -> Data {
-        var root = try Self.strictReadJSONObject(at: Self.agyHooksURL,
-                                                 label: "~/.gemini/config/hooks.json")
-        root.removeValue(forKey: "klayer")
-        return try JSONSerialization.data(withJSONObject: root,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    // MARK: Shared helpers
-
-    /// /bin/sh "<hookScriptPath>" — quoted for paths containing spaces (Application Support).
-    private func hookBase() -> String {
-        let path = Self.hookScriptPath.replacingOccurrences(of: "\"", with: "\\\"")
-        return "/bin/sh \"\(path)\""
-    }
-
-    /// Reads a JSON object from url.
-    /// Absent file → empty dict. Present but invalid → throws with a user-facing message.
-    private static func strictReadJSONObject(at url: URL, label: String) throws -> [String: Any] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        let data: Data
-        do { data = try Data(contentsOf: url) }
-        catch {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "\(label) cannot be read — Klayer Island has not touched it."
-            ])
-        }
-        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "\(label) is not valid JSON — Klayer Island has not touched it."
-            ])
-        }
-        return obj
-    }
-
-    /// Backs up the existing file (throws on failure), creates parent dirs, then atomically writes.
-    private func writeJSONFile(_ data: Data, to url: URL, suffix: String) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) {
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "en_US_POSIX")
-            fmt.dateFormat = "yyyyMMdd-HHmmss"
-            let backupURL = url.deletingLastPathComponent()
-                .appendingPathComponent("\(suffix).bak-\(fmt.string(from: Date()))")
-            do { try fm.copyItem(at: url, to: backupURL) }
-            catch {
-                throw NSError(domain: "Klayer Island", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "Could not back up \(url.lastPathComponent): \(error.localizedDescription)"
-                ])
-            }
-        }
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-    }
-
-    /// Removes entries containing "nb-hook" from a Gemini-format groups array.
-    /// Handles both new group format (matcher + hooks[]) and legacy flat format (command at top level).
-    /// Returns the cleaned array; empty groups (after inner-hook removal) are dropped.
-    private func removeNbHookEntries(from groups: [[String: Any]]) -> [[String: Any]] {
-        groups.compactMap { group -> [String: Any]? in
-            // Legacy flat entry — command at group level
-            if let cmd = group["command"] as? String, cmd.contains("nb-hook") { return nil }
-            // Group format — filter inner hooks
-            if var innerHooks = group["hooks"] as? [[String: Any]] {
-                innerHooks.removeAll { ($0["command"] as? String)?.contains("nb-hook") == true }
-                if innerHooks.isEmpty { return nil }
-                var updated = group
-                updated["hooks"] = innerHooks
-                return updated
-            }
-            return group
-        }
-    }
-
-    // MARK: - Codex hook installer  (#if !APPSTORE only)
-
-    static var codexHooksURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/hooks.json")
-    }
-
-    /// True when ~/.codex/hooks.json already routes Codex events to Klayer Island's nb-hook.
-    static func codexHooksInstalled() -> Bool {
-        guard let data = try? Data(contentsOf: codexHooksURL),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let hooks = root["hooks"] as? [String: Any] else { return false }
-        for value in hooks.values {
-            guard let groups = value as? [[String: Any]] else { continue }
-            for group in groups {
-                if let innerHooks = group["hooks"] as? [[String: Any]] {
-                    for hook in innerHooks {
-                        if let cmd = hook["command"] as? String,
-                           cmd.contains("nb-hook"), cmd.contains("--agent codex") { return true }
-                    }
-                }
-            }
-        }
-        return false
-    }
-
-    private var _pendingCodexData: Data?
-    private var _pendingCodexFingerprint: String?
-
-    func previewCodexHooks(install: Bool) throws -> String {
-        let url = Self.codexHooksURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install && !exists {
-            throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "No Codex hooks to remove."
-            ])
-        }
-        let current = exists ? try Data(contentsOf: url) : Data()
-        _pendingCodexFingerprint = sha256Hex(current)
-        let newData = install ? try buildCodexHooksData() : try withoutCodexHooks()
-        _pendingCodexData = newData
-        return String(data: newData, encoding: .utf8) ?? ""
-    }
-
-    func writeCodexHooks() throws {
-        guard let data = _pendingCodexData, let fp = _pendingCodexFingerprint else { return }
-        let url = Self.codexHooksURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.codex/hooks.json changed since preview. Refresh and try again."
-            ])
-        }
-        try writeJSONFile(data, to: url, suffix: "hooks.json")
-        _pendingCodexData = nil
-        _pendingCodexFingerprint = nil
-    }
-
-    private func buildCodexHooksData() throws -> Data {
-        var root = try Self.strictReadJSONObject(at: Self.codexHooksURL, label: "~/.codex/hooks.json")
-        if let raw = root["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.codex/hooks.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        let base = hookBase()
-        // Events, timeouts in seconds (Codex format).
-        // PermissionRequest uses 120s + a statusMessage shown in the Codex UI while waiting.
-        let events: [(String, Int, String?)] = [
-            ("SessionStart",    10,  nil),
-            ("UserPromptSubmit", 10, nil),
-            ("PreToolUse",      10,  nil),
-            ("PermissionRequest", 120, "Waiting for your answer in the notch (Klayer Island)"),
-            ("PostToolUse",     10,  nil),
-            ("Stop",            10,  nil),
-            ("SubagentStart",   10,  nil),
-            ("SubagentStop",    10,  nil),
-            ("Interrupt",        3,  nil),
-            ("SessionEnd",       3,  nil),
-        ]
-        var hooks = root["hooks"] as? [String: Any] ?? [:]
-        for (event, timeout, statusMsg) in events {
-            if let raw = hooks[event], !(raw is [[String: Any]]) {
-                throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "~/.codex/hooks.json: \"hooks\"[\"\(event)\"] has an unexpected type — Klayer Island has not touched it."
-                ])
-            }
-            var groups = hooks[event] as? [[String: Any]] ?? []
-            // Remove existing Klayer Island entries
-            groups = removeNbHookEntries(from: groups)
-            var hookEntry: [String: Any] = [
-                "type": "command",
-                "command": "\(base) --agent codex",
-                "timeout": timeout,
-            ]
-            if let msg = statusMsg { hookEntry["statusMessage"] = msg }
-            groups.append(["hooks": [hookEntry]])
-            hooks[event] = groups
-        }
-        root["hooks"] = hooks
-        return try JSONSerialization.data(withJSONObject: root,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    private func withoutCodexHooks() throws -> Data {
-        var root = try Self.strictReadJSONObject(at: Self.codexHooksURL, label: "~/.codex/hooks.json")
-        if let raw = root["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.codex/hooks.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        if var hooks = root["hooks"] as? [String: Any] {
-            for key in hooks.keys {
-                if let groups = hooks[key] as? [[String: Any]] {
-                    let cleaned = removeNbHookEntries(from: groups)
-                    if cleaned.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = cleaned }
-                }
-            }
-            if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
-        }
-        return try JSONSerialization.data(withJSONObject: root,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    // MARK: - GitHub Copilot CLI hook installer
-
-    static var copilotHooksURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".copilot/hooks/klayer.json")
-    }
-
-    /// True when ~/.copilot/hooks/klayer.json already routes Copilot events to Klayer Island's nb-hook.
-    static func copilotHooksInstalled() -> Bool {
-        guard let data = try? Data(contentsOf: copilotHooksURL),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let hooks = root["hooks"] as? [String: Any] else { return false }
-        for value in hooks.values {
-            guard let entries = value as? [[String: Any]] else { continue }
-            for entry in entries {
-                if let cmd = entry["bash"] as? String,
-                   cmd.contains("nb-hook"), cmd.contains("--agent copilot") { return true }
-            }
-        }
-        return false
-    }
-
-    private var _pendingCopilotData: Data?
-    private var _pendingCopilotFingerprint: String?
-
-    func previewCopilotHooks(install: Bool) throws -> String {
-        let url = Self.copilotHooksURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install && !exists {
-            throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "No Copilot hooks to remove."
-            ])
-        }
-        let current = exists ? try Data(contentsOf: url) : Data()
-        _pendingCopilotFingerprint = sha256Hex(current)
-        if install {
-            let newData = try buildCopilotHooksData()
-            _pendingCopilotData = newData
-            return String(data: newData, encoding: .utf8) ?? ""
-        } else {
-            _pendingCopilotData = nil  // nil = delete signal
-            return "(will delete \(url.path))"
-        }
-    }
-
-    func writeCopilotHooks() throws {
-        guard let fp = _pendingCopilotFingerprint else { return }
-        let url = Self.copilotHooksURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.copilot/hooks/klayer.json changed since preview. Refresh and try again."
-            ])
-        }
-        if let data = _pendingCopilotData {
-            try writeJSONFile(data, to: url, suffix: "klayer.json")
-        } else {
-            // Uninstall: delete the file entirely
-            try FileManager.default.removeItem(at: url)
-        }
-        _pendingCopilotData = nil
-        _pendingCopilotFingerprint = nil
-    }
-
-    private func buildCopilotHooksData() throws -> Data {
-        var root = try Self.strictReadJSONObject(at: Self.copilotHooksURL,
-                                                  label: "~/.copilot/hooks/klayer.json")
-        if let raw = root["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.copilot/hooks/klayer.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        let base = hookBase()
-        // Copilot CLI uses camelCase event names; each entry uses "bash" + "timeoutSec".
-        // The event name is passed as a positional arg so the relay can fall back to it.
-        // Copilot is fail-closed on permissionRequest — must always output valid JSON.
-        let events: [(String, Int)] = [
-            ("sessionStart",        10),
-            ("userPromptSubmitted", 10),
-            ("preToolUse",          10),
-            ("permissionRequest",  120),
-            ("postToolUse",         10),
-            ("agentStop",           10),
-            ("sessionEnd",           3),
-            ("notification",        10),
-        ]
-        var hooks = root["hooks"] as? [String: Any] ?? [:]
-        for (event, timeout) in events {
-            if let raw = hooks[event], !(raw is [[String: Any]]) {
-                throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "~/.copilot/hooks/klayer.json: \"hooks\"[\"\(event)\"] has an unexpected type — Klayer Island has not touched it."
-                ])
-            }
-            var entries = hooks[event] as? [[String: Any]] ?? []
-            entries.removeAll { ($0["bash"] as? String)?.contains("nb-hook") == true }
-            entries.append(["type": "command", "bash": "\(base) --agent copilot \(event)", "timeoutSec": timeout])
-            hooks[event] = entries
-        }
-        root["hooks"] = hooks
-        root["version"] = 1
-        return try JSONSerialization.data(withJSONObject: root,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    private func withoutCopilotHooks() throws -> Data {
-        var root = try Self.strictReadJSONObject(at: Self.copilotHooksURL,
-                                                  label: "~/.copilot/hooks/klayer.json")
-        if var hooks = root["hooks"] as? [String: Any] {
-            for key in hooks.keys {
-                if var entries = hooks[key] as? [[String: Any]] {
-                    entries.removeAll { ($0["command"] as? String)?.contains("nb-hook") == true }
-                    if entries.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = entries }
-                }
-            }
-            if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
-        }
-        return try JSONSerialization.data(withJSONObject: root,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    // MARK: - Muse Code hook installer
-
-    static var museSettingsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/muse/settings.json")
-    }
-
-    /// True when ~/.config/muse/settings.json already routes Muse events to Klayer Island's nb-hook.
-    static func museHooksInstalled() -> Bool {
-        guard let data = try? Data(contentsOf: museSettingsURL),
-              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let hooks = settings["hooks"] as? [String: Any] else { return false }
-        for value in hooks.values {
-            guard let groups = value as? [[String: Any]] else { continue }
-            for group in groups {
-                if let innerHooks = group["hooks"] as? [[String: Any]] {
-                    for h in innerHooks {
-                        if let cmd = h["command"] as? String,
-                           cmd.contains("nb-hook"), cmd.contains("--agent muse") { return true }
-                    }
-                }
-                if let cmd = group["command"] as? String,
-                   cmd.contains("nb-hook"), cmd.contains("--agent muse") { return true }
-            }
-        }
-        return false
-    }
-
-    private var _pendingMuseData: Data?
-    private var _pendingMuseFingerprint: String?
-
-    func previewMuseHooks(install: Bool) throws -> String {
-        let url = Self.museSettingsURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install && !exists {
-            throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "No Muse Code hooks to remove."
-            ])
-        }
-        let current = exists ? try Data(contentsOf: url) : Data()
-        _pendingMuseFingerprint = sha256Hex(current)
-        let newData = install ? try buildMuseHooksData() : try withoutMuseHooks()
-        _pendingMuseData = newData
-        return String(data: newData, encoding: .utf8) ?? ""
-    }
-
-    func writeMuseHooks() throws {
-        guard let data = _pendingMuseData, let fp = _pendingMuseFingerprint else { return }
-        let url = Self.museSettingsURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/muse/settings.json changed since preview. Refresh and try again."
-            ])
-        }
-        try writeJSONFile(data, to: url, suffix: "settings.json")
-        _pendingMuseData = nil
-        _pendingMuseFingerprint = nil
-    }
-
-    private func buildMuseHooksData() throws -> Data {
-        var settings = try Self.strictReadJSONObject(at: Self.museSettingsURL,
-                                                      label: "~/.config/muse/settings.json")
-        if let raw = settings["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/muse/settings.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        let base = hookBase()
-        // Muse uses PascalCase events. Timeouts in milliseconds (seconds × 1000).
-        let events: [(String, Int)] = [
-            ("SessionStart",      10),
-            ("UserPromptSubmit",   5),
-            ("PreToolUse",         5),
-            ("PermissionRequest", 120),
-            ("PostToolUse",        5),
-            ("Stop",               5),
-            ("SessionEnd",         3),
-        ]
-        let isNew = !FileManager.default.fileExists(atPath: Self.museSettingsURL.path)
-        var hooks = settings["hooks"] as? [String: Any] ?? [:]
-        for (event, timeoutSec) in events {
-            if let raw = hooks[event], !(raw is [[String: Any]]) {
-                throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "~/.config/muse/settings.json: \"hooks\"[\"\(event)\"] has an unexpected type — Klayer Island has not touched it."
-                ])
-            }
-            var groups = hooks[event] as? [[String: Any]] ?? []
-            groups = removeNbHookEntries(from: groups)
-            let hookEntry: [String: Any] = [
-                "type": "command",
-                "command": "\(base) --agent muse \(event)",
-                "timeout": timeoutSec * 1000,
-            ]
-            groups.append(["matcher": "*", "hooks": [hookEntry]])
-            hooks[event] = groups
-        }
-        settings["hooks"] = hooks
-        if isNew { settings["schema_version"] = 1 }
-        return try JSONSerialization.data(withJSONObject: settings,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    private func withoutMuseHooks() throws -> Data {
-        var settings = try Self.strictReadJSONObject(at: Self.museSettingsURL,
-                                                      label: "~/.config/muse/settings.json")
-        if let raw = settings["hooks"], !(raw is [String: Any]) {
-            throw NSError(domain: "Klayer Island", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/muse/settings.json: \"hooks\" has an unexpected type — Klayer Island has not touched it."
-            ])
-        }
-        if var hooks = settings["hooks"] as? [String: Any] {
-            for key in hooks.keys {
-                if let groups = hooks[key] as? [[String: Any]] {
-                    let cleaned = removeNbHookEntries(from: groups)
-                    if cleaned.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = cleaned }
-                }
-            }
-            if hooks.isEmpty { settings.removeValue(forKey: "hooks") } else { settings["hooks"] = hooks }
-        }
-        return try JSONSerialization.data(withJSONObject: settings,
-                                         options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    }
-
-    // MARK: - OpenCode plugin installer
-
-    private var _pendingOpenCodeContent: String?
-    private var _pendingOpenCodeFingerprint: String?
-
-    static var openCodePluginURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/opencode/plugins/klayer.js")
-    }
-
-    static func openCodePluginInstalled() -> Bool {
-        guard let content = try? String(contentsOf: openCodePluginURL, encoding: .utf8) else { return false }
-        return content.contains("nb-hook") && content.contains("opencode")
-    }
-
-    private func buildOpenCodePluginContent() -> String {
-        let path = Self.hookScriptPath
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        return """
-// Klayer Island hook plugin for OpenCode — generated by KlayerIsland.app
-// Forwards every event to the Klayer Island notch (fire-and-forget, never blocks).
-import { spawn } from 'node:child_process';
-
-const HOOK = '\(path)';
-const EVENT_MAP = {
-  'session.created': 'SessionStart',
-  'session.idle': 'Stop',
-  'session.error': 'StopFailure',
-  'session.deleted': 'SessionEnd',
-  'permission.asked': 'PermissionRequest',
-};
-
-function forward(hook_event_name, payload) {
-  const p = spawn('/bin/sh', [HOOK, '--agent', 'opencode'],
-                  { stdio: ['pipe', 'ignore', 'ignore'], detached: true });
-  p.on('error', () => {});
-  p.stdin.on('error', () => {});
-  p.stdin.write(JSON.stringify({ hook_event_name, ...payload }) + '\\n');
-  p.stdin.end();
-  p.unref();
-}
-
-export const KlayerIslandPlugin = async (_ctx) => ({
-  event: async ({ event }) => {
-    const hook_event_name = EVENT_MAP[event.type];
-    if (!hook_event_name) return;
-    const props = event.properties || {};
-    const payload = {
-      session_id: event.sessionID || event.session_id || props.sessionID || props.session_id || '',
-      cwd: event.cwd || event.directory || props.cwd || props.directory || '',
-    };
-    if (typeof props.tool === 'string') payload.tool_name = props.tool;
-    if (props.input != null) payload.tool_input = props.input;
-    forward(hook_event_name, payload);
-  },
-  'tool.execute.before': async (input) => {
-    forward('PreToolUse', {
-      session_id: input.sessionID || input.session_id || '',
-      cwd: input.cwd || '',
-      tool_name: typeof input.tool === 'string' ? input.tool : '',
-      tool_input: input.input ?? null,
-    });
-  },
-  'tool.execute.after': async (input, _output) => {
-    forward('PostToolUse', {
-      session_id: input.sessionID || input.session_id || '',
-      cwd: input.cwd || '',
-      tool_name: typeof input.tool === 'string' ? input.tool : '',
-    });
-  },
-});
-"""
-    }
-
-    func previewOpenCodePlugin(install: Bool) throws -> String {
-        let url = Self.openCodePluginURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install {
-            guard exists else {
-                throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                    NSLocalizedDescriptionKey: "No OpenCode plugin to remove."
-                ])
-            }
-            let current = (try? Data(contentsOf: url)) ?? Data()
-            _pendingOpenCodeFingerprint = sha256Hex(current)
-            _pendingOpenCodeContent = nil
-            return "(will delete \(url.path))"
-        }
-        let current = exists ? (try? Data(contentsOf: url)) ?? Data() : Data()
-        _pendingOpenCodeFingerprint = sha256Hex(current)
-        let content = buildOpenCodePluginContent()
-        _pendingOpenCodeContent = content
-        return content
-    }
-
-    func writeOpenCodePlugin() throws {
-        guard let fp = _pendingOpenCodeFingerprint else { return }
-        let url = Self.openCodePluginURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/opencode/plugins/klayer.js changed since preview. Refresh and try again."
-            ])
-        }
-        guard let content = _pendingOpenCodeContent else {
-            // Uninstall path: checked by removeOpenCodePlugin
-            return
-        }
-        let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) {
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "en_US_POSIX")
-            fmt.dateFormat = "yyyyMMdd-HHmmss"
-            let backupURL = url.deletingLastPathComponent()
-                .appendingPathComponent("klayer.js.bak-\(fmt.string(from: Date()))")
-            try fm.copyItem(at: url, to: backupURL)
-        }
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        _pendingOpenCodeContent = nil
-        _pendingOpenCodeFingerprint = nil
-    }
-
-    func removeOpenCodePlugin() throws {
-        let url = Self.openCodePluginURL
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        guard content.contains("generated by Klayer Island") else {
-            throw NSError(domain: "Klayer Island", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/opencode/plugins/klayer.js was not generated by Klayer Island — not deleting it."
-            ])
-        }
-        try FileManager.default.removeItem(at: url)
-    }
-
-    // MARK: - Amp plugin installer
-
-    private var _pendingAmpContent: String?
-    private var _pendingAmpFingerprint: String?
-
-    static var ampPluginURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/amp/plugins/klayer.ts")
-    }
-
-    static func ampPluginInstalled() -> Bool {
-        guard let content = try? String(contentsOf: ampPluginURL, encoding: .utf8) else { return false }
-        return content.contains("nb-hook") && content.contains("'amp'")
-    }
-
-    private func buildAmpPluginContent() -> String {
-        let path = Self.hookScriptPath
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        return """
-// Klayer Island hook plugin for Amp — generated by KlayerIsland.app
-// Forwards every event to the Klayer Island notch (display only, never blocks).
-import { spawn } from 'node:child_process';
-
-const HOOK = '\(path)';
-
-function forward(event_name: string, fields: Record<string, unknown>): void {
-  const payload = JSON.stringify({ hook_event_name: event_name, ...fields });
-  const p = spawn('/bin/sh', [HOOK, '--agent', 'amp'],
-                  { stdio: ['pipe', 'ignore', 'ignore'], detached: true });
-  p.on('error', () => {});
-  (p.stdin as import('node:stream').Writable).on('error', () => {});
-  (p.stdin as import('node:stream').Writable).write(payload + '\\n');
-  (p.stdin as import('node:stream').Writable).end();
-  p.unref();
-}
-
-export default function (amp: any): void {
-  amp.on('session.start', (e: any) => { forward('SessionStart',     { session_id: e.thread?.id ?? '' }); });
-  amp.on('agent.start',   (e: any) => { forward('UserPromptSubmit', { session_id: e.thread?.id ?? '' }); });
-  amp.on('tool.call',     (e: any) => { try { forward('PreToolUse', { session_id: e.thread?.id ?? '', tool_name: typeof e.tool === 'string' ? e.tool : '' }); } finally { return { action: 'allow' }; } });
-  amp.on('tool.result',   (e: any) => { forward('PostToolUse',      { session_id: e.thread?.id ?? '' }); });
-  amp.on('agent.end',     (e: any) => { forward('Stop',             { session_id: e.thread?.id ?? '' }); });
-}
-"""
-    }
-
-    func previewAmpPlugin(install: Bool) throws -> String {
-        let url = Self.ampPluginURL
-        let exists = FileManager.default.fileExists(atPath: url.path)
-        if !install {
-            guard exists else {
-                throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                    NSLocalizedDescriptionKey: "No Amp plugin to remove."
-                ])
-            }
-            let current = (try? Data(contentsOf: url)) ?? Data()
-            _pendingAmpFingerprint = sha256Hex(current)
-            _pendingAmpContent = nil
-            return "(will delete \(url.path))"
-        }
-        let current = exists ? (try? Data(contentsOf: url)) ?? Data() : Data()
-        _pendingAmpFingerprint = sha256Hex(current)
-        let content = buildAmpPluginContent()
-        _pendingAmpContent = content
-        return content
-    }
-
-    func writeAmpPlugin() throws {
-        guard let fp = _pendingAmpFingerprint else { return }
-        let url = Self.ampPluginURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/amp/plugins/klayer.ts changed since preview. Refresh and try again."
-            ])
-        }
-        guard let content = _pendingAmpContent else {
-            // Uninstall path: checked by removeAmpPlugin
-            return
-        }
-        let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) {
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "en_US_POSIX")
-            fmt.dateFormat = "yyyyMMdd-HHmmss"
-            let backupURL = url.deletingLastPathComponent()
-                .appendingPathComponent("klayer.ts.bak-\(fmt.string(from: Date()))")
-            try fm.copyItem(at: url, to: backupURL)
-        }
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        _pendingAmpContent = nil
-        _pendingAmpFingerprint = nil
-    }
-
-    func removeAmpPlugin() throws {
-        let url = Self.ampPluginURL
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        guard content.contains("generated by Klayer Island") else {
-            throw NSError(domain: "Klayer Island", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "~/.config/amp/plugins/klayer.ts was not generated by Klayer Island — not deleting it."
-            ])
-        }
-        try FileManager.default.removeItem(at: url)
-    }
-
-    // MARK: - Hermes plugin installer
-
-    private var _pendingHermesPluginContent: String?
-    private var _pendingHermesPluginFingerprint: String?
-    private var _pendingHermesConfigContent: String?
-    private var _pendingHermesConfigFingerprint: String?
-
-    static var hermesPluginDir: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".hermes/plugins/klayer")
-    }
-    static var hermesInitPyURL: URL { hermesPluginDir.appendingPathComponent("__init__.py") }
-    static var hermesPluginYamlURL: URL { hermesPluginDir.appendingPathComponent("plugin.yaml") }
-    static var hermesConfigURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes/config.yaml")
-    }
-
-    static func hermesPluginInstalled() -> Bool {
-        guard let content = try? String(contentsOf: hermesInitPyURL, encoding: .utf8) else { return false }
-        return content.contains("nb-hook") && content.contains("hermes")
-    }
-
-    /// Returns true if the installed Hermes version exposes register_approval_transport.
-    /// Runs a quick python3 import check; returns false on any error or if hermes is not installed.
-    /// Finds the `hermes` executable in PATH and common install locations.
-    private static func hermesExecutablePath() -> String? {
-        // Try PATH via `which` first
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        which.arguments = ["hermes"]
-        let pipe = Pipe()
-        which.standardOutput = pipe
-        which.standardError  = Pipe()
-        if (try? which.run()) != nil {
-            which.waitUntilExit()
-            if which.terminationStatus == 0 {
-                let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !out.isEmpty && FileManager.default.isExecutableFile(atPath: out) { return out }
-            }
-        }
-        // Explicit common locations
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        for candidate in [
-            "\(home)/.local/bin/hermes",
-            "\(home)/.hermes/bin/hermes",
-            "/usr/local/bin/hermes",
-            "/opt/homebrew/bin/hermes",
-        ] {
-            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
-        }
-        return nil
-    }
-
-    /// Reads the shebang of `executablePath` and returns the interpreter path.
-    /// Handles `#!/usr/bin/env python3` by resolving via `which`.
-    private static func interpreterFromShebang(_ executablePath: String) -> String? {
-        guard let fh = FileHandle(forReadingAtPath: executablePath) else { return nil }
-        let data = fh.readData(ofLength: 512)
-        try? fh.close()
-        guard let text = String(data: data, encoding: .utf8),
-              text.hasPrefix("#!") else { return nil }
-        let line = String(text.prefix(while: { $0 != "\n" }).dropFirst(2))
-            .trimmingCharacters(in: .whitespaces)
-        if line.hasPrefix("/usr/bin/env ") {
-            let name = String(line.dropFirst("/usr/bin/env ".count))
-                .trimmingCharacters(in: .whitespaces)
-            let task = Process(); let pipe = Pipe()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            task.arguments = [name]; task.standardOutput = pipe; task.standardError = Pipe()
-            if (try? task.run()) != nil {
-                task.waitUntilExit()
-                let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return out.isEmpty ? nil : out
-            }
-            return nil
-        }
-        return line.isEmpty ? nil : line
-    }
-
-    /// Returns true if the installed Hermes version exposes register_approval_transport.
-    /// Finds the hermes binary, reads its shebang to get the right interpreter (never uses
-    /// system python3), and runs an import check with a 3-second timeout.
-    /// Returns false if hermes/interpreter not found, or import fails.
-    #if !APPSTORE
-    static func hermesSupportsApprovalTransport() -> Bool {
-        guard let hermesPath = hermesExecutablePath(),
-              let pythonPath = interpreterFromShebang(hermesPath),
-              FileManager.default.isExecutableFile(atPath: pythonPath) else { return false }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments     = ["-c", "from hermes_cli.approval_transport import ApprovalRequest"]
-        task.standardOutput = Pipe(); task.standardError = Pipe()
-        do { try task.run() } catch { return false }
-        // Wait up to 3 seconds
-        let group = DispatchGroup(); group.enter()
-        var exited = false
-        DispatchQueue.global(qos: .background).async { task.waitUntilExit(); exited = true; group.leave() }
-        if group.wait(timeout: .now() + 3) == .timedOut { task.terminate(); return false }
-        return task.terminationStatus == 0
-    }
-    #endif
-
-    private func buildHermesInitPy() -> String {
-        let path = Self.hookScriptPath
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        return """
-# Klayer Island hook plugin for Hermes Agent — generated by KlayerIsland.app
-# Session/tool events → Klayer Island notch (fire-and-forget, never blocks).
-# Approval transport: uses register_approval_transport when available (future Hermes),
-# falls back to pre_approval_request observer-only hook (hermes 0.15.x).
-import json, subprocess, threading
-from pathlib import Path
-
-HOOK = Path('\(path)')
-_lock = threading.Lock()
-# Maps session_id → metadata dict. Keeps correct session when multiple
-# sessions run concurrently (gateway mode). _current_session_id is kept as
-# a last-seen fallback for hooks that don't supply a session_id.
-_sessions: dict = {}
-_current_session_id = ''
-
-
-def _fire(fields: dict) -> None:
-    \"\"\"Non-blocking: spawn nb-hook and return immediately. Reaps child to avoid zombies.\"\"\"
-    def _run() -> None:
-        try:
-            p = subprocess.Popen(
-                [str(HOOK), '--agent', 'hermes'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,   # detach from process group
-            )
-            p.stdin.write(json.dumps(fields).encode() + b'\\n')
-            p.stdin.close()
-            p.wait(timeout=5)             # reap; 5s >> the 0.3s socket timeout
-        except Exception:
-            pass
-    threading.Thread(target=_run, daemon=True).start()
-
-
-def register(ctx) -> None:
-    def on_session_start(**kwargs) -> None:
-        global _current_session_id
-        sid = kwargs.get('session_id', '')
-        meta = {
-            'model': kwargs.get('model', ''),
-            'platform': kwargs.get('platform', 'cli') or 'cli',
-        }
-        with _lock:
-            _sessions[sid] = meta
-            _current_session_id = sid
-        _fire({'hook_event_name': 'SessionStart', 'session_id': sid, 'platform': meta['platform']})
-
-    def on_session_end(**kwargs) -> None:
-        sid = kwargs.get('session_id', '')
-        with _lock:
-            _sessions.pop(sid, None)
-        # Stop is sent by post_llm_call (which has the last assistant message).
-        # Only send StopFailure here when the session was interrupted abnormally.
-        if kwargs.get('interrupted'):
-            _fire({'hook_event_name': 'StopFailure', 'session_id': sid})
-
-    def post_llm_call(**kwargs) -> None:
-        sid = kwargs.get('session_id', '') or _current_session_id
-        response = kwargs.get('assistant_response', '')
-        _fire({
-            'hook_event_name': 'Stop',
-            'session_id': sid,
-            'last_assistant_message': response,
-        })
-
-    def pre_tool_call(**kwargs) -> None:
-        sid = kwargs.get('session_id', '') or _current_session_id
-        _fire({
-            'hook_event_name': 'PreToolUse',
-            'session_id': sid,
-            'tool_name': kwargs.get('tool_name', ''),
-            'tool_input': kwargs.get('args') or {},
-        })
-
-    def post_tool_call(**kwargs) -> None:
-        sid = kwargs.get('session_id', '') or _current_session_id
-        _fire({
-            'hook_event_name': 'PostToolUse',
-            'session_id': sid,
-            'tool_name': kwargs.get('tool_name', ''),
-        })
-
-    ctx.register_hook('on_session_start', on_session_start)
-    ctx.register_hook('on_session_end',   on_session_end)
-    ctx.register_hook('post_llm_call',    post_llm_call)
-    ctx.register_hook('pre_tool_call',    pre_tool_call)
-    ctx.register_hook('post_tool_call',   post_tool_call)
-
-    if hasattr(ctx, 'register_approval_transport'):
-        # Hermes version supports transport API — Klayer Island shows a real Allow/Deny card
-        # and returns the user's choice to Hermes.
-        def _present(request) -> object:
-            sid = (getattr(request, 'session_id', None)
-                   or getattr(request, 'session_key', None)
-                   or _current_session_id)
-            cmd     = getattr(request, 'command', '')
-            desc    = getattr(request, 'description', '')
-            timeout = getattr(request, 'timeout_seconds',
-                              getattr(request, 'timeout', 30.0))
-            allowed = list(getattr(request, 'allowed_choices', ('once', 'deny')))
-
-            payload = json.dumps({
-                'hook_event_name': 'PermissionRequest',
-                'session_id': sid,
-                'klayer_agent': 'hermes',
-                'klayer_has_transport': True,
-                'tool_name': cmd,
-                'tool_input': {'command': cmd, 'description': desc},
-            }).encode()
-            try:
-                result = subprocess.run(
-                    [str(HOOK), '--agent', 'hermes'],
-                    input=payload,
-                    capture_output=True,
-                    timeout=max(1.0, float(timeout) - 2.0),
-                )
-                data   = json.loads(result.stdout)
-                choice = data['choice']
-                if choice not in allowed:
-                    raise ValueError(f'invalid choice: {choice!r}')
-                return request.respond(choice)
-            except Exception:
-                # Fall back to Hermes' native prompt on any error.
-                return request.respond('deny')
-
-        ctx.register_approval_transport('klayer', _present)
-    else:
-        # Observer-only hook (hermes 0.15.x): Hermes still controls the decision.
-        # Fire a PreToolUse-style step so the notch shows "⏳ Approval pending in Hermes"
-        # in the step list without displaying a fake Allow/Deny card.
-        def pre_approval_request(**kwargs) -> None:
-            sid = kwargs.get('session_key', '') or _current_session_id
-            _fire({
-                'hook_event_name': 'PreToolUse',
-                'session_id': sid,
-                'tool_name': '⏳ Approval pending in Hermes',
-                'tool_input': {
-                    'command': kwargs.get('command', ''),
-                    'description': kwargs.get('description', ''),
-                },
-            })
-
-        ctx.register_hook('pre_approval_request', pre_approval_request)
-"""
-    }
-
-    private static let hermesPluginYaml = """
-name: klayer
-version: "1.0"
-description: Klayer Island notch integration — generated by KlayerIsland.app
-"""
-
-    /// Merges Klayer Island keys into a Hermes config.yaml string without touching other settings.
-    ///
-    /// Returns the merged YAML string, or nil if the file uses an unsupported structure
-    /// (flow maps `{…}`, YAML anchors `&`, multi-document `---`) that the line-level
-    /// merger cannot safely handle. Callers should surface an error with the lines
-    /// the user needs to add manually.
-    ///
-    /// Plugin enablement (plugins.enabled) is handled by the `hermes plugins enable/disable`
-    /// CLI after the plugin files are written; this function only manages security.approval.
-    static func mergedHermesConfig(_ base: String, enableApprovals: Bool) -> String? {
-        // Reject structures the simple merger cannot handle safely.
-        // Flow maps, anchors, and multi-document markers require a full YAML parser.
-        let unsafePatterns = ["{", " &", "\n---"]
-        for p in unsafePatterns where base.contains(p) {
-            return nil
-        }
-
-        var lines = base.components(separatedBy: "\n")
-
-        // Detect file indentation: look for the first indented line and count spaces.
-        let indent: Int = {
-            for line in lines {
-                let leading = line.prefix(while: { $0 == " " }).count
-                if leading > 0 && leading <= 8 { return leading }
-            }
-            return 2  // default
-        }()
-        let ind  = String(repeating: " ", count: indent)         // e.g. "  " (2) or "    " (4)
-        let ind2 = String(repeating: " ", count: indent * 2)     // one extra level
-
-        // Returns the index of the first top-level section header line matching `key`.
-        // Top-level = no leading spaces, ends with `:` (optionally with trailing space/comment).
-        func topLevelIndex(key: String) -> Int? {
-            lines.firstIndex { line in
-                let t = line.trimmingCharacters(in: .whitespaces)
-                guard !line.hasPrefix(" ") && !line.hasPrefix("\t") else { return false }
-                return t == "\(key):" || t.hasPrefix("\(key):")
-            }
-        }
-
-        // Returns the range of lines that belong to a top-level section (from its header to
-        // just before the next top-level section, or the end of the array).
-        func sectionRange(from sectionIdx: Int) -> Range<Int> {
-            var end = sectionIdx + 1
-            while end < lines.count {
-                let l = lines[end]
-                // A new top-level key: not blank, not a comment, no leading whitespace
-                if !l.isEmpty && !l.hasPrefix("#") && !l.hasPrefix(" ") && !l.hasPrefix("\t") {
-                    break
-                }
-                end += 1
-            }
-            return sectionIdx ..< end
-        }
-
-        // --- security.approval ---
-        let transportLine = "\(ind2)transport: klayer"
-        let fallbackLine  = "\(ind2)transport_fallback: builtin"
-
-        func ensureApprovalTransport() {
-            if let secIdx = topLevelIndex(key: "security") {
-                let secRange = sectionRange(from: secIdx)
-                // Look for approval: within the security section (must be indented)
-                if let approvalIdx = (secRange.lowerBound + 1 ..< secRange.upperBound)
-                    .first(where: { lines[$0].trimmingCharacters(in: .whitespaces).hasPrefix("approval:") }) {
-                    // approval: block exists — update or add transport keys within it
-                    let approvalRange = sectionRange(from: approvalIdx)
-                    var hasTransport = false
-                    var hasFallback  = false
-                    for i in (approvalRange.lowerBound + 1 ..< approvalRange.upperBound) {
-                        let t = lines[i].trimmingCharacters(in: .whitespaces)
-                        if t.hasPrefix("transport:") && !t.hasPrefix("transport_fallback") {
-                            lines[i] = transportLine; hasTransport = true
-                        } else if t.hasPrefix("transport_fallback:") {
-                            lines[i] = fallbackLine; hasFallback = true
-                        }
-                    }
-                    let insertAt = approvalRange.lowerBound + 1
-                    if !hasFallback  { lines.insert(fallbackLine,  at: insertAt) }
-                    if !hasTransport { lines.insert(transportLine, at: insertAt) }
-                } else {
-                    // No approval: key — insert right after security:
-                    let insertAt = secIdx + 1
-                    lines.insert("\(ind)approval:", at: insertAt)
-                    lines.insert(transportLine,     at: insertAt + 1)
-                    lines.insert(fallbackLine,      at: insertAt + 2)
-                }
-            } else {
-                // No security: section — append
-                if lines.last != "" { lines.append("") }
-                lines.append("security:")
-                lines.append("\(ind)approval:")
-                lines.append(transportLine)
-                lines.append(fallbackLine)
-            }
-        }
-
-        func removeApprovalTransport() {
-            // Only remove exact KlayerIsland-written transport keys; don't touch unrelated keys.
-            lines.removeAll { line in
-                let t = line.trimmingCharacters(in: .whitespaces)
-                return t == "transport: klayer" || t == "transport_fallback: builtin"
-            }
-        }
-
-        // --- plugins.enabled ---
-        // Note: actual plugin enable/disable is done via `hermes plugins enable/disable klayer`
-        // CLI after writing/removing the plugin files. This block ensures the preview
-        // shows the complete intended state of config.yaml.
-        func ensureKlayerIslandPlugin() {
-            // "Already present" = klayer in the plugins.enabled list specifically.
-            // Check by finding plugins: section first, then enabled: sub-key within it.
-            if let pluginsIdx = topLevelIndex(key: "plugins") {
-                let pluginsRange = sectionRange(from: pluginsIdx)
-                // Find enabled: within the plugins section
-                if let enabledIdx = (pluginsRange.lowerBound + 1 ..< pluginsRange.upperBound)
-                    .first(where: { lines[$0].trimmingCharacters(in: .whitespaces).hasPrefix("enabled:") }) {
-                    let enabledLine = lines[enabledIdx]
-                    let trimmed = enabledLine.trimmingCharacters(in: .whitespaces)
-                    if trimmed.contains("[") && trimmed.contains("]") {
-                        // Inline list: enabled: [x, y]  or  enabled: []
-                        if trimmed.contains("klayer") { return }   // already present
-                        if trimmed == "enabled: []" || trimmed == "enabled:[]" {
-                            // Empty inline list → expand to block entry
-                            let prefix = enabledLine.prefix(while: { $0 == " " })
-                            lines[enabledIdx] = "\(prefix)enabled:"
-                            lines.insert("\(prefix)\(ind)- klayer", at: enabledIdx + 1)
-                        } else {
-                            lines[enabledIdx] = enabledLine.replacingOccurrences(of: "]", with: ", klayer]")
-                        }
-                    } else {
-                        // Block list — check if klayer is already a child of this enabled:
-                        let enabledRange = sectionRange(from: enabledIdx)
-                        let alreadyPresent = (enabledRange.lowerBound + 1 ..< enabledRange.upperBound)
-                            .contains { lines[$0].trimmingCharacters(in: .whitespaces) == "- klayer" }
-                        if alreadyPresent { return }
-                        // Insert after enabled:
-                        let prefix = enabledLine.prefix(while: { $0 == " " })
-                        lines.insert("\(prefix)\(ind)- klayer", at: enabledIdx + 1)
-                    }
-                } else {
-                    // No enabled: key under plugins: — insert after plugins:
-                    lines.insert("\(ind)enabled:", at: pluginsIdx + 1)
-                    lines.insert("\(ind)\(ind)- klayer", at: pluginsIdx + 2)
-                }
-            } else {
-                // No plugins: section — append
-                if lines.last != "" { lines.append("") }
-                lines.append("plugins:")
-                lines.append("\(ind)enabled:")
-                lines.append("\(ind)\(ind)- klayer")
-            }
-        }
-
-        func removeKlayerIslandPlugin() {
-            // Remove the `- klayer` entry from plugins.enabled only.
-            // If that leaves enabled: with no entries, leave the key in place (don't remove it).
-            guard let pluginsIdx = topLevelIndex(key: "plugins") else { return }
-            let pluginsRange = sectionRange(from: pluginsIdx)
-            guard let enabledIdx = (pluginsRange.lowerBound + 1 ..< pluginsRange.upperBound)
-                .first(where: { lines[$0].trimmingCharacters(in: .whitespaces).hasPrefix("enabled:") })
-            else { return }
-            let enabledLine = lines[enabledIdx]
-            let trimmed = enabledLine.trimmingCharacters(in: .whitespaces)
-            if trimmed.contains("[") && trimmed.contains("]") {
-                // Inline list: remove klayer from it
-                let cleaned = trimmed
-                    .replacingOccurrences(of: ", klayer", with: "")
-                    .replacingOccurrences(of: "klayer, ", with: "")
-                    .replacingOccurrences(of: "klayer",   with: "")
-                let prefix = enabledLine.prefix(while: { $0 == " " })
-                lines[enabledIdx] = "\(prefix)\(cleaned)"
-            } else {
-                // Block list: remove the `- klayer` entry
-                let enabledRange = sectionRange(from: enabledIdx)
-                // Collect indices to remove first, then remove in reverse to preserve indices.
-                let toRemove = (enabledRange.lowerBound + 1 ..< enabledRange.upperBound)
-                    .filter { lines[$0].trimmingCharacters(in: .whitespaces) == "- klayer" }
-                for i in toRemove.reversed() { lines.remove(at: i) }
-            }
-        }
-
-        ensureKlayerIslandPlugin()
-        if enableApprovals { ensureApprovalTransport() } else { removeApprovalTransport() }
-        return lines.joined(separator: "\n")
-    }
-
-    func previewHermesPlugin(install: Bool) throws -> String {
-        if !install {
-            guard FileManager.default.fileExists(atPath: Self.hermesInitPyURL.path) else {
-                throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                    NSLocalizedDescriptionKey: "No Hermes plugin to remove."
-                ])
-            }
-            let current = (try? Data(contentsOf: Self.hermesInitPyURL)) ?? Data()
-            _pendingHermesPluginFingerprint = sha256Hex(current)
-            _pendingHermesPluginContent = nil
-            return "(will delete \(Self.hermesInitPyURL.path))"
-        }
-        let current = (try? Data(contentsOf: Self.hermesInitPyURL)) ?? Data()
-        _pendingHermesPluginFingerprint = sha256Hex(current)
-        let content = buildHermesInitPy()
-        _pendingHermesPluginContent = content
-        return content
-    }
-
-    func writeHermesPlugin() throws {
-        guard let fp = _pendingHermesPluginFingerprint else { return }
-        let url = Self.hermesInitPyURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.hermes/plugins/klayer/__init__.py changed since preview. Refresh and try again."
-            ])
-        }
-        let fm = FileManager.default
-        if let content = _pendingHermesPluginContent {
-            try fm.createDirectory(at: Self.hermesPluginDir, withIntermediateDirectories: true)
-            if fm.fileExists(atPath: url.path) {
-                let fmt = DateFormatter()
-                fmt.locale = Locale(identifier: "en_US_POSIX")
-                fmt.dateFormat = "yyyyMMdd-HHmmss"
-                let bak = url.deletingLastPathComponent()
-                    .appendingPathComponent("__init__.py.bak-\(fmt.string(from: Date()))")
-                try fm.copyItem(at: url, to: bak)
-            }
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            try Self.hermesPluginYaml.write(to: Self.hermesPluginYamlURL, atomically: true, encoding: .utf8)
-            // Register the plugin with the Hermes CLI so it appears in plugins.enabled.
-            // Best-effort — silently ignored if hermes is not on PATH.
-            try? Self.runHermesCLI(["plugins", "enable", "klayer"])
-        }
-        _pendingHermesPluginContent = nil
-        _pendingHermesPluginFingerprint = nil
-    }
-
-    func removeHermesPlugin() throws {
-        let url = Self.hermesInitPyURL
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        guard content.contains("generated by Klayer Island") else {
-            throw NSError(domain: "Klayer Island", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "~/.hermes/plugins/klayer/__init__.py was not generated by Klayer Island — not deleting it."
-            ])
-        }
-        // Remove from hermes plugins.enabled first, then delete the files.
-        // Best-effort — silently ignored if hermes is not on PATH.
-        try? Self.runHermesCLI(["plugins", "disable", "klayer"])
-        try FileManager.default.removeItem(at: Self.hermesPluginDir)
-    }
-
-    /// Invoke the Hermes CLI with the given arguments.
-    /// Searches standard PATH locations for the `hermes` binary.
-    @discardableResult
-    private static func runHermesCLI(_ args: [String]) throws -> String {
-        let hermesPaths = [
-            "/opt/homebrew/bin/hermes",
-            "/usr/local/bin/hermes",
-            "/usr/bin/hermes",
-            (ProcessInfo.processInfo.environment["HOME"] ?? "") + "/.local/bin/hermes",
-        ]
-        guard let hermesBin = hermesPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
-            throw NSError(domain: "KlayerIslandNoop", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "hermes CLI not found."
-            ])
-        }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: hermesBin)
-        proc.arguments = args
-        let out = Pipe()
-        proc.standardOutput = out
-        proc.standardError  = Pipe()   // discard stderr
-        try proc.run()
-        proc.waitUntilExit()
-        return String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    }
-
-    func previewHermesConfig(enableApprovals: Bool, supportsTransport: Bool) throws -> String {
-        let base = (try? String(contentsOf: Self.hermesConfigURL, encoding: .utf8)) ?? ""
-        let current = (try? Data(contentsOf: Self.hermesConfigURL)) ?? Data()
-        _pendingHermesConfigFingerprint = sha256Hex(current)
-        let effectiveApprovals = enableApprovals && supportsTransport
-        guard let merged = Self.mergedHermesConfig(base, enableApprovals: effectiveApprovals) else {
-            _pendingHermesConfigContent = nil
-            throw NSError(domain: "Klayer Island", code: 4, userInfo: [
-                NSLocalizedDescriptionKey: "~/.hermes/config.yaml uses an unsupported structure (flow maps, YAML anchors, or multi-document). Edit it manually and add:\n  security:\n    approval:\n      transport: klayer\n      transport_fallback: builtin"
-            ])
-        }
-        _pendingHermesConfigContent = merged
-        return merged
-    }
-
-    func writeHermesConfig() throws {
-        guard let fp = _pendingHermesConfigFingerprint,
-              let content = _pendingHermesConfigContent else { return }
-        let url = Self.hermesConfigURL
-        let current = (try? Data(contentsOf: url)) ?? Data()
-        guard sha256Hex(current) == fp else {
-            throw NSError(domain: "Klayer Island", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "~/.hermes/config.yaml changed since preview. Refresh and try again."
-            ])
-        }
-        let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) {
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "en_US_POSIX")
-            fmt.dateFormat = "yyyyMMdd-HHmmss"
-            let bak = url.deletingLastPathComponent()
-                .appendingPathComponent("config.yaml.bak-\(fmt.string(from: Date()))")
-            try fm.copyItem(at: url, to: bak)
-        }
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        _pendingHermesConfigContent = nil
-        _pendingHermesConfigFingerprint = nil
-    }
-
-    // MARK: SHA-256 fingerprint
-
-    private func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-    #endif
 }
 
 // MARK: - Notification names for hook server → controller communication
@@ -3061,22 +1465,6 @@ if xcode-select -p >/dev/null 2>&1; then
 fi
 if [ -n "$out" ]; then
     printf '%s\\n' "$out"
-else
-    # Copilot is fail-closed — must always output valid JSON even when python3 is absent or crashes.
-    _cop=0; _perm=0
-    for _a in "$@"; do
-        case "$_a" in
-            copilot) _cop=1 ;;
-            permissionRequest|PermissionRequest) _perm=1 ;;
-        esac
-    done
-    if [ "$_cop" -eq 1 ]; then
-        if [ "$_perm" -eq 1 ]; then
-            printf '{"permissionDecision":"ask"}\\n'
-        else
-            printf '{}\\n'
-        fi
-    fi
 fi
 exit 0
 """
@@ -3085,65 +1473,9 @@ exit 0
 
 private let nbHookPythonGitHub = """
 #!/usr/bin/env python3
-# nb-hook.py — Klayer Island hook relay for Claude Code and third-party agents (GitHub version)
+# nb-hook.py — Klayer Island hook relay for Claude Code (GitHub version)
 # Reads JSON from stdin, forwards to Klayer Island via Unix socket, translates response.
 import sys, json, os, socket
-
-def normalize_event(name):
-    mapping = {
-        'BeforeTool': 'PreToolUse', 'BeforeToolSelection': 'PreToolUse',
-        'AfterTool': 'PostToolUse', 'AfterModel': 'PostToolUse',
-        'BeforeAgent': 'UserPromptSubmit', 'AfterAgent': 'Stop',
-        'startup': 'SessionStart', 'exit': 'SessionEnd',
-        'PreInvocation': 'UserPromptSubmit', 'PostInvocation': 'PostToolUse',
-        'pre_tool_use': 'PreToolUse', 'post_tool_use': 'PostToolUse',
-        'user_prompt_submit': 'UserPromptSubmit', 'session_start': 'SessionStart',
-        'session_end': 'SessionEnd', 'stop': 'Stop',
-        'sessionStart': 'SessionStart', 'userPromptSubmitted': 'UserPromptSubmit',
-        'agentStop': 'Stop', 'notification': 'Notification',
-        'preToolUse': 'PreToolUse', 'postToolUse': 'PostToolUse',
-        'permissionRequest': 'PermissionRequest', 'sessionEnd': 'SessionEnd',
-    }
-    return mapping.get(name, name)
-
-def normalize_tool_fields(payload):
-    if 'tool_name' not in payload:
-        # Copilot sends toolName directly; other agents nest in toolCall
-        if payload.get('toolName'):
-            payload['tool_name'] = payload['toolName']
-        else:
-            tool = payload.get('toolCall')
-            if not isinstance(tool, dict):
-                tool = {}
-            name = tool.get('name') or payload.get('tool', '')
-            if name:
-                payload['tool_name'] = name
-    if 'tool_input' not in payload:
-        # Copilot sends toolArgs directly
-        tool_args = payload.get('toolArgs')
-        if isinstance(tool_args, dict):
-            payload['tool_input'] = tool_args
-        else:
-            tool = payload.get('toolCall') or {}
-            if isinstance(tool.get('args'), dict):
-                flat = dict(tool['args'])
-                for src, dst in [('CommandLine', 'command'), ('FilePath', 'file_path'),
-                                 ('Path', 'path'), ('Url', 'url'), ('Query', 'query'), ('Pattern', 'pattern')]:
-                    if src in flat:
-                        flat[dst] = flat[src]
-                payload['tool_input'] = flat
-    if 'session_id' not in payload:
-        for k in ['conversationId', 'conversation_id', 'sessionId', 'GEMINI_SESSION_ID']:
-            if payload.get(k):
-                payload['session_id'] = payload[k]
-                break
-        if 'session_id' not in payload:
-            sid = os.environ.get('GEMINI_SESSION_ID', '')
-            if sid:
-                payload['session_id'] = sid
-    # Copilot sends workdir for the current working directory
-    if not payload.get('cwd') and payload.get('workdir'):
-        payload['cwd'] = payload['workdir']
 
 def main():
     raw = b''
@@ -3207,11 +1539,7 @@ def main():
         payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
         payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
         if 'cwd' not in payload or not payload['cwd']:
-            paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
-            if isinstance(paths, list) and paths:
-                payload['cwd'] = paths[0]
-            else:
-                payload['cwd'] = os.getcwd()
+            payload['cwd'] = os.getcwd()
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(125)
@@ -3245,20 +1573,17 @@ def main():
             pass
         return
 
-    # Parse --agent <name> and optional positional event from argv.
-    # --agent tags the payload with klayer_agent so the app routes to the right pill.
-    # The positional arg is a fallback event name for agents that do not set hook_event_name.
+    # Claude Code sends no klayer_agent. A hook that an earlier Klayer Island wired for another
+    # tool still passes --agent <name>: tag the payload with it so the app ignores that tool
+    # (no pill, permission answered "ask") instead of reading it as a Claude Code session.
     args = sys.argv[1:]
     agent = ''
-    arg_event = ''
     i = 0
     while i < len(args):
         if args[i] == '--agent' and i + 1 < len(args):
             agent = args[i + 1]
             i += 2
         else:
-            if not arg_event:
-                arg_event = args[i]
             i += 1
     if agent:
         payload.setdefault('klayer_agent', agent)
@@ -3274,20 +1599,7 @@ def main():
     payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
     payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
     if 'cwd' not in payload or not payload['cwd']:
-        paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
-        if isinstance(paths, list) and paths:
-            payload['cwd'] = paths[0]
-        else:
-            payload['cwd'] = os.getcwd()
-
-    # Normalize event name and tool fields (Gemini CLI / Antigravity → canonical names)
-    try:
-        raw_event = payload.get('hook_event_name', '') or arg_event
-        if raw_event:
-            payload['hook_event_name'] = normalize_event(raw_event)
-        normalize_tool_fields(payload)
-    except Exception:
-        pass
+        payload['cwd'] = os.getcwd()
 
     event = payload.get('hook_event_name', '')
     # socket_path is already defined above
@@ -3315,31 +1627,18 @@ def main():
                     decision = resp_obj.get('permissionDecision', '')
                 except Exception:
                     decision = ''
-                if agent == 'hermes':
-                    hermes_choice = 'once' if decision == 'allow' else decision
-                    if hermes_choice in ('once', 'always', 'deny'):
-                        sys.stdout.write(json.dumps({'choice': hermes_choice}) + '\\n')
-                        sys.stdout.flush()
-                    sys.exit(0)
                 if decision in ('allow', 'always'):
-                    # Copilot/Muse use {"permissionDecision":"allow"} directly
-                    if agent in ('copilot', 'muse'):
-                        out = {'permissionDecision': 'allow'}
-                    elif decision == 'always' and agent != 'codex':
+                    if decision == 'always':
                         # Let Claude Code persist the rule via updatedPermissions
                         suggestions = payload.get('permission_suggestions', [])
                         out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow', 'updatedPermissions': suggestions}}}
                     else:
-                        # Claude Code / Codex plain allow
                         out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow'}}}
                     sys.stdout.write(json.dumps(out) + '\\n')
                     sys.stdout.flush()
                     sys.exit(0)
                 elif decision == 'deny':
-                    if agent in ('copilot', 'muse'):
-                        out = {'permissionDecision': 'deny'}
-                    else:
-                        out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'deny', 'message': 'Denied from Klayer Island'}}}
+                    out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'deny', 'message': 'Denied from Klayer Island'}}}
                     sys.stdout.write(json.dumps(out) + '\\n')
                     sys.stdout.flush()
                     sys.exit(0)
@@ -3351,15 +1650,10 @@ def main():
                     sys.stdout.write(json.dumps(out) + '\\n')
                     sys.stdout.flush()
                     sys.exit(0)
-                # 'ask' or unknown: fall through → no output → agent re-asks
+                # 'ask' or unknown: fall through → no output → Claude Code re-asks
         except Exception:
             pass
-        # App unreachable, timed out, or no explicit decision — print nothing
-        # Copilot is fail-closed: must always output valid JSON so it re-asks rather than deny
-        # Hermes: no output → json.loads raises in plugin → transport_fallback: builtin activates
-        if agent == 'copilot':
-            sys.stdout.write('{"permissionDecision":"ask"}\\n')
-            sys.stdout.flush()
+        # App unreachable, timed out, or no explicit decision — print nothing: Claude Code asks itself
         sys.exit(0)
 
     # All other events: fire-and-forget (0.3s timeout, never blocks)
@@ -3370,16 +1664,7 @@ def main():
         s.sendall((json.dumps(payload) + '\\n').encode())
         s.close()
     except Exception:
-        pass  # Always exit cleanly — never block the agent
-
-    # Antigravity needs a decision on PreToolUse ({} reads as a denial). "ask" keeps its own
-    # permission prompt (and the user's Always Allow); Klayer Island never allows a tool by itself.
-    if agent == 'antigravity' and event == 'PreToolUse':
-        sys.stdout.write('{"decision":"ask"}\\n')
-        sys.stdout.flush()
-    elif agent in ('gemini', 'antigravity', 'muse', 'copilot'):
-        sys.stdout.write('{}\\n')
-        sys.stdout.flush()
+        pass  # Always exit cleanly — never block Claude Code
 
 try:
     main()
@@ -3392,65 +1677,9 @@ sys.exit(0)
 
 private let nbHookPythonAppStore = """
 #!/usr/bin/env python3
-# nb-hook.py — Klayer Island (App Store) hook relay for Claude Code and third-party agents
+# nb-hook.py — Klayer Island (App Store) hook relay for Claude Code
 # Socket lives inside the sandboxed container; script runs outside the sandbox.
 import sys, json, os, socket
-
-def normalize_event(name):
-    mapping = {
-        'BeforeTool': 'PreToolUse', 'BeforeToolSelection': 'PreToolUse',
-        'AfterTool': 'PostToolUse', 'AfterModel': 'PostToolUse',
-        'BeforeAgent': 'UserPromptSubmit', 'AfterAgent': 'Stop',
-        'startup': 'SessionStart', 'exit': 'SessionEnd',
-        'PreInvocation': 'UserPromptSubmit', 'PostInvocation': 'PostToolUse',
-        'pre_tool_use': 'PreToolUse', 'post_tool_use': 'PostToolUse',
-        'user_prompt_submit': 'UserPromptSubmit', 'session_start': 'SessionStart',
-        'session_end': 'SessionEnd', 'stop': 'Stop',
-        'sessionStart': 'SessionStart', 'userPromptSubmitted': 'UserPromptSubmit',
-        'agentStop': 'Stop', 'notification': 'Notification',
-        'preToolUse': 'PreToolUse', 'postToolUse': 'PostToolUse',
-        'permissionRequest': 'PermissionRequest', 'sessionEnd': 'SessionEnd',
-    }
-    return mapping.get(name, name)
-
-def normalize_tool_fields(payload):
-    if 'tool_name' not in payload:
-        # Copilot sends toolName directly; other agents nest in toolCall
-        if payload.get('toolName'):
-            payload['tool_name'] = payload['toolName']
-        else:
-            tool = payload.get('toolCall')
-            if not isinstance(tool, dict):
-                tool = {}
-            name = tool.get('name') or payload.get('tool', '')
-            if name:
-                payload['tool_name'] = name
-    if 'tool_input' not in payload:
-        # Copilot sends toolArgs directly
-        tool_args = payload.get('toolArgs')
-        if isinstance(tool_args, dict):
-            payload['tool_input'] = tool_args
-        else:
-            tool = payload.get('toolCall') or {}
-            if isinstance(tool.get('args'), dict):
-                flat = dict(tool['args'])
-                for src, dst in [('CommandLine', 'command'), ('FilePath', 'file_path'),
-                                 ('Path', 'path'), ('Url', 'url'), ('Query', 'query'), ('Pattern', 'pattern')]:
-                    if src in flat:
-                        flat[dst] = flat[src]
-                payload['tool_input'] = flat
-    if 'session_id' not in payload:
-        for k in ['conversationId', 'conversation_id', 'sessionId', 'GEMINI_SESSION_ID']:
-            if payload.get(k):
-                payload['session_id'] = payload[k]
-                break
-        if 'session_id' not in payload:
-            sid = os.environ.get('GEMINI_SESSION_ID', '')
-            if sid:
-                payload['session_id'] = sid
-    # Copilot sends workdir for the current working directory
-    if not payload.get('cwd') and payload.get('workdir'):
-        payload['cwd'] = payload['workdir']
 
 def main():
     raw = b''
@@ -3514,11 +1743,7 @@ def main():
         payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
         payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
         if 'cwd' not in payload or not payload['cwd']:
-            paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
-            if isinstance(paths, list) and paths:
-                payload['cwd'] = paths[0]
-            else:
-                payload['cwd'] = os.getcwd()
+            payload['cwd'] = os.getcwd()
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(125)
@@ -3552,20 +1777,17 @@ def main():
             pass
         return
 
-    # Parse --agent <name> and optional positional event from argv.
-    # --agent tags the payload with klayer_agent so the app routes to the right pill.
-    # The positional arg is a fallback event name for agents that do not set hook_event_name.
+    # Claude Code sends no klayer_agent. A hook that an earlier Klayer Island wired for another
+    # tool still passes --agent <name>: tag the payload with it so the app ignores that tool
+    # (no pill, permission answered "ask") instead of reading it as a Claude Code session.
     args = sys.argv[1:]
     agent = ''
-    arg_event = ''
     i = 0
     while i < len(args):
         if args[i] == '--agent' and i + 1 < len(args):
             agent = args[i + 1]
             i += 2
         else:
-            if not arg_event:
-                arg_event = args[i]
             i += 1
     if agent:
         payload.setdefault('klayer_agent', agent)
@@ -3580,20 +1802,7 @@ def main():
     payload.setdefault('term_session_id', env.get('TERM_SESSION_ID', ''))
     payload.setdefault('bundle_id', env.get('__CFBundleIdentifier', ''))
     if 'cwd' not in payload or not payload['cwd']:
-        paths = payload.get('workspacePaths') or payload.get('workspace_roots', [])
-        if isinstance(paths, list) and paths:
-            payload['cwd'] = paths[0]
-        else:
-            payload['cwd'] = os.getcwd()
-
-    # Normalize event name and tool fields (Gemini CLI / Antigravity → canonical names)
-    try:
-        raw_event = payload.get('hook_event_name', '') or arg_event
-        if raw_event:
-            payload['hook_event_name'] = normalize_event(raw_event)
-        normalize_tool_fields(payload)
-    except Exception:
-        pass
+        payload['cwd'] = os.getcwd()
 
     event = payload.get('hook_event_name', '')
     # socket_path is already defined above
@@ -3621,31 +1830,18 @@ def main():
                     decision = resp_obj.get('permissionDecision', '')
                 except Exception:
                     decision = ''
-                if agent == 'hermes':
-                    hermes_choice = 'once' if decision == 'allow' else decision
-                    if hermes_choice in ('once', 'always', 'deny'):
-                        sys.stdout.write(json.dumps({'choice': hermes_choice}) + '\\n')
-                        sys.stdout.flush()
-                    sys.exit(0)
                 if decision in ('allow', 'always'):
-                    # Copilot/Muse use {"permissionDecision":"allow"} directly
-                    if agent in ('copilot', 'muse'):
-                        out = {'permissionDecision': 'allow'}
-                    elif decision == 'always' and agent != 'codex':
+                    if decision == 'always':
                         # Let Claude Code persist the rule via updatedPermissions
                         suggestions = payload.get('permission_suggestions', [])
                         out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow', 'updatedPermissions': suggestions}}}
                     else:
-                        # Claude Code / Codex plain allow
                         out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'allow'}}}
                     sys.stdout.write(json.dumps(out) + '\\n')
                     sys.stdout.flush()
                     sys.exit(0)
                 elif decision == 'deny':
-                    if agent in ('copilot', 'muse'):
-                        out = {'permissionDecision': 'deny'}
-                    else:
-                        out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'deny', 'message': 'Denied from Klayer Island'}}}
+                    out = {'hookSpecificOutput': {'hookEventName': 'PermissionRequest', 'decision': {'behavior': 'deny', 'message': 'Denied from Klayer Island'}}}
                     sys.stdout.write(json.dumps(out) + '\\n')
                     sys.stdout.flush()
                     sys.exit(0)
@@ -3657,15 +1853,10 @@ def main():
                     sys.stdout.write(json.dumps(out) + '\\n')
                     sys.stdout.flush()
                     sys.exit(0)
-                # 'ask' or unknown: fall through → no output → agent re-asks
+                # 'ask' or unknown: fall through → no output → Claude Code re-asks
         except Exception:
             pass
-        # App unreachable, timed out, or no explicit decision — print nothing
-        # Copilot is fail-closed: must always output valid JSON so it re-asks rather than deny
-        # Hermes: no output → json.loads raises in plugin → transport_fallback: builtin activates
-        if agent == 'copilot':
-            sys.stdout.write('{"permissionDecision":"ask"}\\n')
-            sys.stdout.flush()
+        # App unreachable, timed out, or no explicit decision — print nothing: Claude Code asks itself
         sys.exit(0)
 
     try:
@@ -3675,16 +1866,7 @@ def main():
         s.sendall((json.dumps(payload) + '\\n').encode())
         s.close()
     except Exception:
-        pass  # Always exit cleanly — never block the agent
-
-    # Antigravity needs a decision on PreToolUse ({} reads as a denial). "ask" keeps its own
-    # permission prompt (and the user's Always Allow); Klayer Island never allows a tool by itself.
-    if agent == 'antigravity' and event == 'PreToolUse':
-        sys.stdout.write('{"decision":"ask"}\\n')
-        sys.stdout.flush()
-    elif agent in ('gemini', 'antigravity', 'muse', 'copilot'):
-        sys.stdout.write('{}\\n')
-        sys.stdout.flush()
+        pass  # Always exit cleanly — never block Claude Code
 
 try:
     main()

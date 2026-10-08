@@ -103,14 +103,8 @@ struct OverviewView: View {
                 #if !APPSTORE
                 if state.showingPlanDetail {
                     CardBackground(wash: nil)
-                    Group {
-                        if state.planDetailIsCodex {
-                            CodexPlanCardView(usage: state.codexPlanUsage)
-                        } else {
-                            ClaudePlanCardView(usage: state.claudePlanUsage)
-                        }
-                    }
-                    .transition(.opacity)
+                    ClaudePlanCardView(usage: state.claudePlanUsage)
+                        .transition(.opacity)
                 }
                 #endif
 
@@ -203,30 +197,8 @@ struct OverviewView: View {
                 NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
             }
             #endif
-        case "agent_codex":
-            #if !APPSTORE
-            if let url = NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: "com.openai.codex") {
-                NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
-            }
-            #endif
         case "agent_claude-desktop":
             openClaudeDesktopApp()
-        case "agent_gemini", "agent_antigravity",
-             "agent_copilot", "agent_muse", "agent_opencode", "agent_amp":
-            #if !APPSTORE
-            TerminalTarget.activate(sessionBundleId: nil)
-            #endif
-        case "ai_anthropic":
-            switchChatProvider(.anthropic)
-        case "ai_google":
-            switchChatProvider(.google)
-        case "ai_openai":
-            switchChatProvider(.openai)
-        case "ai_ollama":
-            switchChatProvider(.ollama)
-        case "ai_lmstudio":
-            switchChatProvider(.lmstudio)
         case "integration_spotify":
             #if !APPSTORE
             SpotifyController.shared.openSpotify()
@@ -287,14 +259,8 @@ struct ApprovalView: View {
                     PrimaryButton("Allow") {
                         HookServer.shared.sendApprovalDecision("allow")
                     }
-                    // Codex, Copilot CLI and Muse Code do not support updatedPermissions
-                    let hideAlways = approval?.pillId == "agent_codex"
-                        || approval?.pillId == "agent_copilot"
-                        || approval?.pillId == "agent_muse"
-                    if !hideAlways {
-                        SecondaryButton("Always") {
-                            HookServer.shared.sendApprovalDecision("always")
-                        }
+                    SecondaryButton("Always") {
+                        HookServer.shared.sendApprovalDecision("always")
                     }
                 }
             }
@@ -1092,7 +1058,6 @@ struct PromptView: View {
     @ObservedObject var state: AppState
     @State private var text: String = ""
     @FocusState private var focused: Bool
-    @State private var showModelPicker = false
 
     #if !APPSTORE
     @State private var dictation = MacDictation()
@@ -1143,37 +1108,6 @@ struct PromptView: View {
                     Spacer()
                 }
 
-                HStack(spacing: 0) {
-                    Spacer()
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            showModelPicker.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color(hex: state.chatProvider.accentHex))
-                                .frame(width: 6, height: 6)
-                            Text(state.activeChatModel)
-                                .font(.system(size: 10.5, weight: .medium))
-                                .foregroundColor(Color(hex: "#7B8089"))
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 8))
-                                .foregroundColor(Color(hex: "#5C6370"))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
-                        ModelPickerView(state: state, isPresented: $showModelPicker)
-                            .frame(width: 300)
-                    }
-                }
-                .padding(.horizontal, 10)
-
                 HStack(spacing: 8) {
                     TextField(state.chatHistory.isEmpty ? String(localized: "Ask me anything…") : String(localized: "Continue…"), text: $text)
                         .textFieldStyle(.plain)
@@ -1219,16 +1153,6 @@ struct PromptView: View {
         }
         .padding(.bottom, 10)
         .onAppear { focused = true }
-        .onChange(of: state.view) { _, view in
-            if view == .prompt {
-                state.fetchModelsIfNeeded(for: state.chatProvider)
-            }
-        }
-        .onChange(of: state.chatProvider) { _, provider in
-            if state.view == .prompt {
-                state.fetchModelsIfNeeded(for: provider)
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .islandSendMessage)) { _ in
             guard state.view == .prompt else { return }
             sendMessage()
@@ -1260,9 +1184,9 @@ struct PromptView: View {
 }
 
 
-// MARK: - Model / provider picker
+// MARK: - Chip flow layout
 
-/// Wrapping horizontal flow layout — used by ModelPickerView and QuestionView.
+/// Wrapping horizontal flow layout — used by QuestionView.
 struct ChipFlowLayout: Layout {
     var spacing: CGFloat = 6
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
@@ -1287,135 +1211,6 @@ struct ChipFlowLayout: Layout {
             maxX = max(maxX, x - spacing)
         }
         return (CGSize(width: max(maxX, 0), height: y + lineH), pts)
-    }
-}
-
-struct ModelPickerView: View {
-    @ObservedObject var state: AppState
-    @Binding var isPresented: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Provider chips — wrap; hide local providers when not connected and not already active
-            let visibleProviders = ChatProvider.allCases.filter { p in
-                if p == .ollama   { return !AppState.shared.ollamaServerURL.isEmpty   || state.chatProvider == .ollama }
-                if p == .lmstudio { return !AppState.shared.lmstudioServerURL.isEmpty || state.chatProvider == .lmstudio }
-                return true
-            }
-            ChipFlowLayout(spacing: 6) {
-                ForEach(visibleProviders, id: \.self) { provider in
-                    Button {
-                        guard provider != state.chatProvider else { return }
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                            state.chatProvider = provider
-                        }
-                        NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.surprised)
-                        SoundEngine.shared.play("pop")
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color(hex: provider.accentHex))
-                                .frame(width: 7, height: 7)
-                            Text(provider.displayName)
-                                .font(.system(size: 12, weight: state.chatProvider == provider ? .semibold : .regular))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(state.chatProvider == provider
-                                    ? Color(hex: provider.accentHex).opacity(0.18)
-                                    : Color.white.opacity(0.06))
-                        .overlay(Capsule().stroke(
-                            state.chatProvider == provider
-                                ? Color(hex: provider.accentHex).opacity(0.5)
-                                : Color.white.opacity(0.1),
-                            lineWidth: 1))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Divider().opacity(0.2)
-
-            // Model list for current provider — fetched dynamically
-            modelListView
-                .frame(height: 260, alignment: .top)
-        }
-        .padding(14)
-        .background(Color(hex: "#16171B"))
-        .onAppear {
-            // Force-refresh local providers every time the picker opens
-            if state.chatProvider.isLocal {
-                state.fetchedProviderModels[state.chatProvider] = nil
-                state.providerModelFetchError[state.chatProvider] = nil
-            }
-            state.fetchModelsIfNeeded(for: state.chatProvider)
-        }
-        .onChange(of: state.chatProvider) { _, provider in
-            if provider.isLocal {
-                state.fetchedProviderModels[provider] = nil
-                state.providerModelFetchError[provider] = nil
-            }
-            state.fetchModelsIfNeeded(for: provider)
-        }
-    }
-
-    @ViewBuilder
-    private var modelListView: some View {
-        if state.loadingProviderModels.contains(state.chatProvider) {
-            HStack(spacing: 8) {
-                ProgressView().scaleEffect(0.7)
-                Text("Loading models…")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "#8A8F98"))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        } else if let error = state.providerModelFetchError[state.chatProvider] {
-            Text(error)
-                .font(.system(size: 11))
-                .foregroundColor(Color(hex: "#8A8F98"))
-                .padding(.vertical, 4)
-        } else if let models = state.fetchedProviderModels[state.chatProvider] {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(models, id: \.id) { model in
-                        Button {
-                            switch state.chatProvider {
-                            case .anthropic: state.claudeModel = model.id
-                            case .google:    state.googleChatModel = model.id
-                            case .openai:    state.openAIChatModel = model.id
-                            case .ollama:    state.ollamaChatModel = model.id
-                            case .lmstudio:  state.lmstudioChatModel = model.id
-                            }
-                            isPresented = false
-                            SoundEngine.shared.play("blip")
-                        } label: {
-                            HStack {
-                                Text(model.label)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(state.activeChatModel == model.id
-                                                     ? Color(hex: state.chatProvider.accentHex)
-                                                     : Color(hex: "#C8CDD4"))
-                                Spacer()
-                                if state.activeChatModel == model.id {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundColor(Color(hex: state.chatProvider.accentHex))
-                                }
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(state.activeChatModel == model.id
-                                        ? Color(hex: state.chatProvider.accentHex).opacity(0.1)
-                                        : Color.clear)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1582,61 +1377,8 @@ struct IntegrationCardView: View {
         // so the Cursor pill is set up exactly when the Claude Code hooks are.
         case "integration_claude", "agent_cursor":
             return HookServer.claudeHooksInstalled()
-        case "agent_codex":
-            #if !APPSTORE
-            return HookServer.codexHooksInstalled()
-            #else
-            return false
-            #endif
-        case "agent_gemini":
-            #if !APPSTORE
-            return HookServer.geminiHooksInstalled()
-            #else
-            return false
-            #endif
-        case "agent_antigravity":
-            #if !APPSTORE
-            return HookServer.agyHooksInstalled()
-            #else
-            return false
-            #endif
-        case "agent_copilot":
-            #if !APPSTORE
-            return HookServer.copilotHooksInstalled()
-            #else
-            return false
-            #endif
-        case "agent_muse":
-            #if !APPSTORE
-            return HookServer.museHooksInstalled()
-            #else
-            return false
-            #endif
-        case "agent_opencode":
-            #if !APPSTORE
-            return HookServer.openCodePluginInstalled()
-            #else
-            return false
-            #endif
-        case "agent_amp":
-            #if !APPSTORE
-            return HookServer.ampPluginInstalled()
-            #else
-            return false
-            #endif
-        case "agent_hermes":
-            #if !APPSTORE
-            return HookServer.hermesPluginInstalled()
-            #else
-            return false
-            #endif
         case "agent_claude-desktop":
             return true  // nothing to install: the relay tags desktop sessions on its own
-        case "ai_anthropic":  return KeychainStore.shared.get("anthropic-api-key") != nil
-        case "ai_google":     return KeychainStore.shared.get("google-api-key")    != nil
-        case "ai_openai":     return KeychainStore.shared.get("openai-api-key")    != nil
-        case "ai_ollama":     return !AppState.shared.ollamaServerURL.isEmpty
-        case "ai_lmstudio":   return !AppState.shared.lmstudioServerURL.isEmpty
         case "integration_github":  return KeychainStore.shared.get("github-token")   != nil
         default: return false
         }
@@ -1686,38 +1428,14 @@ struct IntegrationCardView: View {
         // Pills driven by hooks, never by a key: the idle card reports whether the
         // hooks are in place. integration_claude read "Connected · loading…" with
         // nothing left to load — a session replaces this card, it never resolves here.
-        let isHooks = task.id == "integration_claude" || task.id == "agent_gemini"
-                   || task.id == "agent_antigravity"  || task.id == "agent_cursor"
-                   || task.id == "agent_codex"        || task.id == "agent_copilot"
-                   || task.id == "agent_muse"         || task.id == "agent_opencode"
-                   || task.id == "agent_amp"          || task.id == "agent_hermes"
-        let isAI    = ChatProvider(pillID: task.id) != nil
+        let isHooks = task.id == "integration_claude" || task.id == "agent_cursor"
         if isConfigured {
             if isHooks { return String(localized: "Hooks installed") }
             // No key or poller behind this pill: it only reflects hook events.
             if task.id == "agent_claude-desktop" { return String(localized: "Ready · no setup needed") }
-            if isAI {
-                let provider = ChatProvider(pillID: task.id)!
-                if provider.isLocal {
-                    let model = provider == .ollama ? appState.ollamaChatModel : appState.lmstudioChatModel
-                    return String(localized: "Connected · \(model)")
-                }
-                let model: String
-                switch task.id {
-                case "ai_anthropic": model = appState.claudeModel
-                case "ai_google":    model = appState.googleChatModel
-                case "ai_openai":    model = appState.openAIChatModel
-                default:             model = ""
-                }
-                return String(localized: "Key configured · \(model)")
-            }
             return String(localized: "Connected · loading…")
         } else {
             if isHooks { return String(localized: "Hooks not installed") }
-            if isAI {
-                let provider = ChatProvider(pillID: task.id)!
-                return provider.isLocal ? String(localized: "Not connected") : String(localized: "Key not configured")
-            }
             return String(localized: "Key not configured")
         }
     }
@@ -1842,43 +1560,18 @@ struct IntegrationCardView: View {
                             .buttonStyle(.plain)
                         }
                         #endif
-                    } else if task.id == "agent_codex" {
-                        #if !APPSTORE
-                        if let url = NSWorkspace.shared.urlForApplication(
-                            withBundleIdentifier: "com.openai.codex") {
-                            Button("Open Codex") {
-                                NSWorkspace.shared.openApplication(at: url, configuration: .init(),
-                                                                   completionHandler: nil)
-                            }
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: task.color).opacity(0.85))
-                            .buttonStyle(.plain)
-                        }
-                        #endif
-                    } else if let provider = ChatProvider(pillID: task.id) {
-                        if isConfigured {
-                            Button(String(format: String(localized: "Chat with %@"), task.name)) {
-                                switchChatProvider(provider)
-                            }
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: task.color).opacity(0.85))
-                            .buttonStyle(.plain)
-                        }
                     } else if let url = openURL {
                         Button("Open \(task.name)") { NSWorkspace.shared.open(url) }
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color(hex: task.color).opacity(0.85))
                             .buttonStyle(.plain)
                     }
-                    // Settings button: shown when not configured, except cursor/codex
-                    if !isConfigured
-                       && task.id != "agent_cursor"
-                       && task.id != "agent_codex" {
+                    // Settings button: shown when not configured, except cursor
+                    if !isConfigured && task.id != "agent_cursor" {
                         Button("Settings…") {
                             let section: String
                             switch PillCatalog.definition(for: task.id)?.category {
                             case .workspace, .agent: section = "agents"
-                            case .ai:                section = "chat"
                             default:                 section = "integrations"
                             }
                             NotificationCenter.default.post(name: .openFullSettings, object: section)
@@ -3365,23 +3058,6 @@ struct StatusBadge: View {
 }
 
 // MARK: - Color extension (lighten)
-
-// MARK: - Chat-provider switch (used by AI pill buttons and ↗ action)
-
-/// Mirrors ModelPickerView provider-chip tap: animates, fires surprised emote + "pop" sound,
-/// then opens the chat view. No-op if provider is already selected (just opens chat).
-@MainActor
-func switchChatProvider(_ provider: ChatProvider) {
-    let state = AppState.shared
-    if provider != state.chatProvider {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-            state.chatProvider = provider
-        }
-        NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.surprised)
-        SoundEngine.shared.play("pop")
-    }
-    state.view = .prompt
-}
 
 extension Color {
     func lighter(by amount: Double) -> Color {

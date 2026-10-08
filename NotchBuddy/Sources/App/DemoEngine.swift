@@ -83,7 +83,7 @@ final class DemoEngine: ObservableObject {
             view:                s.view
         )
 
-        // Hide all real pills — show only main during demo (integration + Codex added progressively).
+        // Hide all real pills — show only main during demo (integration + Claude desktop session added progressively).
         let mainTask = s.tasks.first(where: { $0.id == s.mainPillId })
         s.tasks = mainTask.map { [$0] } ?? []
 
@@ -178,7 +178,7 @@ final class DemoEngine: ObservableObject {
         // Restore tasks: keep real tasks that arrived during the demo, discard demo-only ones.
         // For tasks that existed before the demo (realTaskIdsAtStart), use the CURRENT version
         // from AppState (real Claude Code events may have updated them during demo).
-        let demoIds: Set<String> = Set(demoInjectedTaskIds + ["demo_codex"])
+        let demoIds: Set<String> = Set(demoInjectedTaskIds + ["demo_desktop"])
         let currentTasksById = Dictionary(uniqueKeysWithValues: s.tasks.map { ($0.id, $0) })
         let realNewTasks = s.tasks.filter { task in
             !snap.tasks.contains(where: { $0.id == task.id }) && !demoIds.contains(task.id)
@@ -354,11 +354,11 @@ final class DemoEngine: ObservableObject {
         }
         await sleep(2.0); guard isActive, self.generation == gen else { return }
 
-        // ── Step 3: Second session (Codex) ──────────────────────────────────────
+        // ── Step 3: Second session (Claude desktop app) ─────────────────────────
         await waitUntilVisible(); guard isActive, self.generation == gen else { return }
-        if !s.tasks.contains(where: { $0.id == "demo_codex" }) {
+        if !s.tasks.contains(where: { $0.id == "demo_desktop" }) {
             s.tasks.append(AgentTask(
-                id: "demo_codex", name: "Codex", color: "#E07950", state: .working,
+                id: "demo_desktop", name: "Claude Desktop", color: "#D97757", state: .working,
                 steps: ["Reading src/api/routes.ts", "Editing routes.ts (+15 -3)"],
                 source: .agent, isIntegration: false
             ))
@@ -458,7 +458,7 @@ final class DemoEngine: ObservableObject {
         }
         demoDiffIds.removeValue(forKey: mainPillId)
 
-        s.tasks.removeAll { $0.id == "demo_codex" }
+        s.tasks.removeAll { $0.id == "demo_desktop" }
 
         if s.pendingApproval?.sessionId == "demo_session" { s.pendingApproval = nil }
         if !HookServer.shared.hasRealPendingQuestion     { s.pendingQuestion = nil }

@@ -27,11 +27,11 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 
 ## Ce que fait l'app
 
-- **Sessions d'agents en direct** : Claude Code, Cursor, Codex, Gemini CLI, Antigravity, Copilot CLI, Muse Code, OpenCode, Amp, Hermes, Claude Desktop. Chaque étape (lecture, édition, commande) défile dans l'île ; chaque fichier modifié affiche son +N −M et ouvre le diff au clic.
-- **Autoriser et répondre depuis l'île** : les demandes d'autorisation de Claude Code (Allow, Deny, Always) et de Codex, les questions `AskUserQuestion` à choix simple ou multiple.
+- **Sessions Claude en direct** : Claude Code (VS Code, Cursor ou terminal) et l'app de bureau Claude. Chaque étape (lecture, édition, commande) défile dans l'île ; chaque fichier modifié affiche son +N −M et ouvre le diff au clic.
+- **Autoriser et répondre depuis l'île** : les demandes d'autorisation de Claude Code (Allow, Deny, Always), les questions `AskUserQuestion` à choix simple ou multiple.
 - **Retour au bon terminal** : ouvre la fenêtre de la session concernée.
-- **Chat** : Claude, Gemini, OpenAI, ou un modèle local (Ollama, LM Studio). Clés dans le trousseau du système.
-- **Quotas** : limites 5 heures et hebdomadaires de Claude et de Codex dans l'en-tête de l'île.
+- **Chat** : Claude (API Anthropic). La clé reste dans le trousseau du système.
+- **Quotas** : limites 5 heures et hebdomadaires de Claude dans l'en-tête de l'île.
 - **Dépôt de fichier** sur l'île, puis question à Claude ou envoi par email (Mail.app).
 - **Klay sur le bureau** : glissez-le hors de l'île, il flotte sur le bureau et revient quand un agent a besoin de vous.
 - **GitHub** : PR, revues et CI dans l'île. Sa pastille a son mini Klay coloré.
@@ -65,7 +65,7 @@ Icône Klayer Island dans la barre des menus → **Réglages…**
 | Quoi | Pourquoi | Où |
 |---|---|---|
 | Hooks Claude Code | sessions en direct et autorisations | **Install hooks** : l'app sauvegarde `~/.claude/settings.json`, fusionne ses hooks et montre le diff avant d'écrire |
-| Autres agents | une pastille par agent | Réglages → Agents ; détail dans [docs/AGENTS.md](docs/AGENTS.md) |
+| App de bureau Claude | une pastille pour les sessions de l'onglet Code | rien à installer : le relais des hooks Claude Code la reconnaît ; détail dans [docs/AGENTS.md](docs/AGENTS.md) |
 | Clé API Anthropic | chat et questions sur un fichier | Réglages → Anthropic API, rangée dans le trousseau |
 | Quotas Claude | jauge dans l'en-tête | Réglages → Agents → Plan usage → **Install relay** |
 | GitHub | PR, revues et CI | Réglages → Integrations : jeton personnel rangé dans le trousseau, optionnel |

@@ -82,7 +82,7 @@ rouge `rgba(244,80,94,.55)`, vert `rgba(52,211,153,.5)`, rose `rgba(244,114,182,
 | `uploading` | 150 | sur la barre, Ø 28 | « Envoi de fichier » + %, barre verte, le bonhomme est le curseur de la barre | 10 |
 | `choose` | 170 | 60, 52 | « fichier est prêt. », Poser une question dessus, Envoyer par mail | 11 |
 | `mail` | 210 | 56, 46 | champs À, Objet (+ Message optionnel), Envoyer, Annuler | 12 |
-| `prompt` | 156 | 52, 44 | pastille de contexte + puce de modèle (clic → sélecteur fournisseur/modèle) + champ + micro + envoyer | 13 |
+| `prompt` | 156 | 52, 44 | pastille de contexte + champ + micro + envoyer | 13 |
 | `searching` | 156 | 52, 44 | contexte + texte scintillant « Claude lit la page et cherche sur le web… » | 14 |
 | `result` | 262 (s'adapte au contenu, max 320) | 52, 44 | titre, 3 lignes de résultat, boutons | 15 |
 | `note` | 136 | 60, 50 | message court (mail envoyé, copié…), se ferme seul après 2 s | — |
@@ -103,16 +103,15 @@ Quand une étape du fil est une modification de fichier (préfixe interne `\u{E0
 - 132 × 34, rayon 17, fond couleur de l'agent à 13 %, bord à 32 %, mini-bonhomme Ø 24 centré à 17 pt du bord gauche, libellé 12 pt couleur de l'agent éclaircie de 25 %. Deux colonnes, écart 8, centrées verticalement dans la carte droite (qui commence à x = 342).
 
 ### Catalogue de pastilles
-Toutes les pastilles déclarées sont définies dans `PillCatalog.all` (source de vérité unique). Quatre catégories :
+Toutes les pastilles déclarées sont définies dans `PillCatalog.all` (source de vérité unique). Trois catégories :
 
 | Catégorie | Titre | Pastilles | Subtitle (repos) | Subtitle (session) |
 |---|---|---|---|---|
-| `workspace` | Where you code | VS Code, Cursor, Antigravity *(GitHub only)*, Codex *(GitHub only)* | Integration | Claude Code / Cursor / Codex / Agent |
-| `agent` | Agents | Gemini CLI *(GitHub only)*, Copilot CLI *(GitHub only)*, Muse Code *(GitHub only)*, OpenCode *(GitHub only)*, Amp *(GitHub only)*, Hermes *(GitHub only)* | Agent | Agent |
-| `ai` | AI for the chat | Anthropic, Google AI, OpenAI, Ollama, LM Studio | Chat | — |
+| `workspace` | Where you code | VS Code, Cursor | Integration | Claude Code / Cursor / Agent |
+| `agent` | Agents | Claude Desktop | Agent | Claude Desktop |
 | `service` | Services | GitHub, Spotify *(GitHub only)* | Integration | — |
 
-Couleurs : Cursor `#C0C4CC`, Codex `#2DD4BF`, Gemini CLI `#8AB4F8`, Antigravity `#E879F9`, Copilot CLI `#818CF8`, Muse Code `#38BDF8`, OpenCode `#4ADE80`, Amp `#F59E0B`, Hermes `#C084FC`, pastilles IA = `ChatProvider.accentHex` (Ollama `#FACC15`, LM Studio `#A3E635`).
+Couleurs : Cursor `#C0C4CC`, Claude Desktop `#D97757`.
 
 Règles :
 - **`mainPillId`** (défaut `integration_claude`) est la pastille workspace toujours chargée. Elle ne compte pas dans les 4 places. Modifiable via le sélecteur Main dans Settings.
@@ -121,8 +120,7 @@ Règles :
 - `removeTask` sur `mainPillId` ou une pastille déclarée + active → reset à `.idle` + `pillBadge = nil` + nom du catalogue (pas de suppression). Sinon → suppression normale.
 - `sortTasksByCatalog` : pastilles du catalogue dans l'ordre du catalogue ; pastilles hors catalogue juste après `integration_claude`.
 - Pastilles `githubOnly` : historiquement exclues du build App Store de Coucou ; Klayer Island n'a pas de build App Store.
-- Hooks (Gemini CLI, Antigravity, Codex, Copilot CLI, Muse Code) et plugins (OpenCode, Amp, Hermes) : `isConfigured` = méthodes correspondantes de `HookServer` sous `#if !APPSTORE`. La section Codex Hooks dans Settings installe les hooks dans `~/.codex/hooks.json` avec le même flux backup + preview que Gemini CLI. Après l'installation, la carte affiche : « run /hooks in Codex or open Hooks in the app's settings to trust them ». Approbations Codex, Copilot CLI, Muse Code : carte avec Allow et Deny seulement (pas Always) ; updatedPermissions jamais envoyé pour Codex/Copilot/Muse ; notes « Handled in Codex. » / « Handled in Copilot CLI. » / « Handled in Muse Code. ». OpenCode : plugin JS dans `~/.config/opencode/plugins/klayer.js`, événements mappés via EVENT_MAP, lecture depuis `event.properties`. Amp : plugin TypeScript dans `~/.config/amp/plugins/klayer.ts`, `tool.call` retourne toujours `{ action: 'allow' }`. Hermes : plugin Python dans `~/.hermes/plugins/klayer/__init__.py`, approuver depuis le notch nécessite `register_approval_transport` (non disponible en 0.15.x) ; en attendant, `pre_approval_request` affiche « ⏳ Approval pending in Hermes » dans le fil.
-- Pastilles IA (cloud) : `isConfigured` = clé API dans le Keychain. Pastilles IA locales (Ollama, LM Studio) : `isConfigured` = URL serveur non vide (définie via le bouton **Connect** dans Réglages → Chat). Bouton « Chat with… » → change le fournisseur et ouvre la vue `.prompt`.
+- Claude Code : `isConfigured` = les hooks de Klayer Island sont dans `~/.claude/settings.json` (`HookServer.claudeHooksInstalled()`). La pastille Cursor suit le même état, et les sessions Claude Code lancées dans Cursor s'affichent sur la pastille Claude Code. Claude Desktop : rien à installer, `isConfigured` est toujours vrai. Les autres agents ne sont plus suivis : leurs événements sont ignorés (pas de pastille) et leurs demandes d'autorisation reçoivent `ask` (voir `docs/AGENTS.md`).
 
 ### Carte GitHub (`GitHubPulseCardView`)
 
@@ -232,12 +230,8 @@ Petit item dans la barre de menus (icône : silhouette du Klay, monochrome). Men
 
 Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Anthropic API** : clé (Trousseau), modèle (défaut `claude-sonnet-4-6` ; liste depuis l'API, voir INTEGRATIONS §5).
-- **Chat — other providers** : clé Google AI (Trousseau) ; clé OpenAI (Trousseau). Les modèles se choisissent dans le chat (voir INTEGRATIONS §5bis).
-- **Local models** : URL du serveur Ollama (défaut `http://127.0.0.1:11434`) et/ou LM Studio (défaut `http://127.0.0.1:1234`). Bouton **Connect** : vérifie la joignabilité et sauvegarde l'URL. Bouton **Disconnect** : efface l'URL et le cache. Aucune clé requise (voir INTEGRATIONS §5ter).
 - **Claude Code Hooks** : état des hooks, bouton Installer / Désinstaller.
 - **Plan usage** : toggle **Show in the notch** + bouton **Install relay** / **Uninstall relay**. Voir INTEGRATIONS §1bis. **Jauge de forfait Claude** *(GitHub only)* : petit pill dans l'en-tête de l'île (vue home uniquement). Activé via `showPlanInNotch` (UserDefaults) + `HookServer.statusLineInstalled()`. Couleur = `ClaudePlanGauge.color(for: dominantPct)`. Clic → `showingPlanDetail` bascule et `ClaudePlanCardView` s'affiche à la place de la carte en cours. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode. Grand Klay prend la couleur de l'usage quand `showingPlanDetail == true`.
-- **Gemini CLI Hooks** *(build GitHub)* : état des hooks, bouton Installer / Désinstaller.
-- **Antigravity Hooks** *(build GitHub)* : état des hooks, bouton Installer / Désinstaller.
 - **Integrations** : jeton personnel GitHub (Trousseau).
 - **Sound** : son on/off, volume.
 - **Behavior** : fermeture après N s d'inactivité ; masquage après N min sans mouvement.

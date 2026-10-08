@@ -99,126 +99,9 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(claudeModel, forKey: "claudeModel") }
     }
 
-    // In-chat provider + model — picked via the model selector in the prompt view
-    @Published var chatProvider: ChatProvider = .anthropic {
-        didSet { UserDefaults.standard.set(chatProvider.rawValue, forKey: "chatProvider") }
-    }
-    @Published var googleChatModel: String = ChatProvider.google.defaultModel {
-        didSet { UserDefaults.standard.set(googleChatModel, forKey: "googleChatModel") }
-    }
-    @Published var openAIChatModel: String = ChatProvider.openai.defaultModel {
-        didSet { UserDefaults.standard.set(openAIChatModel, forKey: "openAIChatModel") }
-    }
-    @Published var ollamaChatModel: String = ChatProvider.ollama.defaultModel {
-        didSet { UserDefaults.standard.set(ollamaChatModel, forKey: "ollamaChatModel") }
-    }
-    @Published var lmstudioChatModel: String = ChatProvider.lmstudio.defaultModel {
-        didSet { UserDefaults.standard.set(lmstudioChatModel, forKey: "lmstudioChatModel") }
-    }
-    @Published var ollamaServerURL: String = "" {
-        didSet { UserDefaults.standard.set(ollamaServerURL, forKey: "ollamaServerURL") }
-    }
-    @Published var lmstudioServerURL: String = "" {
-        didSet { UserDefaults.standard.set(lmstudioServerURL, forKey: "lmstudioServerURL") }
-    }
-
     // The always-on workspace pill (default: VS Code). Persisted.
     @Published var mainPillId: String = PillCatalog.defaultMainPillId {
         didSet { UserDefaults.standard.set(mainPillId, forKey: "mainPill") }
-    }
-
-    // Dynamically fetched model lists for the in-chat picker (keyed by provider)
-    @Published var fetchedProviderModels: [ChatProvider: [(id: String, label: String)]] = [:]
-    @Published var providerModelFetchError: [ChatProvider: String] = [:]
-    @Published var loadingProviderModels: Set<ChatProvider> = []
-
-    /// Fetches models for `provider` if not already loaded or loading.
-    /// Sets `providerModelFetchError` if the key is absent or the request fails.
-    func fetchModelsIfNeeded(for provider: ChatProvider) {
-        guard !loadingProviderModels.contains(provider),
-              fetchedProviderModels[provider] == nil else { return }
-        // Local providers: fetch from server URL (no API key needed)
-        if provider.isLocal {
-            let baseURL = provider == .ollama ? ollamaServerURL : lmstudioServerURL
-            let normalised = LocalChat.normaliseURL(baseURL)
-            guard !normalised.isEmpty else {
-                providerModelFetchError[provider] = provider == .ollama
-                    ? "Connect Ollama in Settings → Chat first."
-                    : "Connect LM Studio in Settings → Chat first."
-                return
-            }
-            loadingProviderModels.insert(provider)
-            providerModelFetchError.removeValue(forKey: provider)
-            Task {
-                let result = await LocalChat.fetchModelsResult(baseURL: normalised)
-                loadingProviderModels.remove(provider)
-                switch result {
-                case .success(let models) where models.isEmpty:
-                    providerModelFetchError[provider] = provider == .ollama
-                        ? "No models yet. Download one in Ollama first."
-                        : "No models yet. Download one in LM Studio first."
-                case .success(let models):
-                    fetchedProviderModels[provider] = models
-                    let current = provider == .ollama ? ollamaChatModel : lmstudioChatModel
-                    if !models.contains(where: { $0.id == current }) {
-                        let first = models.first!.id
-                        if provider == .ollama { ollamaChatModel = first }
-                        else                   { lmstudioChatModel = first }
-                    }
-                case .failure:
-                    providerModelFetchError[provider] = "Cannot reach \(normalised). Is the server running?"
-                }
-            }
-            return
-        }
-        // Remote providers: require API key
-        guard let apiKey = KeychainStore.shared.get(provider.keychainKey), !apiKey.isEmpty else {
-            providerModelFetchError[provider] = "No API key — add it in Settings."
-            return
-        }
-        loadingProviderModels.insert(provider)
-        providerModelFetchError.removeValue(forKey: provider)
-        Task {
-            let models: [(id: String, label: String)]
-            switch provider {
-            case .anthropic: models = await ClaudeService.fetchModels(apiKey: apiKey)
-            case .google:    models = await ClaudeService.fetchGoogleModels(apiKey: apiKey)
-            case .openai:    models = await ClaudeService.fetchOpenAIModels(apiKey: apiKey)
-            case .ollama, .lmstudio: models = []  // handled above
-            }
-            loadingProviderModels.remove(provider)
-            if models.isEmpty {
-                providerModelFetchError[provider] = "Failed to load models. Check your API key."
-            } else {
-                fetchedProviderModels[provider] = models
-                switch provider {
-                case .anthropic:
-                    if !models.contains(where: { $0.id == claudeModel }) {
-                        claudeModel = models.first(where: { $0.id.contains("sonnet") })?.id ?? models.first!.id
-                    }
-                case .google:
-                    if !models.contains(where: { $0.id == googleChatModel }) {
-                        googleChatModel = models.first(where: { $0.id.contains("flash") })?.id ?? models.first!.id
-                    }
-                case .openai:
-                    if !models.contains(where: { $0.id == openAIChatModel }) {
-                        openAIChatModel = models.first(where: { $0.id.contains("mini") })?.id ?? models.first!.id
-                    }
-                case .ollama, .lmstudio: break
-                }
-            }
-        }
-    }
-
-    /// The model currently active for chat (provider-aware).
-    var activeChatModel: String {
-        switch chatProvider {
-        case .anthropic: return claudeModel
-        case .google:    return googleChatModel
-        case .openai:    return openAIChatModel
-        case .ollama:    return ollamaChatModel
-        case .lmstudio:  return lmstudioChatModel
-        }
     }
 
     // Sound volume (0–0.2) — persisted, synced to SoundEngine
@@ -375,21 +258,6 @@ final class AppState: ObservableObject {
     // Transient — reset when island closes or view changes
     @Published var showingPlanDetail: Bool = false
 
-    // Codex plan gauge (from `codex app-server`) — fetched when the pill shows
-    @Published var showCodexPlanInNotch: Bool = false {
-        didSet { UserDefaults.standard.set(showCodexPlanInNotch, forKey: "showCodexPlanInNotch") }
-    }
-    @Published var codexPlanUsage: CodexPlanUsage? = nil
-    // Which card showingPlanDetail opens
-    @Published var planDetailIsCodex: Bool = false
-
-    func refreshCodexPlanUsage() {
-        if let u = codexPlanUsage, Date().timeIntervalSince(u.updatedAt) < 60 { return }
-        Task {
-            if let u = await CodexPlanGauge.fetch() { codexPlanUsage = u }
-        }
-    }
-
     func refreshPlanRelayState() {
         planRelayInstalled = HookServer.statusLineInstalled()
     }
@@ -405,13 +273,6 @@ final class AppState: ObservableObject {
         pillColors = PillColors.stored
         if let v = ud.string(forKey: "claudeModel"),
            !v.trimmingCharacters(in: .whitespaces).isEmpty { claudeModel = v }
-        if let v = ud.string(forKey: "chatProvider"), let p = ChatProvider(rawValue: v) { chatProvider = p }
-        if let v = ud.string(forKey: "googleChatModel"), !v.isEmpty { googleChatModel = v }
-        if let v = ud.string(forKey: "openAIChatModel"), !v.isEmpty { openAIChatModel = v }
-        if let v = ud.string(forKey: "ollamaChatModel"), !v.isEmpty { ollamaChatModel = v }
-        if let v = ud.string(forKey: "lmstudioChatModel"), !v.isEmpty { lmstudioChatModel = v }
-        if let v = ud.string(forKey: "ollamaServerURL"), !v.isEmpty { ollamaServerURL = v }
-        if let v = ud.string(forKey: "lmstudioServerURL"), !v.isEmpty { lmstudioServerURL = v }
         // Migrate old 60s default → 15s
         if let v = ud.object(forKey: "openOnHover") as? Bool { openOnHover = v }
         if let v = ud.object(forKey: "autoCloseInterval") as? Double {
@@ -433,7 +294,6 @@ final class AppState: ObservableObject {
            let u = try? JSONDecoder().decode(PlanUsage.self, from: d) { claudePlanUsage = u }
         #if !APPSTORE
         if let v = ud.object(forKey: "showPlanInNotch") as? Bool { showPlanInNotch = v }
-        if let v = ud.object(forKey: "showCodexPlanInNotch") as? Bool { showCodexPlanInNotch = v }
         planRelayInstalled = HookServer.statusLineInstalled()
         #endif
 

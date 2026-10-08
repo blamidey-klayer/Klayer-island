@@ -55,6 +55,31 @@ enum ClaudeHookDetectionTests {
         {"hooks":"not-an-object"}
         """)))
 
-        print("Claude hook detection: 10 cases passed")
+        // Agents: only the Claude desktop app gets a pill of its own
+        precondition(validateAgent("claude-desktop") == "claude-desktop")
+
+        // An agent Klayer Island used to follow creates no pill any more
+        precondition(validateAgent("codex") == nil)
+        precondition(isUnrecognisedAgent("codex"))
+
+        // ...and neither does any other name: only the desktop tag is recognised
+        for other in ["some-agent", "another-tool", "x", "agent-with-digits-2", "UPPER"] {
+            precondition(validateAgent(other) == nil)
+            precondition(isUnrecognisedAgent(other))
+        }
+
+        // "claude" cannot stand in for the Claude Code pill, nor can a near miss of the desktop tag
+        precondition(validateAgent("claude") == nil)
+        precondition(isUnrecognisedAgent("claude"))
+        precondition(validateAgent("Claude-Desktop") == nil)
+        precondition(validateAgent("claude-desktop2") == nil)
+        precondition(validateAgent(" claude-desktop") == nil)
+
+        // Claude Code sends no klayer_agent: no pill name, and not an unrecognised agent either
+        precondition(validateAgent("") == nil)
+        precondition(!isUnrecognisedAgent(""))
+        precondition(!isUnrecognisedAgent("claude-desktop"))
+
+        print("Claude hook detection: 16 cases passed")
     }
 }
