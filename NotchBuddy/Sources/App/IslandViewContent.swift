@@ -438,9 +438,11 @@ struct QuestionView: View {
         }
         // No release on disappear: folding to compact or showing another view keeps the
         // question pending. It leaves when answered, sent to the terminal, or when its hook
-        // connection closes or times out (HookServer).
-        .onAppear { resetQuestionState() }
-        .onChange(of: state.pendingQuestion) { _, _ in resetQuestionState() }
+        // connection closes or times out (HookServer). What was chosen so far is kept with it
+        // (AppState.questionDraft): reopening the folded island resumes it, a new request starts blank.
+        .onAppear { restoreDraft() }
+        .onChange(of: state.pendingQuestionRequestId) { _, _ in restoreDraft() }
+        .onChange(of: currentDraft) { _, draft in state.questionDraft = draft }
         // Disarmed whenever the request on screen changes, armed 0.6 s later (see ApprovalView).
         .onChange(of: requestOnScreen, initial: true) { _, onScreen in
             armGeneration += 1
@@ -453,12 +455,20 @@ struct QuestionView: View {
         }
     }
 
-    private func resetQuestionState() {
-        questionIndex = 0
-        let count = state.pendingQuestion?.questions.count ?? 0
-        selections = Array(repeating: [], count: count)
-        otherTexts = Array(repeating: "", count: count)
-        showOther  = Array(repeating: false, count: count)
+    /// The draft of the question on screen, as the card holds it now.
+    private var currentDraft: QuestionDraft {
+        QuestionDraft(requestId: state.pendingQuestionRequestId, index: questionIndex,
+                      selections: selections, otherTexts: otherTexts, showOther: showOther)
+    }
+
+    /// Resumes the draft kept for the pending request, or starts blank for a new one.
+    private func restoreDraft() {
+        let draft = QuestionDraft.resuming(state.questionDraft, requestId: state.pendingQuestionRequestId,
+                                           count: state.pendingQuestion?.questions.count ?? 0)
+        questionIndex = draft.index
+        selections = draft.selections
+        otherTexts = draft.otherTexts
+        showOther  = draft.showOther
     }
 
     private func toggleSelection(qi: Int, label: String) {

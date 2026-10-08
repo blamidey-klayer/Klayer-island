@@ -118,3 +118,37 @@ struct RequestTokens {
         held[kind] == token
     }
 }
+
+/// What the user chose so far on a question card: the question on screen (several are asked one
+/// after the other), the chosen labels, the « Other… » texts and which of them is open. The
+/// card's view is rebuilt each time the island opens, so the draft is kept outside it, for the
+/// request it belongs to: folding the island and reopening it keeps a partial answer, and only a
+/// new request starts blank.
+struct QuestionDraft: Equatable {
+    let requestId: Int
+    var index: Int
+    var selections: [[String]]
+    var otherTexts: [String]
+    var showOther: [Bool]
+}
+
+extension QuestionDraft {
+    /// A blank draft for request `requestId`, which asks `count` questions.
+    init(requestId: Int, count: Int) {
+        let n = max(0, count)
+        self.init(requestId: requestId, index: 0,
+                  selections: Array(repeating: [], count: n),
+                  otherTexts: Array(repeating: "", count: n),
+                  showOther: Array(repeating: false, count: n))
+    }
+
+    /// The draft to show for request `requestId` of `count` questions: `saved` when it belongs to
+    /// that request and fits it, else a blank one.
+    static func resuming(_ saved: QuestionDraft?, requestId: Int, count: Int) -> QuestionDraft {
+        guard let saved, saved.requestId == requestId,
+              saved.selections.count == count, saved.otherTexts.count == count,
+              saved.showOther.count == count, saved.index >= 0, saved.index < max(count, 1)
+        else { return QuestionDraft(requestId: requestId, count: count) }
+        return saved
+    }
+}

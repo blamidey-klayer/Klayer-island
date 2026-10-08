@@ -23,6 +23,10 @@ enum PendingRequestTests {
             ("a_request_of_the_other_kind_waits_behind_a_card", aRequestOfTheOtherKindWaitsBehindACard),
             ("a_newer_request_of_the_same_kind_takes_the_card", aNewerRequestOfTheSameKindTakesTheCard),
             ("buttons_arm_after_0_6_s", buttonsArmAfter06s),
+            ("a_blank_draft_has_one_slot_per_question", aBlankDraftHasOneSlotPerQuestion),
+            ("reopening_the_same_question_keeps_its_draft", reopeningTheSameQuestionKeepsItsDraft),
+            ("a_new_question_starts_blank", aNewQuestionStartsBlank),
+            ("a_draft_of_another_shape_starts_blank", aDraftOfAnotherShapeStartsBlank),
         ]
         for (name, run) in cases {
             run()
@@ -168,5 +172,40 @@ enum PendingRequestTests {
     static func buttonsArmAfter06s() {
         precondition(PendingRequest.armingDelay == 0.6,
                      "the card's buttons wait 0.6 s after the request on screen changes")
+    }
+
+    // MARK: - A folded question keeps its partial answer (ledger, Task 6)
+
+    static func aBlankDraftHasOneSlotPerQuestion() {
+        let d = QuestionDraft(requestId: 7, count: 3)
+        precondition(d.requestId == 7 && d.index == 0)
+        precondition(d.selections == [[], [], []] && d.otherTexts == ["", "", ""] && d.showOther == [false, false, false])
+    }
+
+    static func reopeningTheSameQuestionKeepsItsDraft() {
+        // Two questions; the first answered, « Other… » open with text on the second. The island
+        // folds (the card's view is rebuilt on the next opening) and reopens on the same request.
+        var draft = QuestionDraft(requestId: 4, count: 2)
+        draft.index = 1
+        draft.selections[0] = ["Rouge"]
+        draft.otherTexts[1] = "vert d'eau"
+        draft.showOther[1] = true
+        let reopened = QuestionDraft.resuming(draft, requestId: 4, count: 2)
+        precondition(reopened == draft, "reopening a folded question must not reset what was chosen")
+    }
+
+    static func aNewQuestionStartsBlank() {
+        var draft = QuestionDraft(requestId: 4, count: 2)
+        draft.selections[0] = ["Rouge"]
+        precondition(QuestionDraft.resuming(draft, requestId: 5, count: 2) == QuestionDraft(requestId: 5, count: 2),
+                     "another request, even with the same text, starts blank")
+        precondition(QuestionDraft.resuming(nil, requestId: 5, count: 1) == QuestionDraft(requestId: 5, count: 1))
+    }
+
+    static func aDraftOfAnotherShapeStartsBlank() {
+        var draft = QuestionDraft(requestId: 4, count: 2)
+        draft.index = 1
+        precondition(QuestionDraft.resuming(draft, requestId: 4, count: 1) == QuestionDraft(requestId: 4, count: 1),
+                     "a saved draft that does not fit the question is never used")
     }
 }

@@ -187,6 +187,9 @@ final class AppState: ObservableObject {
     // Token of the pending question (HookServer), set before `pendingQuestion`: the card re-arms
     // its buttons and keeps its draft per request, even for two questions with the same text.
     @Published var pendingQuestionRequestId: Int = 0
+    // What was chosen so far on the question card, for the request it belongs to (QuestionDraft):
+    // the card's view is rebuilt on each opening, the draft survives a fold. Read on opening only.
+    var questionDraft: QuestionDraft? = nil
 
     // Choices answered from the island (permissions and questions), kept in choices.json.
     // `recentChoices` is the 5 newest, newest first, for the open island.
