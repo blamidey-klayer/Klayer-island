@@ -375,6 +375,9 @@ final class HookServer: @unchecked Sendable {
             nbLog("Ignored \(name) from \(termProgram.isEmpty ? bundleId : termProgram) (\(projectName))")
             return
         }
+        // The app this session runs in, kept on its row: a click on the row and the finished
+        // view's open button bring it forward, whatever the other sessions of the pill do.
+        let sessionHost = SessionRoster.host(routed: hostApp, bundleId: bundleId)
 
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
@@ -402,7 +405,8 @@ final class HookServer: @unchecked Sendable {
             if !resolved {
                 // Another session of the pill keeps its own row; the one that owns the card stays on "approval".
                 if sessionId != pending.sessionId {
-                    trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName)
+                    trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
+                                 host: sessionHost)
                 }
                 return
             }
@@ -416,13 +420,15 @@ final class HookServer: @unchecked Sendable {
         if name == "Stop" || name == "StopFailure",
            state.pendingQuestion != nil, agentId == questionPillId,
            let owner = questionSessionId, sessionId != owner {
-            trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName)
+            trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
+                         host: sessionHost)
             SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
             setPillBadge(id: agentId, badge: name == "Stop" ? .finished : .error)
             return
         }
 
-        trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName)
+        trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
+                     host: sessionHost)
 
         switch name {
 
@@ -503,7 +509,7 @@ final class HookServer: @unchecked Sendable {
                 // The finished view tells which session ended, whatever the pill and its focus become.
                 var finished = state.sessions.first { $0.id == sessionId }
                     ?? SessionRow(id: sessionId, pillId: agentId, title: projectName, phase: .finished,
-                                  lastAction: "", updatedAt: Date())
+                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost)
                 if !finalText.isEmpty { finished.lastAction = finalText }
                 state.finishedSession = finished
                 if state.focusId != agentId {
@@ -693,7 +699,8 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .approval)
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .approval,
-                            lastAction: SessionRoster.line(command))
+                            lastAction: SessionRoster.line(command),
+                            hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
                                               command: command, inputKey: inputKey, pillId: pillId)
         state.isPinned = true
@@ -824,7 +831,8 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .question)
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .question,
-                            lastAction: parsed.questions.first.flatMap { SessionRoster.line($0.question) })
+                            lastAction: parsed.questions.first.flatMap { SessionRoster.line($0.question) },
+                            hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
         state.pendingQuestion = parsed
         state.isPinned = true
         SoundEngine.shared.play("approval")
@@ -1003,11 +1011,12 @@ final class HookServer: @unchecked Sendable {
     // MARK: - Session roster
 
     /// Feeds the roster of running sessions (one row per session) from a hook event, titled with the
-    /// project folder name. Events that say nothing new about a session (PostToolUse, SubagentStart…)
-    /// leave its row alone. Permissions and questions feed it from their own request.
+    /// project folder name, with the app the session runs in (`host`, nil keeps the known one).
+    /// Events that say nothing new about a session (PostToolUse, SubagentStart…) leave its row
+    /// alone. Permissions and questions feed it from their own request.
     @MainActor
     private func trackSession(event name: String, payload: [String: Any], sessionId: String,
-                              pillId: String, title: String) {
+                              pillId: String, title: String, host: String?) {
         let phase: SessionPhase
         var action: String? = nil
         switch name {
@@ -1038,7 +1047,7 @@ final class HookServer: @unchecked Sendable {
             return
         }
         AppState.shared.updateSession(sessionId: sessionId, pillId: pillId, title: title,
-                                      phase: phase, lastAction: action)
+                                      phase: phase, lastAction: action, hostBundleId: host)
     }
 
     /// The card of a session was answered or closed: its row leaves "approval" or "question" and goes

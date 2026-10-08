@@ -566,10 +566,18 @@ struct FinishedView: View {
                         }
                     } else {
                         PrimaryButton("Open terminal") {
-                            // The app the session runs in (its terminal, or VS Code), then any known terminal
-                            let task = pillTask
-                            if !(task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp)),
-                               !TerminalTarget.activate(sessionBundleId: task?.sessionBundleId) {
+                            // The app the finished session runs in (its terminal or its editor), then any
+                            // known terminal. The session's own host: its pill may carry another session now.
+                            let opened: Bool
+                            if let session = state.finishedSession {
+                                opened = ClaudeHost.activate(session.hostBundleId)
+                                    || TerminalTarget.activate(sessionBundleId: session.hostBundleId)
+                            } else {
+                                let task = pillTask
+                                opened = (task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp))
+                                    || TerminalTarget.activate(sessionBundleId: task?.sessionBundleId)
+                            }
+                            if !opened {
                                 NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
                             }
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)

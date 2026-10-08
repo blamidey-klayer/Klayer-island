@@ -205,13 +205,21 @@ final class AppState: ObservableObject {
     // session or gone. Nil falls back to the pill in focus.
     @Published var finishedSession: SessionRow? = nil
 
+    /// `hostBundleId`: the app the session runs in, nil keeps the one the row has.
     func updateSession(sessionId: String, pillId: String, title: String, phase: SessionPhase,
-                       lastAction: String?) {
+                       lastAction: String?, hostBundleId: String? = nil) {
         let now = Date()
         sessionRoster.update(sessionId: sessionId, pillId: pillId, title: title, phase: phase,
-                             lastAction: lastAction, at: now)
+                             lastAction: lastAction, hostBundleId: hostBundleId, at: now)
         sessionRoster.prune(now: now)
         sessions = sessionRoster.rows
+    }
+
+    /// Prunes the roster when the home shows (the island opens, or comes back to the home): a row
+    /// that went stale while no hook arrived is gone before the user sees it. No timer.
+    func pruneSessions() {
+        sessionRoster.prune(now: Date())
+        if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
     }
 
     func endSession(_ id: String) {
