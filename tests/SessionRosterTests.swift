@@ -1,0 +1,170 @@
+import Foundation
+
+/// The roster of running Claude sessions (spec §6, one row per session): newest activity
+/// first, the last action kept and capped, rows removed when the session ends and pruned by
+/// age without a timer. Tests pass explicit dates, never the wall clock.
+@main
+enum SessionRosterTests {
+    static func main() {
+        let cases: [(String, () -> Void)] = [
+            ("newest_activity_first", newestActivityFirst),
+            ("last_action_kept_when_nil_and_capped_at_80", lastActionKeptWhenNilAndCappedAt80),
+            ("end_removes_the_row", endRemovesTheRow),
+            ("prune_keeps_waiting_rows", pruneKeepsWaitingRows),
+            ("visible_limit", visibleLimit),
+        ]
+        for (name, run) in cases {
+            run()
+            print("  ok  \(name)")
+        }
+        print("Session roster: \(cases.count) cases passed")
+    }
+
+    static let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+    static func at(minutes: Double) -> Date { t0.addingTimeInterval(minutes * 60) }
+
+    static func ids(_ roster: SessionRoster) -> [String] { roster.rows.map(\.id) }
+
+    static func newestActivityFirst() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+                      lastAction: "Edits · A.swift", at: at(minutes: 0))
+        roster.update(sessionId: "b", pillId: "agent_claude-desktop", title: "Projet B", phase: .thinking,
+                      lastAction: "Écris les tests", at: at(minutes: 1))
+        precondition(ids(roster) == ["b", "a"], "the session that acted last comes first, got \(ids(roster))")
+
+        // New activity on "a" brings it back first, and updates its row instead of adding one.
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .finished,
+                      lastAction: "Terminé", at: at(minutes: 2))
+        precondition(ids(roster) == ["a", "b"], "a session that acts again moves up, got \(ids(roster))")
+        precondition(roster.rows.count == 2, "one row per session id")
+        precondition(roster.rows[0].phase == .finished && roster.rows[0].lastAction == "Terminé"
+                     && roster.rows[0].updatedAt == at(minutes: 2),
+                     "the row holds the latest phase, action and date")
+        precondition(roster.rows[1].pillId == "agent_claude-desktop" && roster.rows[1].title == "Projet B",
+                     "the other row is untouched")
+
+        // Same date: the later call is the newer activity.
+        roster.update(sessionId: "b", pillId: "agent_claude-desktop", title: "Projet B", phase: .working,
+                      lastAction: nil, at: at(minutes: 2))
+        precondition(ids(roster) == ["b", "a"], "on equal dates the latest call comes first, got \(ids(roster))")
+    }
+
+    static func lastActionKeptWhenNilAndCappedAt80() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+                      lastAction: "Bash · npm test", at: at(minutes: 0))
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .error,
+                      lastAction: nil, at: at(minutes: 1))
+        precondition(roster.rows[0].lastAction == "Bash · npm test",
+                     "a nil last action keeps the previous one")
+        precondition(roster.rows[0].phase == .error, "the phase still changes")
+
+        // A session seen for the first time with no action starts with an empty one.
+        roster.update(sessionId: "b", pillId: "integration_claude", title: "Projet B", phase: .idle,
+                      lastAction: nil, at: at(minutes: 2))
+        precondition(roster.rows[0].id == "b" && roster.rows[0].lastAction.isEmpty,
+                     "no previous action and no new one: empty")
+
+        let long = String(repeating: "é", count: 200)
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+                      lastAction: long, at: at(minutes: 3))
+        precondition(roster.rows[0].lastAction.count == 80,
+                     "a long action is cut to 80 characters, got \(roster.rows[0].lastAction.count)")
+        precondition(roster.rows[0].lastAction == String(long.prefix(80)), "the start of the action is kept")
+
+        let exact = String(repeating: "x", count: 80)
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+                      lastAction: exact, at: at(minutes: 4))
+        precondition(roster.rows[0].lastAction == exact, "80 characters fit as they are")
+
+        // The cap counts characters, not bytes: an emoji or an accent is one.
+        let accents = String(repeating: "👩‍💻", count: 100)
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+                      lastAction: accents, at: at(minutes: 5))
+        precondition(roster.rows[0].lastAction.count == 80, "the cap counts characters")
+    }
+
+    static func endRemovesTheRow() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+                      lastAction: "x", at: at(minutes: 0))
+        roster.update(sessionId: "b", pillId: "integration_claude", title: "Projet B", phase: .working,
+                      lastAction: "y", at: at(minutes: 1))
+        roster.end(sessionId: "a")
+        precondition(ids(roster) == ["b"], "the ended session leaves, the other stays, got \(ids(roster))")
+        roster.end(sessionId: "a")
+        roster.end(sessionId: "unknown")
+        precondition(ids(roster) == ["b"], "ending a session twice, or one never seen, changes nothing")
+        roster.end(sessionId: "b")
+        precondition(roster.rows.isEmpty)
+    }
+
+    static func pruneKeepsWaitingRows() {
+        var roster = SessionRoster()
+        // Updated at minute 0; each prune below happens at the stated age.
+        roster.update(sessionId: "question", pillId: "integration_claude", title: "Q", phase: .question,
+                      lastAction: "Quelle option ?", at: at(minutes: 0))
+        roster.update(sessionId: "approval", pillId: "integration_claude", title: "A", phase: .approval,
+                      lastAction: "rm -rf build", at: at(minutes: 0))
+        roster.update(sessionId: "finished", pillId: "integration_claude", title: "F", phase: .finished,
+                      lastAction: "Terminé", at: at(minutes: 0))
+        roster.update(sessionId: "working", pillId: "integration_claude", title: "W", phase: .working,
+                      lastAction: "Edits · A.swift", at: at(minutes: 0))
+        roster.update(sessionId: "error", pillId: "integration_claude", title: "E", phase: .error,
+                      lastAction: nil, at: at(minutes: 0))
+        roster.update(sessionId: "idle", pillId: "integration_claude", title: "I", phase: .idle,
+                      lastAction: "Session démarrée", at: at(minutes: 0))
+
+        roster.prune(now: at(minutes: 29))
+        precondition(roster.rows.count == 6, "nothing is pruned before 30 minutes, got \(ids(roster))")
+
+        // 31 minutes: finished, error and idle rows go; a working row (a long task) stays.
+        roster.prune(now: at(minutes: 31))
+        precondition(Set(ids(roster)) == ["question", "approval", "working"],
+                     "finished, error and idle rows go after 30 minutes, got \(ids(roster))")
+
+        // 3 hours: the working row goes too, the rows waiting for the user stay.
+        roster.prune(now: at(minutes: 180))
+        precondition(Set(ids(roster)) == ["question", "approval"],
+                     "a question and an approval stay however old, got \(ids(roster))")
+
+        // A row is pruned once it reaches the limit: exactly 30 minutes for a finished one.
+        var edge = SessionRoster()
+        edge.update(sessionId: "f", pillId: "integration_claude", title: "F", phase: .finished,
+                    lastAction: nil, at: at(minutes: 0))
+        edge.prune(now: at(minutes: 30))
+        precondition(edge.rows.isEmpty, "a finished row goes at exactly 30 minutes without activity")
+
+        // The ages are measured from the last activity of each row.
+        var fresh = SessionRoster()
+        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .finished,
+                     lastAction: nil, at: at(minutes: 0))
+        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .finished,
+                     lastAction: nil, at: at(minutes: 25))
+        fresh.prune(now: at(minutes: 31))
+        precondition(ids(fresh) == ["old"], "a row touched 6 minutes ago is not pruned")
+        // 119 minutes for a working row: still there, 120: gone.
+        fresh.update(sessionId: "w", pillId: "integration_claude", title: "W", phase: .thinking,
+                     lastAction: nil, at: at(minutes: 31))
+        fresh.prune(now: at(minutes: 31 + 119))
+        precondition(ids(fresh).contains("w"), "a thinking row survives 119 minutes without activity")
+        fresh.prune(now: at(minutes: 31 + 120))
+        precondition(!ids(fresh).contains("w"), "a thinking row goes after 2 hours without activity")
+    }
+
+    static func visibleLimit() {
+        var roster = SessionRoster()
+        for n in 1...6 {
+            roster.update(sessionId: "s\(n)", pillId: "integration_claude", title: "P\(n)", phase: .working,
+                          lastAction: nil, at: at(minutes: Double(n)))
+        }
+        precondition(roster.visible(limit: 4).map(\.id) == ["s6", "s5", "s4", "s3"],
+                     "the limit keeps the newest rows")
+        precondition(roster.visible(limit: 10).count == 6, "a limit above the count returns every row")
+        precondition(roster.visible(limit: 0).isEmpty, "a limit of 0 returns nothing")
+        precondition(roster.visible(limit: -3).isEmpty, "a negative limit returns nothing instead of crashing")
+        precondition(roster.rows.count == 6, "visible does not remove rows")
+    }
+}

@@ -52,6 +52,9 @@ jobs:
       - name: Test choice history
         run: bash scripts/test-choice-history.sh
 
+      - name: Test session roster
+        run: bash scripts/test-session-roster.sh
+
       - name: Test terminal target
         run: bash scripts/test-terminal-target.sh
 

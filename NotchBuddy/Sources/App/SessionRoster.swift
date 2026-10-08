@@ -1,0 +1,83 @@
+import Foundation
+
+// MARK: - Roster of the running Claude sessions
+// One row per session, for the open island (spec §6). A pill carries one session at a time,
+// the roster keeps them all: Claude Code sessions in several folders share one pill, so do
+// the sessions of the Claude desktop app. Foundation only (tested by
+// scripts/test-session-roster.sh): no AppKit, no BotState, the views map `SessionPhase`.
+
+/// What a session is doing. Same raw values as `BotState`, for the phases a session reports.
+enum SessionPhase: String, Equatable {
+    case idle, thinking, working, approval, question, ratelimit, error, finished
+}
+
+/// One running session. `id` is the hook's session id, `pillId` the pill that routes it,
+/// `title` the project folder name, `lastAction` one short line (empty until there is one).
+struct SessionRow: Equatable, Identifiable {
+    let id: String
+    var pillId: String
+    var title: String
+    var phase: SessionPhase
+    var lastAction: String
+    var updatedAt: Date
+}
+
+/// The sessions seen by the hooks, most recent activity first. A value type: AppState owns the
+/// instance on the main actor. Nothing here reads the clock, callers pass the date, and nothing
+/// runs on a timer: AppState prunes on every update, so a hidden island costs no CPU.
+struct SessionRoster {
+    /// Longest `lastAction`, in characters.
+    static let lastActionLimit = 80
+    /// A finished, failed or idle session with no activity for this long leaves the roster.
+    static let endedLifetime: TimeInterval = 30 * 60
+    /// Any other session with no activity for this long leaves too (it ended without telling us),
+    /// except a session waiting for an answer.
+    static let silentLifetime: TimeInterval = 2 * 60 * 60
+
+    /// Most recent activity first. At equal dates the latest `update` comes first.
+    private(set) var rows: [SessionRow] = []
+
+    /// Creates or updates the row of `sessionId` and moves it to the top. A nil `lastAction`
+    /// keeps the previous one (empty for a new row); a given one is cut to 80 characters.
+    mutating func update(sessionId: String, pillId: String, title: String, phase: SessionPhase,
+                         lastAction: String?, at date: Date) {
+        let action: String
+        if let lastAction {
+            action = String(lastAction.prefix(Self.lastActionLimit))
+        } else {
+            action = rows.first { $0.id == sessionId }?.lastAction ?? ""
+        }
+        rows.removeAll { $0.id == sessionId }
+        let row = SessionRow(id: sessionId, pillId: pillId, title: title, phase: phase,
+                             lastAction: action, updatedAt: date)
+        rows.insert(row, at: rows.firstIndex { $0.updatedAt <= date } ?? rows.count)
+    }
+
+    /// Removes the row of a session that ended. Unknown ids change nothing.
+    mutating func end(sessionId: String) {
+        rows.removeAll { $0.id == sessionId }
+    }
+
+    /// Removes the rows nobody needs any more: a `finished`, `error` or `idle` row after 30 minutes
+    /// without activity, any other row after 2 hours, never an `approval` or a `question` (the
+    /// user is still expected to answer). The age counts from the row's last update, a row is
+    /// pruned once it reaches the limit.
+    mutating func prune(now: Date) {
+        rows.removeAll { row in
+            let silence = now.timeIntervalSince(row.updatedAt)
+            switch row.phase {
+            case .approval, .question:
+                return false
+            case .finished, .error, .idle:
+                return silence >= Self.endedLifetime
+            case .thinking, .working, .ratelimit:
+                return silence >= Self.silentLifetime
+            }
+        }
+    }
+
+    /// The `limit` most recent rows, nothing for a limit of 0 or less. Does not remove anything.
+    func visible(limit: Int) -> [SessionRow] {
+        Array(rows.prefix(max(0, limit)))
+    }
+}

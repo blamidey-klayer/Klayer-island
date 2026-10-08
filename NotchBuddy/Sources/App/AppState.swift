@@ -194,6 +194,26 @@ final class AppState: ObservableObject {
         recentChoices = choiceHistory.latest(5)
     }
 
+    // Running Claude sessions, one row each, most recent activity first (rules in SessionRoster).
+    // Fed by HookServer. Pruned on every update, never on a timer: a hidden island costs no CPU.
+    private var sessionRoster = SessionRoster()
+    @Published private(set) var sessions: [SessionRow] = []
+
+    func updateSession(sessionId: String, pillId: String, title: String, phase: SessionPhase,
+                       lastAction: String?) {
+        let now = Date()
+        sessionRoster.update(sessionId: sessionId, pillId: pillId, title: title, phase: phase,
+                             lastAction: lastAction, at: now)
+        sessionRoster.prune(now: now)
+        sessions = sessionRoster.rows
+    }
+
+    func endSession(_ id: String) {
+        sessionRoster.end(sessionId: id)
+        sessionRoster.prune(now: Date())
+        if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
+    }
+
     // Per-pill flat list of FileDiffs, in order of reception.
     // Not @Published — steps[] changes already trigger redraws.
     var sessionDiffs: [String: [FileDiff]] = [:]
