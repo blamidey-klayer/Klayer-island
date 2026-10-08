@@ -11669,6 +11669,17 @@
           }
         }
       }
+    },
+    "Cherche": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cherche"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

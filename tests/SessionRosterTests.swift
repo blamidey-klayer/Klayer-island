@@ -23,6 +23,10 @@ enum SessionRosterTests {
             ("host_kept_when_nil_and_replaced_when_given", hostKeptWhenNilAndReplacedWhenGiven),
             ("session_host_is_the_routed_terminal_else_the_bundle", sessionHostIsTheRoutedTerminalElseTheBundle),
             ("row_opens_its_running_host_else_the_claude_app", rowOpensItsRunningHostElseTheClaudeApp),
+            ("search_tools_raise_the_binoculars", searchToolsRaiseTheBinoculars),
+            ("a_bash_search_raises_them_other_commands_work", aBashSearchRaisesThemOtherCommandsWork),
+            ("post_tool_use_keeps_the_binoculars_1_5_s", postToolUseKeepsTheBinoculars15s),
+            ("a_searching_row_is_pruned_like_a_working_one", aSearchingRowIsPrunedLikeAWorkingOne),
         ]
         for (name, run) in cases {
             run()
@@ -266,7 +270,7 @@ enum SessionRosterTests {
 
     static func phaseLabelsInPlainFrench() {
         let expected: [(SessionPhase, String)] = [
-            (.idle, "En attente"), (.thinking, "Réfléchit"), (.working, "Travaille"),
+            (.idle, "En attente"), (.thinking, "Réfléchit"), (.working, "Travaille"), (.searching, "Cherche"),
             (.approval, "Attend ton accord"), (.question, "Te pose une question"),
             (.ratelimit, "Limite atteinte"), (.error, "Erreur"), (.finished, "Terminé"),
         ]
@@ -332,5 +336,54 @@ enum SessionRosterTests {
         precondition(row(HookRouting.desktopPillId, host: "com.anthropic.claudefordesktop")
                      .openTarget(running: running) == .claudeApp,
                      "a session of the Claude app opens the Claude app, whatever its host")
+    }
+
+    // MARK: - Binoculars (review I1, spec §7 « Cherche »)
+
+    static func searchToolsRaiseTheBinoculars() {
+        for tool in ["Grep", "Glob", "LS", "WebSearch", "WebFetch"] {
+            precondition(SessionPhase.of(tool: tool, input: [:]) == .searching, "\(tool) is a search")
+        }
+        for tool in ["Edit", "Write", "Read", "Task", "TodoWrite", "mcp__github__search_issues"] {
+            precondition(SessionPhase.of(tool: tool, input: [:]) == .working, "\(tool) works")
+        }
+    }
+
+    static func aBashSearchRaisesThemOtherCommandsWork() {
+        for command in ["rg TODO", "grep -rn foo src", "find . -name '*.swift'", "fd Package", "ls -la", "tree -L 2"] {
+            precondition(SessionPhase.of(tool: "Bash", input: ["command": command]) == .searching,
+                         "« \(command) » is a search")
+            precondition(BashVerb.of(command) == .searches)
+        }
+        for command in ["npm test", "cat README.md", "swift build", "git status", ""] {
+            precondition(SessionPhase.of(tool: "Bash", input: ["command": command]) == .working,
+                         "« \(command) » works")
+        }
+        precondition(SessionPhase.of(tool: "Bash", input: [:]) == .working, "no command: working")
+        precondition(BashVerb.of("cat a.txt") == .reads && BashVerb.of("npm test") == .tests
+                     && BashVerb.of("make") == .runs, "the step labels keep their verbs")
+    }
+
+    static func postToolUseKeepsTheBinoculars15s() {
+        // A Grep lasts about 100 ms: PostToolUse must not put Klay back on working before the
+        // binoculars could be seen. No timer: the PostToolUse compares the dates.
+        let start = t0
+        precondition(SessionPhase.postToolUseKeepsSearching(searchingSince: start, now: start.addingTimeInterval(0.1)))
+        precondition(SessionPhase.postToolUseKeepsSearching(searchingSince: start, now: start.addingTimeInterval(1.49)))
+        precondition(!SessionPhase.postToolUseKeepsSearching(searchingSince: start, now: start.addingTimeInterval(1.5)),
+                     "after 1.5 s, PostToolUse puts Klay back on working")
+        precondition(!SessionPhase.postToolUseKeepsSearching(searchingSince: nil, now: start),
+                     "not searching: PostToolUse works as before")
+        precondition(SessionPhase.searchDwell == 1.5)
+    }
+
+    static func aSearchingRowIsPrunedLikeAWorkingOne() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "s", pillId: "integration_claude", title: "S", phase: .searching,
+                      lastAction: "Searches · TODO", at: at(minutes: 0))
+        roster.prune(now: at(minutes: 31))
+        precondition(roster.rows.count == 1, "a search is work in progress, not an ended session")
+        roster.prune(now: at(minutes: 121))
+        precondition(roster.rows.isEmpty, "after 2 hours of silence it goes like a working row")
     }
 }

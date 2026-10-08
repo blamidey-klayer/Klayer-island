@@ -9,7 +9,7 @@ import Foundation
 
 /// What a session is doing. Same raw values as `BotState`, for the phases a session reports.
 enum SessionPhase: String, Equatable, CaseIterable {
-    case idle, thinking, working, approval, question, ratelimit, error, finished
+    case idle, thinking, working, searching, approval, question, ratelimit, error, finished
 
     /// The phase in plain French, as a row of the open island says it (spec §6).
     var label: String {
@@ -17,6 +17,7 @@ enum SessionPhase: String, Equatable, CaseIterable {
         case .idle:      return "En attente"
         case .thinking:  return "Réfléchit"
         case .working:   return "Travaille"
+        case .searching: return "Cherche"
         case .approval:  return "Attend ton accord"
         case .question:  return "Te pose une question"
         case .ratelimit: return "Limite atteinte"
@@ -110,7 +111,7 @@ struct SessionRoster {
                 return false
             case .finished, .error, .idle:
                 return silence >= Self.endedLifetime
-            case .thinking, .working, .ratelimit:
+            case .thinking, .working, .searching, .ratelimit:
                 return silence >= Self.silentLifetime
             }
         }
@@ -141,6 +142,55 @@ struct SessionRoster {
         if let routed { return routed }
         let trimmed = bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+// MARK: - What a tool call does to Klay (review I1, spec §7 « Cherche »)
+
+/// The verb a shell command's first word suggests, for the step labels and the search pose.
+enum BashVerb: Equatable {
+    case reads, searches, tests, runs
+
+    static func of(_ command: String) -> BashVerb {
+        let first = command.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? ""
+        switch first {
+        case "cat", "bat", "head", "tail", "less", "more", "nl": return .reads
+        case "rg", "grep", "find", "fd", "ls", "tree", "wc":    return .searches
+        default: break
+        }
+        let testRunners = ["pytest", "vitest", "jest", "npm test", "npm run test",
+                           "cargo test", "go test", "swift test", "make test",
+                           "xcodebuild test", "unittest"]
+        if testRunners.contains(where: { command.contains($0) }) { return .tests }
+        return .runs
+    }
+}
+
+extension SessionPhase {
+    /// How long the binoculars stay up at least: a Grep lasts about 100 ms.
+    static let searchDwell: TimeInterval = 1.5
+
+    /// The phase a PreToolUse puts its session and its pill in: `searching` (Klay raises his
+    /// binoculars) for Grep, Glob, LS, WebSearch, WebFetch and a shell search (`BashVerb.searches`),
+    /// `working` for any other tool.
+    static func of(tool: String, input: [String: Any]) -> SessionPhase {
+        switch tool {
+        case "Grep", "Glob", "LS", "WebSearch", "WebFetch":
+            return .searching
+        case "Bash":
+            guard let command = input["command"] as? String else { return .working }
+            return BashVerb.of(command) == .searches ? .searching : .working
+        default:
+            return .working
+        }
+    }
+
+    /// Whether a PostToolUse leaves the binoculars up: yes until `searchDwell` has passed since the
+    /// search started (`searchingSince`, nil when Klay is not searching). Then the next event
+    /// decides. No timer: the PostToolUse compares the dates.
+    static func postToolUseKeepsSearching(searchingSince: Date?, now: Date) -> Bool {
+        guard let searchingSince else { return false }
+        return now.timeIntervalSince(searchingSince) < searchDwell
     }
 }
 

@@ -38,6 +38,9 @@ final class HookServer: @unchecked Sendable {
     private var focusBeforeQuestion: String? = nil    // saved focus to restore after question
     private var activeSessionId: String? = nil        // current Claude Code session
     private var focusBeforeApproval: String? = nil    // saved focus to restore after approval
+    /// When each pill raised its binoculars (a search PreToolUse): PostToolUse leaves them up at
+    /// least `SessionPhase.searchDwell`, by comparing dates (no timer).
+    private var searchingSince: [String: Date] = [:]
 
     private init() {}
 
@@ -531,17 +534,24 @@ final class HookServer: @unchecked Sendable {
             // Skip state/step update here to avoid flickering over the question card.
             guard tool != "AskUserQuestion" else { break }
             if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, hostApp: hostApp, bundleId: bundleId) }
-            state.updateTask(id: agentId, state: .working)
             let input = payload["tool_input"] as? [String: Any] ?? [:]
+            // Grep, Glob, LS, WebSearch, WebFetch and a shell search raise the binoculars.
+            if SessionPhase.of(tool: tool, input: input) == .searching {
+                state.updateTask(id: agentId, state: .searching)
+                searchingSince[agentId] = Date()
+            } else {
+                state.updateTask(id: agentId, state: .working)
+                searchingSince[agentId] = nil
+            }
             let step = localizedStep(tool: tool, input: input)
             appendStep(id: agentId, step: step)
             nbLog("PreToolUse \(tool)")
 
         case "PostToolUse":
-            state.updateTask(id: agentId, state: .working)
+            resumeWork(pillId: agentId)
 
         case "PostToolUseFailure":
-            state.updateTask(id: agentId, state: .working)
+            resumeWork(pillId: agentId)
             appendStep(id: agentId, step: "⚠ failed")
 
         case "Notification":
@@ -622,6 +632,20 @@ final class HookServer: @unchecked Sendable {
         default:
             break
         }
+    }
+
+    /// After a tool call the pill goes back to working, except that the binoculars of a search
+    /// stay up `SessionPhase.searchDwell` at least: a 100 ms Grep must still be seen. Past that,
+    /// the next event decides.
+    @MainActor
+    private func resumeWork(pillId: String) {
+        let state = AppState.shared
+        let searching = state.tasks.first { $0.id == pillId }?.state == .searching
+        if searching, SessionPhase.postToolUseKeepsSearching(searchingSince: searchingSince[pillId], now: Date()) {
+            return
+        }
+        searchingSince[pillId] = nil
+        state.updateTask(id: pillId, state: .working)
     }
 
     // MARK: - Agent pill (Claude desktop app)
@@ -1124,8 +1148,9 @@ final class HookServer: @unchecked Sendable {
             let tool = payload["tool_name"] as? String ?? "Tool"
             // AskUserQuestion has its own card: processQuestionRequest puts the row on "question".
             guard tool != "AskUserQuestion" else { return }
-            phase = .working
-            action = SessionRoster.line(localizedStep(tool: tool, input: payload["tool_input"] as? [String: Any] ?? [:]))
+            let input = payload["tool_input"] as? [String: Any] ?? [:]
+            phase = SessionPhase.of(tool: tool, input: input)   // « Cherche » for a search
+            action = SessionRoster.line(localizedStep(tool: tool, input: input))
         case "Notification":
             guard Self.isRateLimit(payload["message"] as? String ?? "") else { return }
             phase = .ratelimit
@@ -1223,19 +1248,14 @@ final class HookServer: @unchecked Sendable {
         return label
     }
 
-    /// Infers a localized verb from a shell command's first word.
+    /// The localized verb of a shell command (`BashVerb`, the same rule as the search pose).
     private func bashVerb(_ command: String) -> String {
-        let first = command.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? ""
-        switch first {
-        case "cat", "bat", "head", "tail", "less", "more", "nl": return String(localized: "step.reads",    defaultValue: "Reads")
-        case "rg", "grep", "find", "fd", "ls", "tree", "wc":    return String(localized: "step.searches", defaultValue: "Searches")
-        default: break
+        switch BashVerb.of(command) {
+        case .reads:    return String(localized: "step.reads",    defaultValue: "Reads")
+        case .searches: return String(localized: "step.searches", defaultValue: "Searches")
+        case .tests:    return String(localized: "step.tests",    defaultValue: "Tests")
+        case .runs:     return String(localized: "step.runs",     defaultValue: "Runs")
         }
-        let testRunners = ["pytest", "vitest", "jest", "npm test", "npm run test",
-                           "cargo test", "go test", "swift test", "make test",
-                           "xcodebuild test", "unittest"]
-        if testRunners.contains(where: { command.contains($0) }) { return String(localized: "step.tests", defaultValue: "Tests") }
-        return String(localized: "step.runs", defaultValue: "Runs")
     }
 
     /// Collapses whitespace so a multi-line command stays one line of its session row.
