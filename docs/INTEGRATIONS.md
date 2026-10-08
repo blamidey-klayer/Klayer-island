@@ -60,6 +60,8 @@ Vérifier dans la doc la liste exacte des événements et leurs champs.
 - Fallback : si l'app ne répond pas (absente, timeout 125 s) ou renvoie `ask`, nb-hook n'émet rien → Claude Code re-pose la question dans le terminal.
 
 ### Sauter au terminal
+⌃⌥T vise d'abord la session la plus récente du registre, avec la règle d'un clic sur sa ligne : son terminal ou son éditeur s'il tourne, l'app Claude pour une session de l'app. Sinon (hôte inconnu ou fermé, aucune session), le terminal de la pastille en focus, puis Terminal. Le tableau ci-dessous reste le plan d'origine.
+
 | Contexte capté | Action |
 |---|---|
 | `TERM_PROGRAM=Apple_Terminal` + tty | AppleScript Terminal : sélectionner l'onglet dont le `tty` correspond, activer |

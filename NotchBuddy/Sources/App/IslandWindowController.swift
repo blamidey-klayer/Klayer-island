@@ -771,6 +771,14 @@ final class IslandWindowController: NSWindowController {
     // MARK: - Terminal jump
 
     private func performJumpToTerminal() {
+        // The most recent session first, by the rule of a row of the home: its running terminal or
+        // editor, the Claude app for a session of the Claude app.
+        state.pruneSessions()
+        if let latest = state.sessions.first, SessionOpener.openKnownTarget(latest) {
+            collapse(keepingPendingRequest: true)
+            return
+        }
+        // Its host is unknown or gone (or no session): as before, the focused pill's terminal.
         guard state.focusTask != nil else {
             SoundEngine.shared.play("error")
             NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.annoyed)

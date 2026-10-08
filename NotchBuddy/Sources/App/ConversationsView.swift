@@ -112,18 +112,28 @@ private struct ConversationRow: View {
 
 /// Opens what a click on a row opens (`SessionRow.openTarget`): the Claude app (`claude://`) for a
 /// session of the Claude app, the running terminal or editor of a Claude Code session, and the
-/// Claude app when that host is gone.
+/// Claude app when that host is gone. ⌃⌥T uses the same rule for the most recent session.
 @MainActor
 enum SessionOpener {
+    /// A click on a row: opens the session, then folds the island like the finished view's buttons.
     static func open(_ row: SessionRow) {
+        if !openKnownTarget(row) { openClaudeApp() }
+        NotificationCenter.default.post(name: .islandCollapse, object: nil)
+    }
+
+    /// Opens the session where it is known to live: its running host (terminal or editor), or the
+    /// Claude app for a session of the Claude app. False for a Claude Code session whose host is
+    /// unknown or no longer running: the caller picks the fallback.
+    @discardableResult
+    static func openKnownTarget(_ row: SessionRow) -> Bool {
         let apps = NSWorkspace.shared.runningApplications
-        let running = Set(apps.compactMap(\.bundleIdentifier))
-        switch row.openTarget(running: running) {
+        switch row.openTarget(running: Set(apps.compactMap(\.bundleIdentifier))) {
         case .host(let bundleId):
-            if let app = apps.first(where: { $0.bundleIdentifier == bundleId }), app.activate() { return }
-            openClaudeApp()
+            return apps.first(where: { $0.bundleIdentifier == bundleId })?.activate() ?? false
         case .claudeApp:
+            guard row.pillId == HookRouting.desktopPillId else { return false }
             openClaudeApp()
+            return true
         }
     }
 
