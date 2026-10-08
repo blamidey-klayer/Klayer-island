@@ -432,7 +432,7 @@ final class HookServer: @unchecked Sendable {
 
         case "SessionStart":
             activeSessionId = sessionId
-            if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, cwd: cwd, hostApp: hostApp, bundleId: bundleId) }
+            if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, hostApp: hostApp, bundleId: bundleId) }
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
             nbLog("SessionStart \(isExternalAgent ? agentId : projectName) (\(sessionId.prefix(8)))")
             if state.isPresent { expandIfNeeded(to: .overview) }
@@ -440,7 +440,7 @@ final class HookServer: @unchecked Sendable {
 
         case "UserPromptSubmit":
             activeSessionId = sessionId
-            if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, cwd: cwd, hostApp: hostApp, bundleId: bundleId) }
+            if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, hostApp: hostApp, bundleId: bundleId) }
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
             state.updateTask(id: agentId, state: .thinking)
             if let prompt = payload["prompt"] as? String, !prompt.isEmpty {
@@ -455,7 +455,7 @@ final class HookServer: @unchecked Sendable {
             // AskUserQuestion is handled via the dedicated --ask hook.
             // Skip state/step update here to avoid flickering over the question card.
             guard tool != "AskUserQuestion" else { break }
-            if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, cwd: cwd, hostApp: hostApp, bundleId: bundleId) }
+            if isExternalAgent { upsertExternalAgent(id: agentId, name: validAgent!) } else { upsertWorkspaceTask(id: agentId, projectName: projectName, hostApp: hostApp, bundleId: bundleId) }
             state.updateTask(id: agentId, state: .working)
             let input = payload["tool_input"] as? [String: Any] ?? [:]
             let step = localizedStep(tool: tool, input: input)
@@ -692,7 +692,7 @@ final class HookServer: @unchecked Sendable {
         pendingApprovalFD = fd
         activeSessionId = sessionId
 
-        upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName, cwd: cwd,
+        upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName,
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .approval)
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .approval,
@@ -824,7 +824,7 @@ final class HookServer: @unchecked Sendable {
         questionPillId = pillId
         questionSessionId = sessionId
 
-        upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName, cwd: cwd,
+        upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName,
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .question)
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .question,
@@ -881,10 +881,10 @@ final class HookServer: @unchecked Sendable {
     /// first event seen of a Claude app session (the app started mid-session): the desktop pill is
     /// then made like the one SessionStart makes, before taking the project name the card shows.
     @MainActor
-    private func upsertRequestPill(agent: String, pillId: String, projectName: String, cwd: String,
+    private func upsertRequestPill(agent: String, pillId: String, projectName: String,
                                    hostApp: String?, bundleId: String) {
         if let desktopAgent = validateAgent(agent) { upsertExternalAgent(id: pillId, name: desktopAgent) }
-        upsertWorkspaceTask(id: pillId, projectName: projectName, cwd: cwd, hostApp: hostApp, bundleId: bundleId)
+        upsertWorkspaceTask(id: pillId, projectName: projectName, hostApp: hostApp, bundleId: bundleId)
     }
 
     /// Where the user answers a request of this pill, for the notes "Handled in …" and
@@ -918,14 +918,13 @@ final class HookServer: @unchecked Sendable {
     }
 
     /// Updates or transiently creates the Claude Code workspace pill task.
-    /// If the task already exists (persistent), just updates name/cwd.
+    /// If the task already exists (persistent), just updates its name and host.
     /// If missing (transient), creates it and inserts after the main pill.
     @MainActor
-    private func upsertWorkspaceTask(id: String, projectName: String, cwd: String = "", hostApp: String? = nil, bundleId: String = "") {
+    private func upsertWorkspaceTask(id: String, projectName: String, hostApp: String? = nil, bundleId: String = "") {
         let state = AppState.shared
         if let idx = state.tasks.firstIndex(where: { $0.id == id }) {
             state.tasks[idx].name = projectName
-            if !cwd.isEmpty { state.tasks[idx].sessionCwd = cwd }
             if id == "integration_claude" { state.tasks[idx].hostApp = hostApp }
             if !bundleId.isEmpty { state.tasks[idx].sessionBundleId = bundleId }
             return

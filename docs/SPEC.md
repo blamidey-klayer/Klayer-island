@@ -278,7 +278,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 - **M0 Base** : vérifier Xcode (`xcodebuild -version`), XcodeGen, `git init`, `project.yml`, app agent qui se lance et affiche le faux contenu. Menu Debug.
 - **M1 Island** : panel, détection du notch, 4 modes, règles §3, clics traversants, animations §4, données factices.
 - **M2 Personnage** : port de `Bot` (Klay), tous les états et émotes, mini-bonhommes, halo, badges, particules, mains. Pause quand masqué.
-- **M3 Vues** : toutes les vues §5, défilé, pastilles, colonne, élément partagé, voiles. Comparer avec les 16 captures.
+- **M3 Vues** : toutes les vues §5, maison (conversations en cours, derniers choix), pastilles, colonne, élément partagé, voiles. Comparer avec les 16 captures.
 - **M4 Sons** : branchement §9, réglages son.
 - **M5 Claude Code** : hooks, approbations, questions, saut au terminal (INTEGRATIONS §1).
 - **M6 GitHub** : polling, alertes CI, cartes (INTEGRATIONS §1quater).

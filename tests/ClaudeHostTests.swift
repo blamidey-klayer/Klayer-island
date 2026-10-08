@@ -28,8 +28,7 @@ enum ClaudeHostTests {
         check("nil host = Claude Code", ClaudeHost.name(for: nil) == "Claude Code")
         check("Warp host", ClaudeHost.name(for: "dev.warp.Warp-Stable") == "Warp")
         check("unknown host = Claude Code", ClaudeHost.name(for: "com.example.app") == "Claude Code")
-        check("editor session → Claude Code", ClaudeHost.pillName(hostApp: nil) == "Claude Code")
-        check("terminal session → Claude Code", ClaudeHost.pillName(hostApp: "dev.warp.Warp-Stable") == "Claude Code")
+        check("pill name = Claude Code, editor or terminal", ClaudeHost.pillName == "Claude Code")
 
         print("ClaudeHost.terminalCardsEnabled")
         UserDefaults.standard.removeObject(forKey: ClaudeHost.terminalCardsKey)

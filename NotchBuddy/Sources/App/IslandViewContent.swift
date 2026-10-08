@@ -2001,7 +2001,7 @@ struct AgentPill: View {
 
     // The Claude Code pill shows "Claude Code" regardless of project name
     private var displayName: String {
-        task.id == "integration_claude" ? ClaudeHost.pillName(hostApp: task.hostApp) : task.name
+        task.id == "integration_claude" ? ClaudeHost.pillName : task.name
     }
 
     var body: some View {
