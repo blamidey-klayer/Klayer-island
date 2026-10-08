@@ -13,6 +13,10 @@ enum ClaudeStream {
     /// into a template, so quotes, backslashes and line breaks of what the user typed (or of
     /// a dropped file) cannot break the line. The two Unicode line separators are written as
     /// escapes too, because some line readers split on them.
+    ///
+    /// An empty `text` goes without a text block (the API refuses empty ones), so an empty text
+    /// with no image gives a message with no content at all, which the API refuses as well:
+    /// callers must not send it.
     static func userLine(text: String, images: [(mediaType: String, base64: String)]) -> String {
         var content: [[String: Any]] = images.map { image in
             [
@@ -81,27 +85,60 @@ enum ClaudeStreamEvent: Equatable {
 /// Reads the output of `claude -p --output-format stream-json` as it comes. `feed` takes the
 /// bytes of one read, which can stop anywhere (inside a line, inside a multi-byte character):
 /// the incomplete end waits for the next call, and a line that is not a JSON object (a CLI
-/// warning) is ignored.
+/// warning) is ignored. Lines end with `\n` or `\r\n`.
+///
+/// A line longer than `maxLineBytes` (8 MB by default) is dropped whole, so that a runaway
+/// output without a line break cannot grow the buffer without end: the rest of that line is
+/// skipped up to its `\n`, and the stream goes on with the next line.
 struct ClaudeStreamParser {
-    private var buffer = Data()
+    static let defaultMaxLineBytes = 8 * 1024 * 1024
 
-    init() {}
+    private let maxLineBytes: Int
+    private var buffer = Data()
+    /// Bytes at the start of `buffer` already searched for a line break (there is none in
+    /// them): each `feed` only scans what is new, never the whole buffer again.
+    private var scanned = 0
+    /// True while the rest of an over-long line is being skipped.
+    private var skippingLine = false
+
+    init(maxLineBytes: Int = ClaudeStreamParser.defaultMaxLineBytes) {
+        self.maxLineBytes = maxLineBytes
+    }
+
+    /// Bytes of the unfinished line kept for the next `feed` (0 after a dropped line).
+    var bufferedBytes: Int { buffer.count }
 
     mutating func feed(_ data: Data) -> [ClaudeStreamEvent] {
         buffer.append(data)
         var events: [ClaudeStreamEvent] = []
         var start = buffer.startIndex
-        while let newline = buffer[start...].firstIndex(of: 0x0A) {
-            events += Self.events(inLine: Data(buffer[start..<newline]))
+        var searchFrom = buffer.index(buffer.startIndex, offsetBy: scanned)
+        while let newline = buffer[searchFrom...].firstIndex(of: 0x0A) {
+            if skippingLine {
+                skippingLine = false
+            } else if newline - start <= maxLineBytes {
+                events += Self.events(inLine: Data(buffer[start..<newline]))
+            }
             start = buffer.index(after: newline)
+            searchFrom = start
         }
-        if start != buffer.startIndex {
-            buffer = Data(buffer[start...])
+        // What is left holds no line break: keep it, unless it is a runaway line.
+        if skippingLine || buffer.endIndex - start > maxLineBytes {
+            buffer = Data()
+            scanned = 0
+            skippingLine = true
+        } else {
+            if start != buffer.startIndex {
+                buffer = Data(buffer[start...])
+            }
+            scanned = buffer.count
         }
         return events
     }
 
-    private static func events(inLine line: Data) -> [ClaudeStreamEvent] {
+    private static func events(inLine rawLine: Data) -> [ClaudeStreamEvent] {
+        // The `\r` of a `\r\n` line end belongs to the line break, not to the JSON.
+        let line = rawLine.last == 0x0D ? Data(rawLine.dropLast()) : rawLine
         guard !line.isEmpty,
               let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let type = object["type"] as? String else { return [] }
@@ -192,7 +229,11 @@ struct GmailDraft: Equatable {
               parts.host?.lowercased() == "mail.google.com",
               parts.user == nil, parts.password == nil,
               parts.port == nil || parts.port == 443,
-              let url = URL(string: link) else { return nil }
+              let url = URL(string: link),
+              // The URL that is returned (and later opened) is checked again: the two parsers
+              // must agree on scheme and host.
+              url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "mail.google.com" else { return nil }
         return GmailDraft(id: id, viewURL: url)
     }
 }

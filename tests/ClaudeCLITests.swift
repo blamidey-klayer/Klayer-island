@@ -15,6 +15,7 @@ enum ClaudeCLITests {
             ("attachment_kinds", attachmentKinds),
             ("user_line_is_one_json_line", userLineIsOneJSONLine),
             ("parser_joins_split_lines_and_skips_noise", parserJoinsSplitLinesAndSkipsNoise),
+            ("parser_scans_once_and_drops_a_runaway_line", parserScansOnceAndDropsARunawayLine),
             ("gmail_tool_lookup", gmailToolLookup),
             ("gmail_draft_parse", gmailDraftParse),
             ("gmail_draft_preview", gmailDraftPreview),
@@ -241,6 +242,13 @@ enum ClaudeCLITests {
         let twice = delta + delta.replacingOccurrences(of: "Bonjour", with: "Klay")
         precondition(parser.feed(Data(twice.utf8)) == [.textDelta("Bonjour"), .textDelta("Klay")])
 
+        // CRLF line ends: the `\r` is part of the line break, not of the JSON.
+        let withoutBreak = String(delta.dropLast())
+        precondition(parser.feed(Data((withoutBreak + "\r\n").utf8)) == [.textDelta("Bonjour")])
+        // A `\r` and its `\n` split across two reads still make one line, read once.
+        precondition(parser.feed(Data((withoutBreak + "\r").utf8)).isEmpty, "the line is not over before its \\n")
+        precondition(parser.feed(Data("\n".utf8)) == [.textDelta("Bonjour")])
+
         // Noise: a CLI warning, an empty line, a JSON that is not an object, a JSON without a type.
         precondition(parser.feed(Data("warning: something went wrong\n".utf8)).isEmpty)
         precondition(parser.feed(Data("\n\n".utf8)).isEmpty)
@@ -286,6 +294,64 @@ enum ClaudeCLITests {
         precondition(feedLine(&parser, "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":[{\"type\":\"text\",\"text\":\"{\\\"id\\\":\\\"r1\\\"}\"}]}]}}")
                      == [.toolResult(text: "{\"id\":\"r1\"}")])
         precondition(feedLine(&parser, "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"plain echo\"}}").isEmpty)
+    }
+
+    static func parserScansOnceAndDropsARunawayLine() {
+        let delta = "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Bonjour\"}}}\n"
+        let result = "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"fin\"}\n"
+
+        // One byte per read (the scan resumes where it stopped): each line is read exactly once.
+        var slow = ClaudeStreamParser()
+        var events: [ClaudeStreamEvent] = []
+        for byte in Array((delta + result + delta).utf8) {
+            events += slow.feed(Data([byte]))
+        }
+        precondition(events == [.textDelta("Bonjour"), .turnEnded(isError: false, message: "fin"), .textDelta("Bonjour")],
+                     "byte by byte gives the same events as a single read")
+        precondition(ClaudeStreamParser.defaultMaxLineBytes == 8 * 1024 * 1024)
+
+        // A line without a line break that outgrows the cap is dropped, the buffer is reset...
+        var capped = ClaudeStreamParser(maxLineBytes: 64)
+        precondition(capped.feed(Data(String(repeating: "x", count: 40).utf8)).isEmpty, "under the cap the line waits")
+        precondition(capped.bufferedBytes == 40)
+        precondition(capped.feed(Data(String(repeating: "y", count: 40).utf8)).isEmpty, "over the cap the line is dropped")
+        precondition(capped.bufferedBytes == 0, "the buffer is reset once the unfinished line outgrows the cap")
+        precondition(capped.feed(Data(String(repeating: "z", count: 1000).utf8)).isEmpty, "and nothing more is kept for it")
+        precondition(capped.bufferedBytes == 0)
+        // ...its tail is skipped up to its `\n`, even when that tail is a JSON line by itself...
+        precondition(capped.feed(Data(("{\"type\":\"result\",\"result\":\"queue\"}\n").utf8)).isEmpty,
+                     "the end of a dropped line never becomes an event")
+        // ...and the stream goes on with the next line.
+        let short = "{\"type\":\"result\",\"is_error\":true,\"result\":\"x\"}\n"
+        precondition(short.utf8.count <= 64)
+        precondition(capped.feed(Data(short.utf8)) == [.turnEnded(isError: true, message: "x")],
+                     "a line that fits the cap is read")
+        precondition(capped.bufferedBytes == 0, "a finished line leaves nothing in the buffer")
+
+        // A complete line over the cap, in one read, is dropped like the others.
+        var long = ClaudeStreamParser(maxLineBytes: 64)
+        let tooLong = delta.replacingOccurrences(of: "Bonjour", with: String(repeating: "B", count: 200))
+        precondition(long.feed(Data((tooLong + short).utf8)) == [.turnEnded(isError: true, message: "x")],
+                     "the long line is dropped, the one after it is read")
+
+        // A line of exactly the cap goes through (the limit is on the length, not off by one).
+        var exact = ClaudeStreamParser(maxLineBytes: delta.utf8.count - 1)
+        precondition(exact.feed(Data(delta.utf8)) == [.textDelta("Bonjour")])
+        var oneOver = ClaudeStreamParser(maxLineBytes: delta.utf8.count - 2)
+        precondition(oneOver.feed(Data(delta.utf8)).isEmpty)
+
+        // The default cap does not get in the way of a long answer: one line of 1 MB is read.
+        var big = ClaudeStreamParser()
+        let bigDelta = delta.replacingOccurrences(of: "Bonjour", with: String(repeating: "B", count: 1_000_000))
+        let pieces = Array(bigDelta.utf8)
+        var bigEvents: [ClaudeStreamEvent] = []
+        var offset = 0
+        while offset < pieces.count {
+            let end = min(offset + 65_536, pieces.count)
+            bigEvents += big.feed(Data(pieces[offset..<end]))
+            offset = end
+        }
+        precondition(bigEvents == [.textDelta(String(repeating: "B", count: 1_000_000))])
     }
 
     static func gmailToolLookup() {
