@@ -31,7 +31,7 @@ claude (terminal, VS Code, app Claude)
 | `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; un échec reste `working` |
 | `PermissionRequest` | alerte `approval` (voir plus bas) |
 | `Notification` | selon le type : attente d'entrée → `question` si une question est posée, sinon rien ; limite d'usage → `ratelimit` |
-| `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette pastille, qu'elle ait le focus ou non (sauf si une autorisation ou une question attend : la pastille reçoit alors un badge) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
+| `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette session, que sa pastille ait le focus ou non. Sauf si une autorisation ou une question attend, ou si l'île déjà ouverte sert à autre chose (chat, mail, envoi de fichier, résultat, réglages) ou est épinglée avec ⌘P : la pastille reçoit alors seulement un badge et la ligne du registre est mise à jour (`FinishPresentation`) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
 | `StopFailure` (si présent dans la doc) | alerte `error` |
 | `SubagentStart` / `SubagentStop` | afficher « + sous-agent » dans le défilé |
 | `SessionEnd` | retire la tâche |
@@ -135,7 +135,7 @@ Sur `PostToolUse` pour `Edit`, `MultiEdit` et `Write` (Claude Code), l'app calcu
 - Lignes en monospace 10,5 pt, fond vert ou rouge à 12 %, symbole +/− en marge, 3 lignes de contexte
 - Défilement vertical ; Échap ou clic sur l'en-tête pour revenir au fil
 
-**Vue Terminé (FinishedView)** — affiche la dernière ligne utile de la session (`finalLine` → dernière étape non-diff → "Session finished"), sur une ligne (`.lineLimit(1).truncationMode(.tail)`). Pas de liste de fichiers.
+**Vue Terminé (FinishedView)** — affiche le projet et la dernière phrase de la session qui a fini (`AppState.finishedSession`, posée par le `Stop` qui ouvre la vue ; « Open Claude » ou « Open terminal » selon sa pastille). Sans elle, repli sur la pastille en focus : dernière ligne utile (`finalLine` → dernière étape non-diff → "Session finished"). Sur une ligne (`.lineLimit(1).truncationMode(.tail)`). Pas de liste de fichiers.
 
 ---
 

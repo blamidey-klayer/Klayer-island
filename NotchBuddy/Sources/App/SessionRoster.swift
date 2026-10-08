@@ -80,4 +80,46 @@ struct SessionRoster {
     func visible(limit: Int) -> [SessionRow] {
         Array(rows.prefix(max(0, limit)))
     }
+
+    /// A text as the one line of a row: line breaks and tabs become one space, and a text longer
+    /// than 80 characters is cut to 79 followed by « … », so `update` keeps it whole. Nil when
+    /// nothing is left, so the row keeps its last action.
+    static func line(_ text: String) -> String? {
+        let collapsed = text.split(whereSeparator: { $0.isNewline || $0 == "\t" })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard !collapsed.isEmpty else { return nil }
+        return collapsed.count > lastActionLimit
+            ? String(collapsed.prefix(lastActionLimit - 1)) + "…"
+            : collapsed
+    }
+}
+
+// MARK: - What a finished session does to the island
+// Spec §4: when Claude finishes a session the island opens on its end. It must not take over
+// what the user is doing, so the decision is made here, in plain values (tested), and
+// HookServer applies it.
+
+enum FinishPresentation: Equatable {
+    /// The island opens, or switches, on the finished view of the pill.
+    case open
+    /// Only the pill is badged and the roster updated: the island, its view and its focus stay.
+    case badgeOnly
+
+    /// The raw values of `IslandView` that a finish may replace: nothing the user is in the
+    /// middle of. Any other view (a draft in the chat or the mail, a file being sent, a result,
+    /// Settings, a permission or a question, or a view added later) is kept.
+    static let replaceableViews: Set<String> = [
+        "overview", "empty", "note", "greeting", "confused", "finished", "error",
+    ]
+
+    /// `expanded`: the island is open. `view`: the raw value of the `IslandView` on screen.
+    /// `pinned`: pinned with ⌘P. `requestPending`: a permission or a question waits.
+    /// A waiting request is never covered. A hidden or compact island opens. An open island
+    /// gives way only on a resting view, and not when pinned.
+    static func decide(expanded: Bool, view: String, pinned: Bool, requestPending: Bool) -> FinishPresentation {
+        if requestPending { return .badgeOnly }
+        guard expanded else { return .open }
+        return replaceableViews.contains(view) && !pinned ? .open : .badgeOnly
+    }
 }

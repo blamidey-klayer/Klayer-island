@@ -2,7 +2,8 @@ import Foundation
 
 /// The roster of running Claude sessions (spec §6, one row per session): newest activity
 /// first, the last action kept and capped, rows removed when the session ends and pruned by
-/// age without a timer. Tests pass explicit dates, never the wall clock.
+/// age without a timer, and what a finished session does to an island that may be in use.
+/// Tests pass explicit dates, never the wall clock.
 @main
 enum SessionRosterTests {
     static func main() {
@@ -12,6 +13,11 @@ enum SessionRosterTests {
             ("end_removes_the_row", endRemovesTheRow),
             ("prune_keeps_waiting_rows", pruneKeepsWaitingRows),
             ("visible_limit", visibleLimit),
+            ("row_line_is_one_line_cut_with_an_ellipsis", rowLineIsOneLineCutWithAnEllipsis),
+            ("finish_opens_a_hidden_or_compact_island", finishOpensAHiddenOrCompactIsland),
+            ("finish_only_badges_while_a_card_waits", finishOnlyBadgesWhileACardWaits),
+            ("finish_never_replaces_a_view_in_use", finishNeverReplacesAViewInUse),
+            ("finish_replaces_a_resting_view_unless_pinned", finishReplacesARestingViewUnlessPinned),
         ]
         for (name, run) in cases {
             run()
@@ -166,5 +172,88 @@ enum SessionRosterTests {
         precondition(roster.visible(limit: 0).isEmpty, "a limit of 0 returns nothing")
         precondition(roster.visible(limit: -3).isEmpty, "a negative limit returns nothing instead of crashing")
         precondition(roster.rows.count == 6, "visible does not remove rows")
+    }
+
+    // MARK: - One line for a row
+
+    static func rowLineIsOneLineCutWithAnEllipsis() {
+        precondition(SessionRoster.line("Bash · npm test") == "Bash · npm test", "a short text is kept")
+        precondition(SessionRoster.line("première ligne\n\nseconde\tligne") == "première ligne seconde ligne",
+                     "line breaks and tabs become one space")
+        precondition(SessionRoster.line("") == nil && SessionRoster.line("  \n\t ") == nil,
+                     "nothing to show is nil, so the row keeps its last action")
+        let exact = String(repeating: "x", count: 80)
+        precondition(SessionRoster.line(exact) == exact, "80 characters fit without an ellipsis")
+        let long = SessionRoster.line(String(repeating: "é", count: 200)) ?? ""
+        precondition(long.count == 80 && long.hasSuffix("…"),
+                     "a longer text is cut to 80 characters, the ellipsis included, got \(long.count)")
+        precondition(long == String(repeating: "é", count: 79) + "…", "the start of the text is kept")
+
+        // The line survives `update` as it is: the ellipsis is not cut off again.
+        var roster = SessionRoster()
+        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+                      lastAction: long, at: at(minutes: 0))
+        precondition(roster.rows[0].lastAction == long, "an 80 character line is stored whole")
+    }
+
+    // MARK: - What a finished session does to the island
+
+    /// Every IslandView raw value, by group, as the island names them.
+    static let restingViews = ["overview", "empty", "note", "greeting", "confused", "finished", "error"]
+    static let viewsInUse = ["prompt", "mail", "upload", "uploading", "choose", "searching", "result", "settings"]
+    static let cardViews = ["approval", "question"]
+
+    static func finishOpensAHiddenOrCompactIsland() {
+        for view in restingViews + viewsInUse + cardViews {
+            // The view of a closed island is the one it had when it closed: it does not matter.
+            precondition(FinishPresentation.decide(expanded: false, view: view, pinned: false,
+                                                   requestPending: false) == .open,
+                         "a hidden or compact island opens whatever view it kept, got a refusal on \(view)")
+        }
+        precondition(FinishPresentation.decide(expanded: false, view: "overview", pinned: true,
+                                               requestPending: false) == .open,
+                     "a pin left from an earlier opening does not keep a closed island shut")
+    }
+
+    static func finishOnlyBadgesWhileACardWaits() {
+        for expanded in [false, true] {
+            for view in restingViews + viewsInUse + cardViews {
+                for pinned in [false, true] {
+                    precondition(FinishPresentation.decide(expanded: expanded, view: view, pinned: pinned,
+                                                           requestPending: true) == .badgeOnly,
+                                 "a waiting permission or question is never covered (expanded \(expanded), \(view))")
+                }
+            }
+        }
+        // The card views stay protected even when the pending flag is not read yet.
+        for view in cardViews {
+            precondition(FinishPresentation.decide(expanded: true, view: view, pinned: false,
+                                                   requestPending: false) == .badgeOnly,
+                         "the \(view) view is never replaced")
+        }
+    }
+
+    static func finishNeverReplacesAViewInUse() {
+        for view in viewsInUse {
+            for pinned in [false, true] {
+                precondition(FinishPresentation.decide(expanded: true, view: view, pinned: pinned,
+                                                       requestPending: false) == .badgeOnly,
+                             "a finish must not destroy what the user is writing or choosing in \(view)")
+            }
+        }
+    }
+
+    static func finishReplacesARestingViewUnlessPinned() {
+        for view in restingViews {
+            precondition(FinishPresentation.decide(expanded: true, view: view, pinned: false,
+                                                   requestPending: false) == .open,
+                         "the \(view) view gives way to the end of a session")
+            precondition(FinishPresentation.decide(expanded: true, view: view, pinned: true,
+                                                   requestPending: false) == .badgeOnly,
+                         "an island pinned with ⌘P keeps its view, the \(view) view included")
+        }
+        // A view this code does not know is treated as in use: nothing is destroyed by surprise.
+        precondition(FinishPresentation.decide(expanded: true, view: "somethingNew", pinned: false,
+                                               requestPending: false) == .badgeOnly)
     }
 }

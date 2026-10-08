@@ -199,6 +199,12 @@ final class AppState: ObservableObject {
     private var sessionRoster = SessionRoster()
     @Published private(set) var sessions: [SessionRow] = []
 
+    // The session the finished view tells about: set when a Stop opens the island on that view, and
+    // replaced by the next one. The view reads it first, so it names the session that ended (its
+    // project, its last sentence, the app it runs in) even when its pill is shared with another
+    // session or gone. Nil falls back to the pill in focus.
+    @Published var finishedSession: SessionRow? = nil
+
     func updateSession(sessionId: String, pillId: String, title: String, phase: SessionPhase,
                        lastAction: String?) {
         let now = Date()

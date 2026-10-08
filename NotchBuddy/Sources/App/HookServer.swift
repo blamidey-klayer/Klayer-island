@@ -73,8 +73,17 @@ final class HookServer: @unchecked Sendable {
         }
         state.noteMessage = note
         state.view = .note
+        foldNoteAfterDelay()
+    }
+
+    /// Folds the island 3 seconds after a "Handled in …" note, but only if the note is still the
+    /// view: another view that took its place (the end of a session, a question) is not folded.
+    @MainActor
+    private func foldNoteAfterDelay() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+            if AppState.shared.view == .note {
+                NotificationCenter.default.post(name: .islandCollapse, object: nil)
+            }
         }
     }
 
@@ -107,9 +116,7 @@ final class HookServer: @unchecked Sendable {
         if !note.isEmpty {
             state.noteMessage = note
             state.view = .note
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                NotificationCenter.default.post(name: .islandCollapse, object: nil)
-            }
+            foldNoteAfterDelay()
         } else {
             state.view = state.tasks.isEmpty ? .empty : .overview
         }
@@ -320,8 +327,10 @@ final class HookServer: @unchecked Sendable {
     // Claude Code events route to the permanent "integration_claude" task.
     // Sessions from the Claude desktop app (klayer_agent "claude-desktop") route to the
     // dynamic "agent_claude-desktop" task. Any other klayer_agent is ignored.
-    // View switches only happen if VS Code (or the agent pill) is currently focused.
-    // When not focused: state updates animate the mini bot in the pill; badge shown for alerts.
+    // A finished session opens the island on its end whether or not its pill has the focus, unless a
+    // card waits or the user is using the island (FinishPresentation). Other view switches only happen
+    // if the pill is focused. When not focused: state updates animate the mini bot in the pill; badge
+    // shown for alerts.
 
     @MainActor
     private func processEvent(name: String, payload: [String: Any]) {
@@ -367,7 +376,6 @@ final class HookServer: @unchecked Sendable {
             return
         }
 
-        let focused = state.focusId == agentId
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
         if let pending = state.pendingApproval, agentId == pending.pillId {
@@ -485,28 +493,33 @@ final class HookServer: @unchecked Sendable {
                 }
             }
             SoundEngine.shared.play("finish")
-            if state.pendingApproval != nil || state.pendingQuestion != nil {
-                // A permission or a question waits for the user: its card keeps the island, the pill is only badged.
-                setPillBadge(id: agentId, badge: .finished)
-            } else if state.tasks.contains(where: { $0.id == agentId }) {
-                // Claude finished a session: the island opens on its end (spec §4), whether or not its pill has the focus.
-                if !focused { withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) } }
-                expandIfNeeded(to: .finished)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
-                if isExternalAgent {
-                    // A card of the shared Claude app pill may have come in since the Stop.
-                    if self.mayRemovePill(agentId) { AppState.shared.removeTask(id: agentId) }
-                } else {
-                    AppState.shared.updateTask(id: agentId, state: .idle)
-                    self.clearPillBadge(id: agentId)
+            // Claude finished a session: the island opens on its end (spec §4), unless a card waits or
+            // the user is using the island (then the pill is only badged). Everything is read here, after
+            // an approval card the Stop resolved was dismissed and gave the focus back.
+            let presentation = FinishPresentation.decide(
+                expanded: state.mode == .expanded, view: state.view.rawValue, pinned: state.isPinned,
+                requestPending: state.pendingApproval != nil || state.pendingQuestion != nil)
+            if presentation == .open, state.tasks.contains(where: { $0.id == agentId }) {
+                // The finished view tells which session ended, whatever the pill and its focus become.
+                var finished = state.sessions.first { $0.id == sessionId }
+                    ?? SessionRow(id: sessionId, pillId: agentId, title: projectName, phase: .finished,
+                                  lastAction: "", updatedAt: Date())
+                if !finalText.isEmpty { finished.lastAction = finalText }
+                state.finishedSession = finished
+                if state.focusId != agentId {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
                 }
+                expandIfNeeded(to: .finished)
+            } else {
+                setPillBadge(id: agentId, badge: .finished)
             }
+            scheduleFinishCleanup(pillId: agentId, isExternalAgent: isExternalAgent)
 
         case "StopFailure":
             state.updateTask(id: agentId, state: .error)
             SoundEngine.shared.play("error")
-            if focused {
+            // Read now: an approval card this event resolved has given the focus back to another pill.
+            if state.focusId == agentId {
                 expandIfNeeded(to: .error)
             } else {
                 setPillBadge(id: agentId, badge: .error)
@@ -657,6 +670,8 @@ final class HookServer: @unchecked Sendable {
             let old = pendingApprovalFD
             let oldSource = approvalFDSource
             approvalFDSource = nil
+            // Its card is gone: that session goes back to working in the roster (it asks in its own window).
+            resumeSession(state.pendingApproval?.sessionId)
             Task.detached { [weak self] in
                 // "ask" → nb-hook outputs nothing → Claude Code re-asks
                 self?.sendLine(fd: old, text: #"{"permissionDecision":"ask"}"#)
@@ -670,7 +685,7 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .approval)
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .approval,
-                            lastAction: rosterLine(command))
+                            lastAction: SessionRoster.line(command))
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
                                               command: command, inputKey: inputKey, pillId: pillId)
         state.isPinned = true
@@ -785,6 +800,8 @@ final class HookServer: @unchecked Sendable {
             let old = pendingQuestionFD
             let oldSrc = questionFDSource
             questionFDSource = nil
+            // Its card is gone: that session goes back to working in the roster (it asks in its own window).
+            resumeSession(questionSessionId)
             Task.detached { [weak self] in
                 self?.sendLine(fd: old, text: #"{"permissionDecision":"ask"}"#)
                 DispatchQueue.main.async { oldSrc?.cancel() }
@@ -799,7 +816,7 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .question)
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .question,
-                            lastAction: parsed.questions.first.flatMap { rosterLine($0.question) })
+                            lastAction: parsed.questions.first.flatMap { SessionRoster.line($0.question) })
         state.pendingQuestion = parsed
         state.isPinned = true
         SoundEngine.shared.play("approval")
@@ -942,6 +959,39 @@ final class HookServer: @unchecked Sendable {
         state.tasks[idx].stepIndex = state.tasks[idx].steps.count - 1
     }
 
+    // MARK: - After a Stop
+
+    /// 5.2 s after a Stop: the Claude Code pill goes back to idle, the Claude app pill goes away.
+    /// The app pill stays while the open finished view still shows its session (the view reads
+    /// that session, but the focus, the Klay and the buttons follow the pill), and goes once the
+    /// view is left: the check repeats every 5.2 s, and only while that view is open. A repeat
+    /// leaves the pill alone when it has moved on to another turn.
+    @MainActor
+    private func scheduleFinishCleanup(pillId: String, isExternalAgent: Bool, isRepeat: Bool = false) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
+            if isExternalAgent {
+                // A card of the shared Claude app pill may have come in since the Stop.
+                guard self.mayRemovePill(pillId) else { return }
+                if self.isShowingFinished(of: pillId) {
+                    self.scheduleFinishCleanup(pillId: pillId, isExternalAgent: true, isRepeat: true)
+                    return
+                }
+                if isRepeat, AppState.shared.tasks.first(where: { $0.id == pillId })?.state != .finished { return }
+                AppState.shared.removeTask(id: pillId)
+            } else {
+                AppState.shared.updateTask(id: pillId, state: .idle)
+                self.clearPillBadge(id: pillId)
+            }
+        }
+    }
+
+    /// True while the island is open on the finished view of a session of this pill.
+    @MainActor
+    private func isShowingFinished(of pillId: String) -> Bool {
+        let state = AppState.shared
+        return state.mode == .expanded && state.view == .finished && state.finishedSession?.pillId == pillId
+    }
+
     // MARK: - Session roster
 
     /// Feeds the roster of running sessions (one row per session) from a hook event, titled with the
@@ -958,19 +1008,19 @@ final class HookServer: @unchecked Sendable {
             action = "Session démarrée"
         case "UserPromptSubmit":
             phase = .thinking
-            if let prompt = payload["prompt"] as? String { action = rosterLine(String(prompt.prefix(60))) }
+            if let prompt = payload["prompt"] as? String { action = SessionRoster.line(String(prompt.prefix(60))) }
         case "PreToolUse":
             let tool = payload["tool_name"] as? String ?? "Tool"
             // AskUserQuestion has its own card: processQuestionRequest puts the row on "question".
             guard tool != "AskUserQuestion" else { return }
             phase = .working
-            action = rosterLine(localizedStep(tool: tool, input: payload["tool_input"] as? [String: Any] ?? [:]))
+            action = SessionRoster.line(localizedStep(tool: tool, input: payload["tool_input"] as? [String: Any] ?? [:]))
         case "Notification":
             guard Self.isRateLimit(payload["message"] as? String ?? "") else { return }
             phase = .ratelimit
         case "Stop":
             phase = .finished
-            action = rosterLine(Self.finalText(of: payload))
+            action = SessionRoster.line(Self.finalText(of: payload))
         case "StopFailure":
             phase = .error
         case "SessionEnd":
@@ -993,12 +1043,6 @@ final class HookServer: @unchecked Sendable {
               row.phase == .approval || row.phase == .question else { return }
         state.updateSession(sessionId: sessionId, pillId: row.pillId, title: row.title,
                             phase: .working, lastAction: nil)
-    }
-
-    /// A text as one row line, nil when empty so the row keeps its last action.
-    private func rosterLine(_ text: String) -> String? {
-        let line = oneLine(text, limit: SessionRoster.lastActionLimit)
-        return line.isEmpty ? nil : line
     }
 
     /// One line of the last assistant message of a Stop ("" when there is none).
