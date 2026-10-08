@@ -371,10 +371,18 @@ final class IslandWindowController: NSWindowController {
         // in the app window immediately below the menu bar.
         let hoverRect = !hasNotch && state.mode != .expanded
             ? islandRect : islandRect.insetBy(dx: -6, dy: -6)
-        let inIsland = hoverRect.contains(local)
+        let overIsland = hoverRect.contains(local)
+        // The Granola button is the only clickable spot of the compact island (spec §5). The
+        // panel takes the click, but the pointer on the button is not "on the island" for the
+        // FSM or for the click monitors: resting there must not open the island under the
+        // pointer after 250 ms, and the click must not reach the FSM or start a drag of Klay.
+        let overGranola = overIsland && state.mode == .compact
+            && IslandRestingLayout(width: islandRect.width, height: islandRect.height)
+                .granolaHitRectInPanel(islandFrame: islandRect).contains(local)
+        let inIsland = overIsland && !overGranola
 
         // Toggle click-through
-        let shouldAcceptMouse = inIsland || inAttachDrag || attachDragStart != nil
+        let shouldAcceptMouse = overIsland || inAttachDrag || attachDragStart != nil
         if panel.ignoresMouseEvents == shouldAcceptMouse {
             panel.ignoresMouseEvents = !shouldAcceptMouse
             if shouldAcceptMouse, let cv = panel.contentView {

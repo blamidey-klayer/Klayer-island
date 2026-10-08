@@ -12097,6 +12097,16 @@
           }
         }
       }
+    },
+    "Nouvelle note Granola": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle note Granola"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

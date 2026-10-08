@@ -37,6 +37,22 @@ struct IslandRestingLayout {
 
     var botDiameter: CGFloat { min(20, max(0, height - 6)) }
     var botCenterY: CGFloat { height / 2 }
-    var miniGridScale: CGFloat { min(1, max(0, height - 4) / 28) }
-    var miniGridCenterX: CGFloat { width - 40 }
+
+    /// Centre of the Granola button, in the right ear of the compact island.
+    var granolaCenterX: CGFloat { width - 40 }
+    /// Hit area of the Granola button in island coordinates (origin top left): a 28 pt square,
+    /// shorter on a low bar, centred on `granolaCenterX` and on the island's height.
+    var granolaHitRect: CGRect {
+        let side = min(28, height)
+        return CGRect(x: granolaCenterX - side / 2, y: (height - side) / 2, width: side, height: side)
+    }
+
+    /// The same area in panel coordinates (origin bottom left), for an island whose frame in
+    /// the panel is `islandFrame`. The window controller uses it to tell the button from the
+    /// rest of the island.
+    func granolaHitRectInPanel(islandFrame: CGRect) -> CGRect {
+        let rect = granolaHitRect
+        return CGRect(x: islandFrame.minX + rect.minX, y: islandFrame.maxY - rect.maxY,
+                      width: rect.width, height: rect.height)
+    }
 }

@@ -56,7 +56,7 @@ private struct GreetPose {
     var eye: GEyeType; var open, eyeRoll: Double
     var lookX, lookY: Double
     var handL, handR, wave: Double
-    var badge, tint, halo, haloBlue, minis, fx: Double
+    var badge, tint, halo, haloBlue, fx: Double
     var header, card: Double
     var iw, ih: Double
 }
@@ -249,7 +249,7 @@ private func greetPose(_ t: Double, compact: IslandRestingLayout) -> GreetPose {
         tint:     0.6 * GE.inOut(gSeg(t, GT.tint0, GT.tint1)),
         halo:     GE.out(gSeg(t, 0.3, 0.7)),
         haloBlue: gSeg(t, GT.tint0, GT.tint1),
-        minis: 0, fx: 1,
+        fx: 1,
         header: gSeg(t, 0.35, 0.6), card: gSeg(t, 0.18, 0.45),
         iw: iw, ih: ih
     )
@@ -266,7 +266,7 @@ private func smallPose(_ compact: IslandRestingLayout) -> GreetPose {
         lookX: 0, lookY: 0,
         handL: 0, handR: 0, wave: -1,
         badge: 1, tint: 0.6, halo: 0.6, haloBlue: 1,
-        minis: 1, fx: 1,
+        fx: 1,
         header: 0, card: 0,
         iw: sw, ih: Double(compact.height)
     )
@@ -296,7 +296,6 @@ private func pose(_ t: Double, tc: Double, compact: IslandRestingLayout) -> Gree
     let bk = gSeg(t, tc+0.14, tc+0.26)
     p.eye = .dot; p.open = (bk > 0 && bk < 1) ? 1 - sin(.pi*bk)*0.94 : 1
     p.lookX = a.lookX*(1-e); p.lookY = a.lookY*(1-e)
-    p.minis = GE.back(gSeg(t, tc+0.24, tc+0.42))
     p.fx    = 1 - gSeg(t, tc, tc+0.2)
     return p
 }
@@ -478,35 +477,9 @@ private func drawHeader(_ ctx: CGContext, alpha: Double) {
     ctx.restoreGState()
 }
 
-private let miniColors = ["#E86A6A","#3E86E0","#EFAE5A","#8C73F2"]
-
-/// The four mini Klays that pop into the resting island: the white glyph on a disc of
-/// each pill's colour (the eyes are left out at this size).
-private func drawMinis(_ context: GraphicsContext, alpha: Double, compact: IslandRestingLayout) {
-    guard alpha > 0.01 else { return }
-    let cx = 320 - compact.width/2 + compact.miniGridCenterX
-    let cy = compact.botCenterY
-    let sp: CGFloat = 6 * compact.miniGridScale
-    let offsets: [(CGFloat, CGFloat)] = [(-sp,-sp),(sp,-sp),(-sp,sp),(sp,sp)]
-    let discR: CGFloat = 4.6
-    for (i,(dx,dy)) in offsets.enumerated() {
-        var c = context
-        c.translateBy(x: cx+dx, y: cy+dy)
-        let scale = CGFloat(alpha) * compact.miniGridScale
-        c.scaleBy(x: scale, y: scale)
-        c.fill(Path(ellipseIn: CGRect(x: -discR, y: -discR, width: discR*2, height: discR*2)),
-               with: .color(Color(cgColor: gHex(miniColors[i]))))
-        let s = discR * 1.55 / KlayGlyph.width
-        c.scaleBy(x: s, y: s)
-        c.translateBy(x: 0, y: 70)
-        KlayPaint.drawGlyph(c)
-    }
-}
-
 // MARK: - Full draw
 
-/// The card and its particles (CoreGraphics). The minis and Klay are drawn over it
-/// by drawGreetingCharacters.
+/// The card and its particles (CoreGraphics). Klay is drawn over it by `drawKlay`.
 private func drawGreeting(_ ctx: CGContext, p: GreetPose, t: Double, tc: Double) {
     if p.card > 0 {
         ctx.saveGState()
@@ -525,12 +498,6 @@ private func drawGreeting(_ ctx: CGContext, p: GreetPose, t: Double, tc: Double)
         drawParticles(ctx, t: t, tc: tc, p: p)
         ctx.restoreGState()
     }
-}
-
-private func drawGreetingCharacters(_ context: GraphicsContext, p: GreetPose,
-                                    compact: IslandRestingLayout) {
-    drawMinis(context, alpha: p.minis, compact: compact)
-    drawKlay(context, p: p)
 }
 
 // MARK: - SwiftUI View
@@ -553,7 +520,7 @@ struct GreetingCanvasView: View {
                 context.withCGContext { cgCtx in
                     drawGreeting(cgCtx, p: p, t: t, tc: tc)
                 }
-                drawGreetingCharacters(context, p: p, compact: compact)
+                drawKlay(context, p: p)
             }
             .onChange(of: !greetFired && t >= GT.end && tc >= GT.autoLeave) { _, trigger in
                 if trigger { fireGreetComplete() }

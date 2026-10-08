@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Top-level SwiftUI view rendered inside the 720×320 transparent panel.
 /// The island is drawn at the top-center; everything else is transparent and click-through.
@@ -106,11 +107,13 @@ struct IslandContainer: View {
 
             CountdownBar(state: state, islandW: islandWidth)
 
+            // Granola shortcut (spec §5): the only clickable spot of the compact island.
+            // Not shown while hidden or expanded.
             Group {
                 if state.mode == .compact {
-                    CompactMiniGrid(state: state)
-                        .scaleEffect(IslandRestingLayout(width: islandWidth, height: islandHeight).miniGridScale)
-                        .position(x: islandWidth - 40, y: islandHeight / 2)
+                    let resting = IslandRestingLayout(width: islandWidth, height: islandHeight)
+                    GranolaButton(side: resting.granolaHitRect.width)
+                        .position(x: resting.granolaCenterX, y: islandHeight / 2)
                         .transition(.opacity)
                 }
             }
@@ -611,24 +614,28 @@ struct ClaudePlanHeaderPill: View {
     }
 }
 
-// MARK: - Compact mini klay grid (2×2 to the right of the notch)
+// MARK: - Granola button (right ear of the compact island)
 
-struct CompactMiniGrid: View {
-    @ObservedObject var state: AppState
-
-    private var others: [AgentTask] {
-        Array(state.tasks.filter { $0.id != state.focusId }.prefix(4))
-    }
+/// Opens a new Granola note (`granola://new-document`). A plain microphone glyph: the
+/// Granola logo is theirs and is not reused. The click is handled here by SwiftUI only;
+/// IslandWindowController keeps the pointer on this button out of the island's own hover and
+/// click handling (`GranolaLink` documents the link, `IslandRestingLayout` the hit area).
+struct GranolaButton: View {
+    /// Side of the square hit area, from `IslandRestingLayout.granolaHitRect`.
+    let side: CGFloat
 
     var body: some View {
-        let cols = [GridItem(.fixed(12), spacing: 4), GridItem(.fixed(12), spacing: 4)]
-        LazyVGrid(columns: cols, spacing: 4) {
-            ForEach(others) { task in
-                MiniBotCanvasView(task: task)
-                    .frame(width: 12 / 0.6, height: 12 / 0.6)
-                    .frame(width: 12, height: 12, alignment: .center)
-            }
+        Button(action: {
+            GranolaLink.open(using: { NSWorkspace.shared.open($0) })
+        }) {
+            Image(systemName: "mic")
+                .font(.system(size: 14))
+                .foregroundColor(Color(hex: "#8E939C").opacity(0.45))
+                .frame(width: side, height: side)
+                .contentShape(Rectangle())
         }
-        .frame(width: 28, height: 28)
+        .buttonStyle(.plain)
+        .help("Nouvelle note Granola")
+        .accessibilityLabel("Nouvelle note Granola")
     }
 }

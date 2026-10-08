@@ -37,6 +37,9 @@ jobs:
       - name: Test open on hover
         run: bash scripts/test-island-hover.sh
 
+      - name: Test Granola link
+        run: bash scripts/test-granola-link.sh
+
       - name: Test pending request
         run: bash scripts/test-pending-request.sh
 

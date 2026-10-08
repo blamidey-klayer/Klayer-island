@@ -45,9 +45,19 @@ enum IslandScreenGeometryTests {
             precondition(compact.botDiameter == min(20, height - 6))
             precondition(compact.botCenterY - compact.botDiameter / 2 >= 3)
             precondition(compact.botCenterY + compact.botDiameter / 2 <= height - 3)
-            precondition(compact.miniGridCenterX == 200)
-            precondition(compact.miniGridScale * 28 <= height - 4)
+            // The Granola button sits where the mini Klay grid was (40 pt from the right edge),
+            // and its hit area stays inside the island whatever the height.
+            precondition(compact.granolaCenterX == 200)
+            let hit = compact.granolaHitRect
+            precondition(hit.midX == 200 && hit.midY == height / 2)
+            precondition(hit.width == hit.height && hit.width == min(28, height))
+            precondition(hit.minX >= 0 && hit.maxX <= 240 && hit.minY >= 0 && hit.maxY <= height)
         }
-        print("Island screen geometry and resting layout: 13 cases passed")
+        // The same area in panel coordinates (origin bottom left), for a 240 x 32 island
+        // glued to the top of a 720 x 560 panel.
+        let inPanel = IslandRestingLayout(width: 240, height: 32)
+            .granolaHitRectInPanel(islandFrame: CGRect(x: 240, y: 528, width: 240, height: 32))
+        precondition(inPanel == CGRect(x: 426, y: 530, width: 28, height: 28))
+        print("Island screen geometry and resting layout: 14 cases passed")
     }
 }
