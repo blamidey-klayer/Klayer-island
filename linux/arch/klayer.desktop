@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Klayer Island
-Comment=Klay lives at the top of your screen and keeps an eye on your Claude Code sessions
-Exec=klayer
-Icon=klayer
-Terminal=false
-Categories=Development;Utility;
-StartupNotify=false

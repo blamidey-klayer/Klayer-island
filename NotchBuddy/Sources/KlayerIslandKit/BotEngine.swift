@@ -5,7 +5,7 @@ import SwiftUI
 
 // Klay — the Klayer Island character. The state machine, tweens and particles keep
 // the engine's original timings (MIT code from Coucou); the drawing is Klay's own
-// (KlayPaint, KlayGlyph), ported from windows/src/klay/engine.ts.
+// (KlayPaint, KlayGlyph), ported from tools/klay-preview/src/engine.ts.
 
 // MARK: - Easing functions (same as prototype: E.out, E.inOut, E.back, E.lin)
 

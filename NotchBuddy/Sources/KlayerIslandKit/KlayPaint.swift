@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// Sizes are in glyph units (the glyph is 797 × 512, y down). "Klay's frame" has its
 /// origin on the hub, the solid part of the glyph under the rays, where the face sits.
-/// Port of the Draw section of windows/src/klay/engine.ts.
+/// Port of the Draw section of tools/klay-preview/src/engine.ts.
 enum KlayPaint {
 
     // MARK: - Geometry (glyph units)

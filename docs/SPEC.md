@@ -154,7 +154,7 @@ Nom d'une session Claude Code = nom du dossier de travail (`cwd`), avec une tabl
 
 ## 7. Le personnage : Klay
 
-Référence de rendu : `windows/src/klay/engine.ts` (portée en Swift dans `KlayerIslandKit`). Unités : unités du glyphe (le glyphe Klayer fait 797 × 512), origine au centre du moyeu (la partie pleine sous les rayons), y vers le bas.
+Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans `KlayerIslandKit`). Unités : unités du glyphe (le glyphe Klayer fait 797 × 512), origine au centre du moyeu (la partie pleine sous les rayons), y vers le bas.
 
 - **Corps** : le glyphe Klayer (`glyph.ts`, généré depuis le SVG du design system), blanc sur l'île sombre, jamais redessiné ni déformé. Il occupe 62 % de la largeur du canvas. Écrasements, inclinaisons, sauts et vrilles s'appliquent au personnage entier.
 - **Halo** : dégradé radial de la couleur de l'état derrière les rayons, rayon 380 unités, opacité 0,55 × teinte au centre. Au repos : teal-light Klayer `#3E7280`, teinte 0,35.

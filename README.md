@@ -1,6 +1,6 @@
 # Klayer Island
 
-**Klay vit dans l'encoche de votre Mac, ou en haut de l'écran sous Windows et Linux, et suit vos sessions d'agents de code. Vous autorisez, répondez et relancez sans quitter ce que vous faites.**
+**Klay vit dans l'encoche de votre Mac et suit vos sessions d'agents de code. Vous autorisez, répondez et relancez sans quitter ce que vous faites.**
 
 Outil interne Klayer, fork de [Coucou](https://github.com/Louis-CFM/coucou) (licence MIT). Le nom, le personnage, l'icône et les sons sont propres à Klayer : voir [NOTICE.md](NOTICE.md).
 
@@ -29,25 +29,25 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 
 - **Sessions d'agents en direct** : Claude Code, Cursor, Codex, Gemini CLI, Antigravity, Copilot CLI, Muse Code, OpenCode, Amp, Hermes, Claude Desktop. Chaque étape (lecture, édition, commande) défile dans l'île ; chaque fichier modifié affiche son +N −M et ouvre le diff au clic.
 - **Autoriser et répondre depuis l'île** : les demandes d'autorisation de Claude Code (Allow, Deny, Always) et de Codex, les questions `AskUserQuestion` à choix simple ou multiple.
-- **Retour au bon terminal** : ouvre la fenêtre de la session concernée (macOS, Windows).
+- **Retour au bon terminal** : ouvre la fenêtre de la session concernée.
 - **Chat** : Claude, Gemini, OpenAI, ou un modèle local (Ollama, LM Studio). Clés dans le trousseau du système.
 - **Quotas** : limites 5 heures et hebdomadaires de Claude et de Codex dans l'en-tête de l'île.
-- **Dépôt de fichier** sur l'île, puis question à Claude ou envoi par email (Mail.app, macOS).
+- **Dépôt de fichier** sur l'île, puis question à Claude ou envoi par email (Mail.app).
 - **Klay sur le bureau** : glissez-le hors de l'île, il flotte sur le bureau et revient quand un agent a besoin de vous.
 - **Intégrations** : GitHub (PR, revues, CI), Vercel, Stripe, n8n, Resend, Notion, Cal.com. Chacune a son mini Klay coloré.
-- **Musique** : pastilles Apple Music et Spotify (macOS).
+- **Musique** : pastilles Apple Music et Spotify.
 - **Raccourcis clavier** globaux, modifiables dans Réglages → Raccourcis.
 - **Récap hebdomadaire** le lundi matin, partageable en image ; l'historique reste sur la machine.
 - **10 langues**, dont le français.
 - **Aucune télémétrie, aucun compte.** L'app ne parle qu'aux services que vous branchez.
 
-Retirés par rapport à Coucou : app iPhone, widgets, Live Activities, synchronisation iCloud, build App Store, garde-robe et tenues de Mochi.
+Retirés par rapport à Coucou : app iPhone, widgets, Live Activities, synchronisation iCloud, build App Store, versions hors Mac, garde-robe et tenues de Mochi.
 
 ## Installer
 
 Pas de release publique : la diffusion reste interne. Construisez depuis les sources.
 
-**macOS** (macOS 15+, Xcode 16+, [XcodeGen](https://github.com/yonaskolb/XcodeGen)) :
+L'app est réservée au Mac (macOS 15+, Xcode 16+, [XcodeGen](https://github.com/yonaskolb/XcodeGen)) :
 
 ```bash
 brew install xcodegen
@@ -58,28 +58,9 @@ open NotchBuddy.xcodeproj   # puis ⌘R
 
 Renseignez votre équipe Apple dans `DEVELOPMENT_TEAM` (`NotchBuddy/project.yml`) pour signer.
 
-**Windows** (Rust, Node 20+, outils de build MSVC) :
-
-```powershell
-cd windows
-npm install
-npm run pack                # l'installateur arrive dans windows/release/
-```
-
-**Linux** (Rust, Node 20+, paquets de développement WebKitGTK, gtk-layer-shell et appindicator) :
-
-```bash
-sudo apt install build-essential pkg-config \
-  libwebkit2gtk-4.1-dev libgtk-layer-shell-dev libayatana-appindicator3-dev \
-  librsvg2-dev libssl-dev libdbus-1-dev patchelf
-cd windows
-npm install
-npm run pack                # AppImage, .deb et .rpm dans windows/release/
-```
-
 ## Configurer
 
-Icône Klayer Island dans la barre des menus (macOS) ou la zone de notification (Windows, Linux) → **Réglages…**
+Icône Klayer Island dans la barre des menus → **Réglages…**
 
 | Quoi | Pourquoi | Où |
 |---|---|---|
@@ -93,10 +74,10 @@ Si l'app ne tourne pas, le hook rend la main immédiatement : **Claude Code n'es
 
 ## Développer
 
-- Le rendu de Klay de référence est `windows/src/klay/engine.ts`. Pour voir tous les états côte à côte : `cd windows && npx vite`, puis ouvrez `/dev/klay-preview.html`. L'animation d'accueil : `/dev/greeting-preview.html`.
-- Le glyphe (`windows/src/klay/glyph.ts`) est généré depuis le SVG officiel du design system Klayer : ne le modifiez pas à la main.
-- Sons : `python3 scripts/gen-sounds.py`. Icônes : `node scripts/render-mac-icons.mjs` (macOS) et `cd windows && npm run icons` (Windows, Linux).
-- Tests Windows et Linux : `cd windows && npm test` puis `cargo test --workspace`. Tests macOS : scripts `scripts/test-*.sh` (nécessitent macOS).
+- Le dessin de référence de Klay est `tools/klay-preview/src/engine.ts` (Canvas 2D), que le code Swift de `KlayerIslandKit` reprend. Ce banc de rendu ne fait pas partie de l'app. Pour voir tous les états côte à côte : `cd tools/klay-preview && npm install && npx vite`, puis ouvrez la page affichée ; `?freeze=1.2` fige l'animation pour une capture.
+- Le glyphe (`tools/klay-preview/src/glyph.ts`) est généré depuis le SVG officiel du design system Klayer : ne le modifiez pas à la main.
+- Sons : `python3 scripts/gen-sounds.py`. Icônes : `node scripts/render-mac-icons.mjs`.
+- Tests : scripts `scripts/test-*.sh` (nécessitent macOS). Banc de rendu : `cd tools/klay-preview && npm run check`.
 - Règles pour les agents de code : [CLAUDE.md](CLAUDE.md).
 
 ## Licence

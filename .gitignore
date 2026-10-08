@@ -19,3 +19,7 @@ DerivedData/
 # Local only (never published)
 .claude/
 _prive/
+
+# Klay render bench (tools/klay-preview)
+tools/klay-preview/node_modules/
+tools/klay-preview/dist/

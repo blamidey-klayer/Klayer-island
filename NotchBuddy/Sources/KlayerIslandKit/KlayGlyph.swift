@@ -1,7 +1,7 @@
 import SwiftUI
 
 // The Klayer glyph, the brand mark Klay is built on, as absolute segments in
-// glyph units (797 x 512, y down). Generated from windows/src/klay/glyph.ts
+// glyph units (797 x 512, y down). Generated from tools/klay-preview/src/glyph.ts
 // (itself converted from the official glyph SVG): never edit the numbers by
 // hand. The mark is drawn exactly as the brand ships it; only its colour and
 // the limbs and eyes around it belong to the character.

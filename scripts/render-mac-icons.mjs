@@ -1,10 +1,10 @@
 // Renders the macOS app icon and menu bar icon (NotchBuddy/Assets.xcassets) from
-// the Klayer glyph in windows/src/klay/glyph.ts, with headless Chromium.
+// the Klayer glyph in tools/klay-preview/src/glyph.ts, with headless Chromium.
 //   node scripts/render-mac-icons.mjs   (needs playwright; set the import below to your install)
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-const src = readFileSync(`${ROOT}/windows/src/klay/glyph.ts`, 'utf8');
+const src = readFileSync(`${ROOT}/tools/klay-preview/src/glyph.ts`, 'utf8');
 const a = src.slice(src.indexOf('GLYPH_SEGMENTS'));
 const segs = JSON.parse(a.slice(a.indexOf('= [') + 2, a.indexOf('];') + 1).replace(/\],\s*\]$/, ']]'));
 

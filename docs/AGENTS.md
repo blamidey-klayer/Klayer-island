@@ -1,6 +1,6 @@
 # Klayer Island — third-party agent integration
 
-Any tool that can write to a Unix domain socket (macOS, Linux) or a named pipe (Windows) can send events to Klayer Island and have its own pill next to Claude Code.
+Any tool that can write to a Unix domain socket can send events to Klayer Island and have its own pill next to Claude Code.
 
 ## The `klayer_agent` field
 
@@ -24,34 +24,6 @@ Configure your tool to call the Klayer Island relay with `--agent <your-name>` a
 
 The shell wrapper passes `"$@"` to the Python relay, which extracts the agent name and injects it into the payload before forwarding to Klayer Island.
 
-## Hook command (Windows)
-
-Same pattern with the Windows relay:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "type": "command", "command": "C:\\path\\to\\klayer-hook.exe --agent my-tool" }
-    ]
-  }
-}
-```
-
-## Hook command (Linux)
-
-Same pattern with the Linux relay. Klayer Island copies the relay to `~/.local/share/klayer/bin/klayer-hook` at startup.
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "type": "command", "command": "/path/to/klayer-hook --agent my-tool" }
-    ]
-  }
-}
-```
-
 ## Payload format
 
 The relay adds `klayer_agent` to the JSON it forwards. You can also add it yourself if you talk to the socket directly:
@@ -68,8 +40,6 @@ The relay adds `klayer_agent` to the JSON it forwards. You can also add it yours
 Send newline-terminated JSON to the socket:
 - **macOS (GitHub build):** `~/Library/Application Support/NotchBuddy/nb.sock`
 - **macOS (App Store build):** `~/Library/Containers/ai.klayer.KlayerIsland/Data/nb.sock`
-- **Windows:** `\\.\pipe\klayer-<user-SID>`
-- **Linux:** `$XDG_RUNTIME_DIR/klayer.sock` (usually `/run/user/<uid>/klayer.sock`). Only your own user account can connect.
 
 ## Supported events
 
@@ -225,21 +195,8 @@ Every event is fire-and-forget: if the app is closed or unreachable, nothing is 
 
 ### Any other tool
 
-Follow the generic pattern: call `nb-hook --agent <your-name> <EventName>` (macOS),
-`klayer-hook.exe --agent <your-name> <EventName>` (Windows)
-or `~/.local/share/klayer/bin/klayer-hook --agent <your-name> <EventName>` (Linux)
+Follow the generic pattern: call `nb-hook --agent <your-name> <EventName>` (macOS)
 and let the relay forward the event.
-
-## Quick test (Linux)
-
-With Klayer Island running:
-
-```sh
-echo '{"hook_event_name":"UserPromptSubmit","session_id":"t1","prompt":"hello","klayer_agent":"demo"}' \
-  | ~/.local/share/klayer/bin/klayer-hook --agent demo
-```
-
-A "demo" pill should appear in the island.
 
 ## Quick test (macOS)
 
