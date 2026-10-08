@@ -334,17 +334,9 @@ struct BotPlacement: View {
         .allowsHitTesting(false)
     }
 
+    /// The halo behind Klay takes the state's colour, like his own glow and badge.
     private func botGlowColor(_ s: BotState) -> Color {
-        switch s {
-        case .working:   return Color(hex: "#3B9EFF")
-        case .thinking:  return Color(hex: "#A78BFA")
-        case .searching: return Color(hex: "#6366F1")
-        case .approval:  return Color(hex: "#F5A524")
-        case .error:     return Color(hex: "#F4505E")
-        case .finished:  return Color(hex: "#34D399")
-        case .ratelimit: return Color(hex: "#F59E0B")
-        default:         return Color.white
-        }
+        Color(cgColor: StateColor.of(s))
     }
 
     private func botGlowOpacity(_ s: BotState) -> Double {

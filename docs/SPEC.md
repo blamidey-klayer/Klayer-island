@@ -156,8 +156,10 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
 
 - **Corps** : le glyphe Klayer (`glyph.ts`, généré depuis le SVG du design system), blanc sur l'île sombre, jamais redessiné ni déformé. Il occupe 62 % de la largeur du canvas. Écrasements, inclinaisons, sauts et vrilles s'appliquent au personnage entier.
 - **Halo** : dégradé radial de la couleur de l'état derrière les rayons, rayon 380 unités, opacité 0,55 × teinte au centre. Au repos : teal-light Klayer `#3E7280`, teinte 0,35.
+- **Couleurs d'état** : variantes éclaircies des couleurs de la marque Klayer, pour rester lisibles sur l'île noire (les valeurs exactes de la charte sont trop sombres sur du noir). Le halo de Klay, son badge et le halo de l'île derrière lui prennent la couleur de l'état (tableau ci-dessous, `C` dans `engine.ts`, `StateColor` dans `BotEngine.swift`).
 - **Yeux** : deux yeux ronds blancs (rayon 52, écart ±56, liseré teal-deep `#071B20` de 9) posés sur le moyeu. La forme d'œil (pilule, arc content, fente, spirale, cœur, étoile…) se dessine dans chaque œil en teal-deep. Le regard décale l'œil (×0,4) et la pupille (×0,8) jusqu'à ±14 unités en x et ±12 en y.
-- **Bras** : nouilles blanches de 26 unités, liseré teal-deep de 7, mains rondes (rayon 26), devant le glyphe pour rester lisibles sur les rayons. Épaules à (±82, 50). La pose des mains dépend de l'état (`limbTargets`) : repos (±168, 150), tape au clavier en `working`, main au menton en `thinking`, visière en `searching`, bras levés en `approval`, grattage de tête en `question`, bras ballants en `error`, `ratelimit` et `sleeping`, V en `finished`, moulinets en `dizzy`. Salut : main droite levée, va-et-vient à 13 rad/s. Zone de dépôt : bras ouverts, mains à (±200, −40) (`armsOpenTargets`).
+- **Bras** : nouilles blanches de 26 unités, liseré teal-deep de 7, mains rondes (rayon 26), devant le glyphe pour rester lisibles sur les rayons, sur toutes les surfaces (île, bureau, salut, envoi, zone de dépôt). Épaules à (±82, 50), couvertes d'un disque blanc. La pose des mains dépend de l'état (`limbTargets`) : repos (±168, 150), tape au clavier en `working`, main au menton en `thinking`, les deux mains sur les jumelles à (±112, 18) en `searching`, bras levés en `approval`, grattage de tête en `question`, bras ballants en `error`, `ratelimit` et `sleeping`, V en `finished`, moulinets en `dizzy`. Salut : main droite levée, va-et-vient à 13 rad/s. Zone de dépôt : bras ouverts, mains à (±200, −40) (`armsOpenTargets`).
+- **Jumelles** (`searching`, Klay principal seulement : ni mini-Klay ni zone de dépôt) : deux fûts arrondis teal-deep `#071B20` de 92 × 104 (rayon d'angle 34) centrés sur (±56, −10), reliés par un pont de 40 × 30 ; une lentille ronde de rayon 36 en teal-light `#3E7280` au centre de chaque fût, liseré brume `#ECEDE7` de 8 et reflet blanc (rayon 9, décalé de (−13, −13)). Elles se dessinent devant le glyphe, sous les bras, et les yeux ne sont pas dessinés pendant ce temps ; elles restent quand les membres sont masqués (île compacte). Elles suivent le balayage du regard : décalage x = lacet × 18. Ordre de dessin : jambes, glyphe, jumelles, bras, joues, yeux.
 - **Jambes** : deux jambes blanches derrière le glyphe, hanches à (±17, 104), pieds ovales (32 × 15) à (±36, 212). Piétinement en `working`.
 - **Membres masqués** en dessous de 30 px de largeur de glyphe (île compacte).
 - **Boîte aux lettres** (dépôt de fichier) : le glyphe rétrécit et s'efface, une boîte blanche à dégradé brume `#ECEDE7` apparaît avec une fente sombre et les mêmes yeux.
@@ -168,19 +170,19 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
 
 | Clé | Libellé | Couleur | Teinte | Yeux | Badge | Particularité |
 |---|---|---|---|---|---|---|
-| `idle` | Au repos | `#3E7280` | 0,35 | pilule | aucun | |
-| `working` | Travaille | `#3B9EFF` | 0,72 | pilule | pilule « ••• » animée | |
-| `thinking` | Réfléchit | `#8B5CF6` | 0,72 | pilule | « ••• » | regarde en haut à droite |
-| `searching` | Cherche | `#6366F1` | 0,72 | pilule | « ••• » | yeux qui balaient de gauche à droite |
-| `approval` | Attend ton feu vert | `#F5A524` | 0,78 | grands | « ! » | petits sauts en boucle |
-| `question` | Pose une question | `#22D3EE` | 0,75 | pilule | « ? » | tête penchée 0,12 rad, se gratte la tête |
-| `error` | Erreur | `#DE623B` | 0,78 | plats | point brique | secousse horizontale à l'entrée |
-| `finished` | Terminé | `#34D399` | 0,5 | contents (arc) | point vert | saut + vrille de 700 ms + étincelles |
-| `ratelimit` | Limite atteinte | `#FB923C` | 0,72 | fatigués | point orange | gouttes de sueur |
-| `sleeping` | Dort | `#94A3B8` | 0,32 | fermés | aucun | respiration, « z » qui montent |
-| `dizzy` | Sonné | `#F472B6` | 0,7 | spirales | aucun | double roulade 1,3 s |
+| `idle` | Au repos | `#3E7280` (teal-light) | 0,35 | pilule | aucun | |
+| `working` | Travaille | `#4FA3B5` (teal éclairci) | 0,72 | pilule | pilule « ••• » animée | |
+| `thinking` | Réfléchit | `#7FB8C4` (teal éclairci) | 0,72 | pilule | « ••• » | regarde en haut à droite |
+| `searching` | Cherche | `#A8D0D8` (teal éclairci) | 0,72 | cachés par les jumelles | « ••• » | tient des jumelles à deux mains, qui balaient de gauche à droite |
+| `approval` | Attend ton feu vert | `#D69A3A` (etat-tension éclairci) | 0,78 | grands | « ! » | petits sauts en boucle |
+| `question` | Pose une question | `#E2B866` (etat-tension éclairci) | 0,75 | pilule | « ? » | tête penchée 0,12 rad, se gratte la tête |
+| `error` | Erreur | `#D0663F` (brique éclaircie) | 0,78 | plats | point brique | secousse horizontale à l'entrée |
+| `finished` | Terminé | `#6FA35E` (etat-tenu éclairci) | 0,5 | contents (arc) | point vert | saut + vrille de 700 ms + étincelles |
+| `ratelimit` | Limite atteinte | `#B0761C` (etat-tension) | 0,72 | fatigués | point ocre | gouttes de sueur |
+| `sleeping` | Dort | `#C9CAC3` (filet) | 0,25 | fermés | aucun | respiration, « z » qui montent |
+| `dizzy` | Sonné | `#E08A6A` (brique éclaircie) | 0,7 | spirales | aucun | double roulade 1,3 s |
 
-Halo derrière le bonhomme : dégradé radial couleur de l'état, opacité 0,2 à 0,6 selon l'état (`glow`, `go`), flou 6.
+Halo de l'île derrière le bonhomme (`botGlowColor`) : dégradé radial de la couleur de l'état (même tableau), opacité 0,15 au repos et en sommeil, 0 en sonné, 0,65 sinon, flou 6.
 
 Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `sleeping` = aucune tâche depuis 10 min et island ouverte manuellement ; `ratelimit` = limite d'usage signalée par Claude Code.
 

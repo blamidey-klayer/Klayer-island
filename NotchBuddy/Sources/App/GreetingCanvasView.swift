@@ -336,13 +336,14 @@ private func drawKlay(_ context: GraphicsContext, p: GreetPose) {
     let s = hb * GGLYPH_PER_HB / KlayGlyph.width   // points per glyph unit
     let px = CGFloat(p.x), py = CGFloat(p.y)
 
-    // Glow behind the rays: golden on arrival, blue as the island wakes up.
+    // Glow behind the rays: golden on arrival, then the working state's teal
+    // (StateColor.working, #4FA3B5) as the island wakes up.
     let glow = CGFloat(0.45 * p.halo + 0.4 * p.tint)
     if glow > 0.01 {
         let bl = CGFloat(p.haloBlue)
-        let color = Color(red: Double(gLerpF(232/255, 59/255, bl)),
-                          green: Double(gLerpF(195/255, 158/255, bl)),
-                          blue: Double(gLerpF(154/255, 255/255, bl)))
+        let color = Color(red: Double(gLerpF(232/255, 79/255, bl)),
+                          green: Double(gLerpF(195/255, 163/255, bl)),
+                          blue: Double(gLerpF(154/255, 181/255, bl)))
         let hubY = py - KlayPaint.centerY * s
         KlayPaint.drawGlow(context, center: CGPoint(x: px, y: hubY - 70 * s),
                            radius: 380 * s, color: color, amount: glow)
@@ -359,10 +360,7 @@ private func drawKlay(_ context: GraphicsContext, p: GreetPose) {
     c.translateBy(x: 0, y: -KlayPaint.centerY * s)
     c.scaleBy(x: s, y: s)
 
-    if KlayGlyph.width * s >= KlayPaint.limbsMinPx {
-        KlayPaint.drawLimbs(c, greetLimbs(p))
-    }
-    KlayPaint.drawGlyph(c)
+    KlayPaint.drawFigure(c, limbs: KlayGlyph.width * s >= KlayPaint.limbsMinPx ? greetLimbs(p) : nil)
 
     let shape: EyeShape
     switch p.eye {
@@ -385,7 +383,7 @@ private func drawKlay(_ context: GraphicsContext, p: GreetPose) {
         b.fill(Path(ellipseIn: CGRect(x: -ring, y: -ring, width: ring * 2, height: ring * 2)),
                with: .color(.black))
         b.fill(Path(ellipseIn: CGRect(x: -br, y: -br, width: br * 2, height: br * 2)),
-               with: .color(Color(cgColor: gHex("#3BA0F5"))))
+               with: .color(Color(cgColor: StateColor.working)))
         for i: CGFloat in [-1, 0, 1] {
             b.fill(Path(ellipseIn: CGRect(x: i * br * 0.5 - br * 0.17, y: -br * 0.17,
                                           width: br * 0.34, height: br * 0.34)),

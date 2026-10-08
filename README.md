@@ -15,7 +15,7 @@ Klay est le glyphe Klayer avec deux yeux, des bras et des jambes. Le glyphe est 
 | Au repos | respire, cligne des yeux, suit la souris du regard |
 | Travaille | tape des deux mains et piétine sur place |
 | Réfléchit | main au menton, regard en l'air |
-| Cherche | main en visière, balaie l'horizon |
+| Cherche | lève des jumelles à deux mains, balaie l'horizon |
 | Attend une autorisation | lève les deux bras et sautille |
 | Pose une question | se gratte la tête, penché |
 | Erreur | bras ballants, yeux plissés |

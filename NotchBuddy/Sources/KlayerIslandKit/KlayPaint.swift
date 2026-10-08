@@ -27,20 +27,36 @@ enum KlayPaint {
     static let eyeW: CGFloat = 33
     static let eyeH: CGFloat = 52
     /// Shoulders and hips, relative to the hub centre (right side; the left mirrors).
-    static let shoulder = CGPoint(x: 100, y: 52)
+    /// The shoulders sit on the hub, inside the rays.
+    static let shoulder = CGPoint(x: 82, y: 50)
     static let hip = CGPoint(x: 17, y: 104)
     /// Where the hands and feet rest (right side; the left mirrors).
     static let handRest = CGPoint(x: 168, y: 150)
     static let footRest = CGPoint(x: 36, y: 212)
     static let limbW: CGFloat = 26
-    /// Teal-deep rim around the arms drawn in front of the glyph (drawArms).
+    /// Teal-deep rim around the arms, which are drawn in front of the glyph.
     static let limbRim: CGFloat = 7
-    /// Shoulders of the arms drawn in front of the glyph, relative to the hub centre
-    /// (right side; the left mirrors). They sit on the hub, inside the rays.
-    static let armShoulder = CGPoint(x: 82, y: 50)
     static let handR: CGFloat = 26
     static let footRX: CGFloat = 32
     static let footRY: CGFloat = 15
+    /// Binoculars of the searching state, held up in front of the eyes: two rounded
+    /// teal-deep barrels joined by a bridge, a teal-light lens with a brume rim and a
+    /// white glint at the front of each barrel. Barrel centre (right side; the left mirrors).
+    static let binoBarrel = CGPoint(x: 56, y: -10)
+    static let binoBarrelW: CGFloat = 92
+    static let binoBarrelH: CGFloat = 104
+    static let binoBarrelR: CGFloat = 34
+    static let binoBridgeW: CGFloat = 40
+    static let binoBridgeH: CGFloat = 30
+    static let binoLensR: CGFloat = 36
+    static let binoLensRim: CGFloat = 8
+    /// Glint centre, from the lens centre.
+    static let binoGlint = CGPoint(x: -13, y: -13)
+    static let binoGlintR: CGFloat = 9
+    /// How far the binoculars follow the look sweep: x offset = yaw × this.
+    static let binoLook: CGFloat = 18
+    /// Where both hands hold the barrels (right side; the left mirrors).
+    static let binoHand = CGPoint(x: 112, y: 18)
     /// Top and bottom of the whole character (glyph top, soles), relative to the hub.
     static let top: CGFloat = -400
     static let bottom: CGFloat = 212 + 15
@@ -57,8 +73,10 @@ enum KlayPaint {
     static let body = Color.white
     /// Eyes, pupils and slot: Klayer teal-deep #071B20.
     static let ink = Color(red: 7 / 255, green: 27 / 255, blue: 32 / 255)
-    /// Klayer brume #ECEDE7, the bottom of the mailbox gradient.
+    /// Klayer brume #ECEDE7, the bottom of the mailbox gradient and the rim of the binocular lenses.
     static let brume = Color(red: 236 / 255, green: 237 / 255, blue: 231 / 255)
+    /// Binocular lenses: Klayer teal-light #3E7280.
+    static let lensColor = Color(red: 62 / 255, green: 114 / 255, blue: 128 / 255)
     static let heartColor = Color(red: 232 / 255, green: 68 / 255, blue: 94 / 255)   // #E8445E
     static let starColor = Color(red: 227 / 255, green: 162 / 255, blue: 26 / 255)   // #E3A21A
     static let blushColor = Color(red: 1, green: 120 / 255, blue: 150 / 255)
@@ -110,8 +128,9 @@ enum KlayPaint {
             // Hand on the chin.
             l.rh = CGPoint(x: 52 + sin(t * 2) * 3, y: 92)
         case .searching:
-            // A hand over the eyes, scanning the horizon.
-            l.rh = CGPoint(x: 78, y: -34 + sin(t * 2.6) * 4)
+            // Both hands hold the binoculars (drawBinoculars) by the barrels.
+            l.lh = CGPoint(x: -binoHand.x, y: binoHand.y)
+            l.rh = binoHand
         case .approval:
             // Both arms up, waving for attention.
             let k = sin(t * 11)
@@ -190,50 +209,67 @@ enum KlayPaint {
         }
     }
 
-    /// Arms and legs: noodles with round hands and little oval feet, drawn behind the glyph.
-    static func drawLimbs(_ ctx: GraphicsContext, _ limbs: Limbs) {
-        drawLegs(ctx, lf: limbs.lf, rf: limbs.rf)
-        let style = StrokeStyle(lineWidth: limbW, lineCap: .round, lineJoin: .round)
-        let arms: [(CGFloat, CGPoint)] = [(-1, limbs.lh), (1, limbs.rh)]
-        for (sd, hand) in arms {
-            let sh = CGPoint(x: sd * shoulder.x, y: shoulder.y)
-            // The elbow bows outwards and down, which keeps the noodle look in every pose.
-            let elbow = CGPoint(x: (sh.x + hand.x) / 2 + sd * 26, y: (sh.y + hand.y) / 2 + 20)
-            var arm = Path()
-            arm.move(to: sh)
-            arm.addQuadCurve(to: hand, control: elbow)
-            ctx.stroke(arm, with: .color(body), style: style)
-            let handRect = CGRect(x: hand.x - handR, y: hand.y - handR, width: handR * 2, height: handR * 2)
-            ctx.fill(Path(ellipseIn: handRect), with: .color(body))
-        }
+    /// The noodle arm on side `sd` (-1 left, +1 right), from the shoulder to `hand`. The
+    /// elbow bows outwards and down, which keeps the noodle look in every pose.
+    static func armPath(side sd: CGFloat, hand: CGPoint) -> Path {
+        let sh = CGPoint(x: sd * shoulder.x, y: shoulder.y)
+        let elbow = CGPoint(x: (sh.x + hand.x) / 2 + sd * 26, y: (sh.y + hand.y) / 2 + 20)
+        var arm = Path()
+        arm.move(to: sh)
+        arm.addQuadCurve(to: hand, control: elbow)
+        return arm
     }
 
     /// Noodle arms with round hands, in front of the glyph and rimmed in teal-deep like
-    /// the eyes, so a hand held out over the white rays still reads. A white disc over each
-    /// shoulder hides where the rim starts, inside the hub. Used by the drop zone;
-    /// drawLimbs keeps the arms of the other surfaces as they are. Port of drawKlayArms
-    /// in tools/klay-preview/src/engine.ts.
+    /// the eyes, so a raised hand still reads over the white rays. A white disc over each
+    /// shoulder hides where the rim starts, inside the hub. Port of drawKlayArms in
+    /// tools/klay-preview/src/engine.ts.
     static func drawArms(_ ctx: GraphicsContext, lh: CGPoint, rh: CGPoint) {
         let style = StrokeStyle(lineWidth: limbW, lineCap: .round, lineJoin: .round)
         let rimStyle = StrokeStyle(lineWidth: limbW + 2 * limbRim, lineCap: .round, lineJoin: .round)
         let arms: [(CGFloat, CGPoint)] = [(-1, lh), (1, rh)]
         for (sd, hand) in arms {
-            let sh = CGPoint(x: sd * armShoulder.x, y: armShoulder.y)
-            // The elbow bows outwards and down, which keeps the noodle look in every pose.
-            let elbow = CGPoint(x: (sh.x + hand.x) / 2 + sd * 26, y: (sh.y + hand.y) / 2 + 20)
-            var arm = Path()
-            arm.move(to: sh)
-            arm.addQuadCurve(to: hand, control: elbow)
-            let rimR = handR + limbRim
+            let arm = armPath(side: sd, hand: hand)
             ctx.stroke(arm, with: .color(ink), style: rimStyle)
-            ctx.fill(Path(ellipseIn: CGRect(x: hand.x - rimR, y: hand.y - rimR, width: rimR * 2, height: rimR * 2)),
-                     with: .color(ink))
+            ctx.fill(circle(hand, handR + limbRim), with: .color(ink))
             ctx.stroke(arm, with: .color(body), style: style)
-            ctx.fill(Path(ellipseIn: CGRect(x: hand.x - handR, y: hand.y - handR, width: handR * 2, height: handR * 2)),
+            ctx.fill(circle(hand, handR), with: .color(body))
+            ctx.fill(circle(CGPoint(x: sd * shoulder.x, y: shoulder.y), limbW / 2 + limbRim + 1),
                      with: .color(body))
-            let discR = limbW / 2 + limbRim + 1
-            ctx.fill(Path(ellipseIn: CGRect(x: sh.x - discR, y: sh.y - discR, width: discR * 2, height: discR * 2)),
-                     with: .color(body))
+        }
+    }
+
+    /// Klay's body, in his frame: the legs behind the glyph, the glyph, then the
+    /// binoculars (searching) and the arms in front of it, as the bench draws him.
+    /// `limbs` nil leaves the legs and arms out (too small to read). `binoculars` is the
+    /// yaw the binoculars follow, nil when Klay is not holding them. The caller draws
+    /// the blush and the eyes on top, and no eyes while the binoculars are up.
+    static func drawFigure(_ ctx: GraphicsContext, limbs: Limbs?, binoculars look: CGFloat? = nil) {
+        if let limbs { drawLegs(ctx, lf: limbs.lf, rf: limbs.rf) }
+        drawGlyph(ctx)
+        if let look { drawBinoculars(in: ctx, look: look) }
+        if let limbs { drawArms(ctx, lh: limbs.lh, rh: limbs.rh) }
+    }
+
+    /// The binoculars Klay holds up in the searching state, over the eyes (which are not
+    /// drawn meanwhile). `look` is the yaw (−1…1): the binoculars follow the look sweep,
+    /// x offset = yaw × 18. Port of drawKlayBinoculars in tools/klay-preview/src/engine.ts.
+    static func drawBinoculars(in ctx: GraphicsContext, look: CGFloat) {
+        var c = ctx
+        c.translateBy(x: max(-1, min(1, look)) * binoLook, y: 0)
+        c.fill(Path(CGRect(x: -binoBridgeW / 2, y: binoBarrel.y - binoBridgeH / 2,
+                           width: binoBridgeW, height: binoBridgeH)),
+               with: .color(ink))
+        for sd: CGFloat in [-1, 1] {
+            let center = CGPoint(x: sd * binoBarrel.x, y: binoBarrel.y)
+            let barrel = CGRect(x: center.x - binoBarrelW / 2, y: center.y - binoBarrelH / 2,
+                                width: binoBarrelW, height: binoBarrelH)
+            c.fill(roundedRect(barrel, binoBarrelR), with: .color(ink))
+            let lens = circle(center, binoLensR)
+            c.fill(lens, with: .color(lensColor))
+            c.stroke(lens, with: .color(brume), style: StrokeStyle(lineWidth: binoLensRim))
+            c.fill(circle(CGPoint(x: center.x + binoGlint.x, y: center.y + binoGlint.y), binoGlintR),
+                   with: .color(body))
         }
     }
 
@@ -258,9 +294,7 @@ enum KlayPaint {
         c.translateBy(x: center.x, y: center.y - centerY * s)
         c.scaleBy(x: s, y: s)
         c.translateBy(x: 0, y: bob)
-        drawLegs(c, lf: Limbs.rest.lf, rf: Limbs.rest.rf)
-        drawGlyph(c)
-        drawArms(c, lh: lh, rh: rh)
+        drawFigure(c, limbs: Limbs(lh: lh, rh: rh, lf: Limbs.rest.lf, rf: Limbs.rest.rf))
         drawEyes(c, shape: .wide, mult: 1, look: look, open: eyeOpen, time: t)
     }
 
@@ -419,6 +453,11 @@ enum KlayPaint {
     }
 
     // MARK: - Shapes
+
+    /// A circle of radius `r` around `c`.
+    static func circle(_ c: CGPoint, _ r: CGFloat) -> Path {
+        Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+    }
 
     /// A rounded rectangle whose radius never exceeds half its width or height.
     static func roundedRect(_ rect: CGRect, _ radius: CGFloat) -> Path {

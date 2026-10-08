@@ -335,10 +335,7 @@ struct UploadCanvasView: View {
             g.opacity *= 1 - mc
             g.translateBy(x: 0, y: -KlayPaint.centerY * s)
             g.scaleBy(x: s * k, y: s * k)
-            if W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx {
-                KlayPaint.drawLimbs(g, .rest)
-            }
-            KlayPaint.drawGlyph(g)
+            KlayPaint.drawFigure(g, limbs: W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx ? KlayPaint.Limbs.rest : nil)
             KlayPaint.drawEyes(g, shape: shape, mult: 1, look: look, time: time)
         }
 

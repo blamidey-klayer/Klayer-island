@@ -90,6 +90,25 @@ const LIMB_RIM = 7;
 const HAND_R = 26;
 const FOOT_RX = 32;
 const FOOT_RY = 15;
+/**
+ * Binoculars of the searching state, held up in front of the eyes: two rounded
+ * teal-deep barrels joined by a bridge, a teal-light lens with a brume rim and a
+ * white glint at the front of each barrel.
+ */
+const BINO_BARREL: P = { x: 56, y: -10 }; // barrel centre (right side; the left mirrors)
+const BINO_BARREL_W = 92;
+const BINO_BARREL_H = 104;
+const BINO_BARREL_R = 34; // corner radius
+const BINO_BRIDGE_W = 40;
+const BINO_BRIDGE_H = 30;
+const BINO_LENS_R = 36;
+const BINO_LENS_RIM = 8;
+const BINO_GLINT: P = { x: -13, y: -13 }; // glint centre, from the lens centre
+const BINO_GLINT_R = 9;
+/** How far the binoculars follow the look sweep: x offset = yaw × this. */
+const BINO_LOOK = 18;
+/** Where both hands hold the barrels (right side; the left mirrors). */
+const BINO_HAND: P = { x: 112, y: 18 };
 /** Top and bottom of the whole character (glyph top, soles), relative to the hub. */
 const TOP = -HUB_Y;
 const BOTTOM = FOOT_REST.y + FOOT_RY;
@@ -116,19 +135,28 @@ const BODY = "#FFFFFF";
 /** Eyes: Klayer teal-deep. */
 export const INK = "rgb(7,27,32)"; // #071B20
 const MINI_INK = "rgb(7,27,32)";
+/** Klayer brume, the bottom of the mailbox gradient and the rim of the binocular lenses. */
+const BRUME = "#ECEDE7";
+/** Binocular lenses: Klayer teal-light. */
+const LENS = "#3E7280";
 
+/**
+ * State colours (glow and badge): lightened variants of the Klayer brand colours,
+ * readable on the black island (the exact brand values are too dark on black).
+ * Mirror of StateColor in BotEngine.swift.
+ */
 const C = {
-  idle: [0.243, 0.447, 0.502] as RGB, // Klayer teal-light #3E7280
-  working: [0.231, 0.62, 1] as RGB,
-  thinking: [0.545, 0.361, 0.965] as RGB,
-  searching: [0.388, 0.396, 0.949] as RGB,
-  approval: [0.961, 0.647, 0.141] as RGB,
-  question: [0.133, 0.827, 0.933] as RGB,
-  error: [0.871, 0.384, 0.231] as RGB, // brick, brightened for the dark island
-  finished: [0.204, 0.831, 0.6] as RGB,
-  ratelimit: [0.984, 0.573, 0.235] as RGB,
-  sleeping: [0.58, 0.635, 0.722] as RGB,
-  dizzy: [0.957, 0.447, 0.714] as RGB,
+  idle: hexToRGB("#3E7280"), // teal-light
+  working: hexToRGB("#4FA3B5"), // teal, lightened
+  thinking: hexToRGB("#7FB8C4"), // teal, lightened
+  searching: hexToRGB("#A8D0D8"), // teal, lightened
+  approval: hexToRGB("#D69A3A"), // etat-tension, lightened
+  question: hexToRGB("#E2B866"), // etat-tension, lightened
+  error: hexToRGB("#D0663F"), // brick, lightened
+  finished: hexToRGB("#6FA35E"), // etat-tenu, lightened
+  ratelimit: hexToRGB("#B0761C"), // etat-tension
+  sleeping: hexToRGB("#C9CAC3"), // filet
+  dizzy: hexToRGB("#E08A6A"), // brick, lightened
 };
 
 const base = {
@@ -235,8 +263,9 @@ export function limbTargets(
       rh = { x: 52 + Math.sin(t * 2) * 3, y: 92 };
       break;
     case "searching":
-      // A hand over the eyes, scanning the horizon.
-      rh = { x: 78, y: -34 + Math.sin(t * 2.6) * 4 };
+      // Both hands hold the binoculars (drawKlayBinoculars) by the barrels.
+      lh = { x: -BINO_HAND.x, y: BINO_HAND.y };
+      rh = { x: BINO_HAND.x, y: BINO_HAND.y };
       break;
     case "approval": {
       // Both arms up, waving for attention.
@@ -358,6 +387,38 @@ export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: str
     x.fill();
     x.beginPath();
     x.arc(sh.x, sh.y, LIMB_W / 2 + LIMB_RIM + 1, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.restore();
+}
+
+/**
+ * The binoculars Klay holds up in the searching state, over the eyes (which are not
+ * drawn meanwhile). `look` is the yaw (−1…1): the binoculars follow the look sweep,
+ * x offset = yaw × 18. In Klay's frame. Mirror of KlayPaint.drawBinoculars on the Mac.
+ */
+export function drawKlayBinoculars(x: CanvasRenderingContext2D, look: number) {
+  const dx = Math.max(-1, Math.min(1, look)) * BINO_LOOK;
+  x.save();
+  x.translate(dx, 0);
+  x.fillStyle = INK;
+  x.fillRect(-BINO_BRIDGE_W / 2, BINO_BARREL.y - BINO_BRIDGE_H / 2, BINO_BRIDGE_W, BINO_BRIDGE_H);
+  for (const sd of [-1, 1]) {
+    const cx = sd * BINO_BARREL.x;
+    const cy = BINO_BARREL.y;
+    x.fillStyle = INK;
+    roundRectPath(x, cx - BINO_BARREL_W / 2, cy - BINO_BARREL_H / 2, BINO_BARREL_W, BINO_BARREL_H, BINO_BARREL_R);
+    x.fill();
+    x.beginPath();
+    x.arc(cx, cy, BINO_LENS_R, 0, Math.PI * 2);
+    x.fillStyle = LENS;
+    x.fill();
+    x.lineWidth = BINO_LENS_RIM;
+    x.strokeStyle = BRUME;
+    x.stroke();
+    x.beginPath();
+    x.arc(cx + BINO_GLINT.x, cy + BINO_GLINT.y, BINO_GLINT_R, 0, Math.PI * 2);
+    x.fillStyle = BODY;
     x.fill();
   }
   x.restore();
@@ -1110,11 +1171,14 @@ export class BotEngine {
       const k = 1 - 0.35 * m;
       x.scale(k, k);
       const limbs = W * GLYPH_SPAN >= LIMBS_MIN_PX;
+      // Searching: binoculars up in front of the eyes, held by both hands.
+      const binoculars = this.state === "searching";
       if (limbs) drawKlayLegs(x, this.lf, this.rf);
       drawKlayGlyph(x);
+      if (binoculars) drawKlayBinoculars(x, this.yaw);
       if (limbs) drawKlayArms(x, this.lh, this.rh);
       drawKlayBlush(x, this.blush * (1 - m));
-      this.drawEyes(x, 1, 0, 0);
+      if (!binoculars) this.drawEyes(x, 1, 0, 0);
       x.restore();
     }
     x.restore();
@@ -1181,7 +1245,7 @@ export class BotEngine {
     roundRectPath(x, -bw, -bh, bw * 2, bh * 2, R * 0.42 * k);
     const g = x.createLinearGradient(0, -bh, 0, bh);
     g.addColorStop(0, "#FFFFFF");
-    g.addColorStop(1, "#ECEDE7"); // Klayer brume
+    g.addColorStop(1, BRUME);
     x.fillStyle = g;
     x.fill();
 

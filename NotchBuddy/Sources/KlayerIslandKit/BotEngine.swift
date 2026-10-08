@@ -78,19 +78,44 @@ enum BadgeType {
 
 // MARK: - State colours
 
-/// The glow colour of each state (Klayer teal-light at rest).
-private enum StateColor {
-    static let idle      = CGColor(red: 0.243, green: 0.447, blue: 0.502, alpha: 1)  // #3E7280
-    static let working   = CGColor(red: 0.231, green: 0.620, blue: 1,     alpha: 1)
-    static let thinking  = CGColor(red: 0.545, green: 0.361, blue: 0.965, alpha: 1)
-    static let searching = CGColor(red: 0.388, green: 0.396, blue: 0.949, alpha: 1)
-    static let approval  = CGColor(red: 0.961, green: 0.647, blue: 0.141, alpha: 1)
-    static let question  = CGColor(red: 0.133, green: 0.827, blue: 0.933, alpha: 1)
-    static let error     = CGColor(red: 0.871, green: 0.384, blue: 0.231, alpha: 1)  // brick, brightened for the dark island
-    static let finished  = CGColor(red: 0.204, green: 0.831, blue: 0.600, alpha: 1)
-    static let ratelimit = CGColor(red: 0.984, green: 0.573, blue: 0.235, alpha: 1)
-    static let sleeping  = CGColor(red: 0.580, green: 0.635, blue: 0.722, alpha: 1)
-    static let dizzy     = CGColor(red: 0.957, green: 0.447, blue: 0.714, alpha: 1)
+/// The colour of each state (Klay's glow and badge, the island's halo behind him):
+/// lightened variants of the Klayer brand colours, readable on the black island (the
+/// exact brand values are too dark on black). Mirror of C in tools/klay-preview/src/engine.ts.
+enum StateColor {
+    static let idle      = rgb(0x3E7280)  // teal-light
+    static let working   = rgb(0x4FA3B5)  // teal, lightened
+    static let thinking  = rgb(0x7FB8C4)  // teal, lightened
+    static let searching = rgb(0xA8D0D8)  // teal, lightened
+    static let approval  = rgb(0xD69A3A)  // etat-tension, lightened
+    static let question  = rgb(0xE2B866)  // etat-tension, lightened
+    static let error     = rgb(0xD0663F)  // brick, lightened
+    static let finished  = rgb(0x6FA35E)  // etat-tenu, lightened
+    static let ratelimit = rgb(0xB0761C)  // etat-tension
+    static let sleeping  = rgb(0xC9CAC3)  // filet
+    static let dizzy     = rgb(0xE08A6A)  // brick, lightened
+
+    /// The colour of `state`.
+    static func of(_ state: BotState) -> CGColor {
+        switch state {
+        case .idle:      return idle
+        case .working:   return working
+        case .thinking:  return thinking
+        case .searching: return searching
+        case .approval:  return approval
+        case .question:  return question
+        case .error:     return error
+        case .finished:  return finished
+        case .ratelimit: return ratelimit
+        case .sleeping:  return sleeping
+        case .dizzy:     return dizzy
+        }
+    }
+
+    private static func rgb(_ hex: UInt32) -> CGColor {
+        CGColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+    }
 }
 
 // MARK: - Bot state configs
@@ -861,8 +886,9 @@ final class BotEngine: ObservableObject {
 
     // MARK: - Draw
 
-    /// Draws Klay: the glow of the state's colour, limbs, glyph, eyes and the mailbox
-    /// morph (or, for a mini Klay, the white glyph and eyes on a disc of its colour).
+    /// Draws Klay: the glow of the state's colour, legs, glyph, arms, eyes (binoculars
+    /// while searching) and the mailbox morph (or, for a mini Klay, the white glyph and
+    /// eyes on a disc of its colour).
     /// The badge and particles are drawn by drawHandsAndExtras, on top.
     func draw(context: GraphicsContext, size: CGSize) {
         let W = size.width
@@ -918,12 +944,13 @@ final class BotEngine: ObservableObject {
             ctx.opacity *= Double(1 - m)
             let k = 1 - 0.35 * m
             ctx.scaleBy(x: k, y: k)
-            if W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx {
-                KlayPaint.drawLimbs(ctx, limbs)
-            }
-            KlayPaint.drawGlyph(ctx)
+            let showLimbs = W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx
+            // Searching: binoculars up in front of the eyes, held by both hands.
+            let binoculars = state == .searching
+            KlayPaint.drawFigure(ctx, limbs: showLimbs ? limbs : nil,
+                                 binoculars: binoculars ? yaw : nil)
             KlayPaint.drawBlush(ctx, amount: blush * (1 - m))
-            drawEyes(ctx, mult: 1, center: .zero)
+            if !binoculars { drawEyes(ctx, mult: 1, center: .zero) }
         }
 
         if m > 0.001 { drawBox(context, R: R, cx: cx, cy: cy) }
