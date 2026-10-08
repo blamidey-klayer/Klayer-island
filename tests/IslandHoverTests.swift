@@ -152,14 +152,22 @@ enum IslandHoverTests {
     @MainActor
     static func aCancelledOpeningNeverFiresLater() async throws {
         let m = IslandStateMachine()
-        m.mouseEntered()                                 // first opening due at 0.25 s
+        let clock = ContinuousClock()
+        let opened = OpenedAt()
+        m.onTransition = { _, to in if to == .home && opened.at == nil { opened.at = clock.now } }
+        m.mouseEntered()                                 // first opening due 0.25 s after this
         m.mouseLeft()
         try await Task.sleep(for: .milliseconds(200))
-        m.mouseEntered()                                 // second opening due at 0.45 s
-        try await Task.sleep(for: .milliseconds(150))    // 0.35 s total
-        precondition(m.state == .petit, "the cancelled first opening fired")
+        let secondEnter = clock.now
+        m.mouseEntered()                                 // second opening due 0.25 s after this
         try await waitFor(.home, m, timeout: 2)
+        // Timed from the second hover, not from the test start: a slow runner that oversleeps
+        // must not fail the test, while the first opening, had it fired, would land before the
+        // second hover's own 0.25 s delay.
+        precondition(opened.at! - secondEnter >= .milliseconds(240), "the cancelled first opening fired")
     }
+
+    final class OpenedAt { var at: ContinuousClock.Instant? }
 
     // MARK: - Hover-opened island folds
 
