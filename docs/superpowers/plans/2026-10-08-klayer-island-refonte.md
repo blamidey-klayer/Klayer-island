@@ -158,6 +158,39 @@
 - [ ] **Step 2:** Reproduire la pose dans `tools/klay-preview` (case « dépôt ») et capturer pour contrôle visuel.
 - [ ] **Step 3:** Commit, push, CI verte.
 
+### Task 8b: Jumelles en recherche et couleurs d'état de la marque Klayer
+
+Demande de Baptiste (8 octobre) : en recherche, Klay tient des jumelles bien visibles ; les accents d'état (halo, badge) reprennent les couleurs de la marque Klayer.
+
+**Files:**
+- Modify: `tools/klay-preview/src/engine.ts` (couleurs `C`, pose `searching`, dessin des jumelles), `NotchBuddy/Sources/KlayerIslandKit/KlayPaint.swift` et `BotEngine.swift` (mêmes couleurs, même pose, même dessin), `docs/SPEC.md` §7 (tableau des états)
+
+**Interfaces:**
+- Produces: `drawKlayBinoculars(x, look)` (TS) et `KlayPaint.drawBinoculars(in:look:)` (Swift), dessinés devant les yeux en état `searching` ; les yeux ne sont pas dessinés pendant ce temps.
+
+Couleurs d'état : variantes éclaircies des couleurs de la marque, pour rester lisibles sur l'île noire (les valeurs exactes de la charte sont trop sombres sur du noir).
+
+| État | Couleur | Source dans la charte |
+|---|---|---|
+| idle | `#3E7280` | teal-light |
+| working | `#4FA3B5` | teal éclairci |
+| thinking | `#7FB8C4` | teal éclairci |
+| searching | `#A8D0D8` | teal éclairci |
+| approval | `#D69A3A` | etat-tension éclairci |
+| question | `#E2B866` | etat-tension éclairci |
+| error | `#D0663F` | brique éclaircie |
+| finished | `#6FA35E` | etat-tenu éclairci |
+| ratelimit | `#B0761C` | etat-tension |
+| sleeping | `#C9CAC3` | filet |
+| dizzy | `#E08A6A` | brique éclaircie |
+
+Jumelles, en unités du glyphe (origine au moyeu) : deux fûts arrondis `#071B20` (teal-deep) de 92 × 104 centrés sur (±56, −10), reliés par un pont de 40 × 30 ; lentilles rondes de rayon 36 en `#3E7280` avec un liseré `#ECEDE7` de 8 et un reflet blanc ; les deux mains tiennent les fûts à (±112, 18) ; l'ensemble suit le balayage du regard (décalage x = yaw × 18).
+
+- [ ] **Step 1:** Implémenter dans `tools/klay-preview` ; capture Playwright de la planche (`index.html?freeze=1.2`, tailles 180 et 97) : les jumelles se lisent à 97 px.
+- [ ] **Step 2:** Porter à l'identique en Swift ; `swiftc -parse` sur les fichiers touchés.
+- [ ] **Step 3:** Mettre à jour `docs/media/klay-sheet.png` avec la nouvelle capture et le tableau §7 de `docs/SPEC.md`.
+- [ ] **Step 4:** Commit, push, CI verte.
+
 ## Lot 3 : contenu
 
 ### Task 9: Historique des choix demandés par Claude
