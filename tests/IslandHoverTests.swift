@@ -24,6 +24,7 @@ enum IslandHoverTests {
             ("click_outside_with_pending_request_folds_to_petit", clickOutsideWithPendingRequestFoldsToPetit),
             ("click_outside_does_nothing_unless_open", clickOutsideDoesNothingUnlessOpen),
             ("click_outside_folds_a_held_greeting", clickOutsideFoldsAHeldGreeting),
+            ("a_held_greeting_does_not_fold_on_its_own", aHeldGreetingDoesNotFoldOnItsOwn),
             ("pending_request_holds_the_island", pendingRequestHoldsTheIsland),
             ("hover_on_hidden_held_island_syncs_to_home", hoverOnHiddenHeldIslandSyncsToHome),
             ("finished_stays_until_hover_then_leave", finishedStaysUntilHoverThenLeave),
@@ -256,6 +257,27 @@ enum IslandHoverTests {
         precondition(m.state == .petit, "state \(m.state) after a click outside a held greeting, expected petit")
         m.mouseEntered()
         try await waitFor(.home, m, timeout: 2)
+    }
+
+    @MainActor
+    static func aHeldGreetingDoesNotFoldOnItsOwn() async throws {
+        // A permission or a question arrived during the launch greeting: it stays open until
+        // answered. Neither the end of the greeting nor a hover on it folds it.
+        let m = IslandStateMachine()
+        var pending = true
+        m.isHeldOpen = { pending }
+        m.greetAutoCollapseDelay = 0.05
+        m.greetHoverCollapseDelay = 0.05
+        m.launch()
+        m.greetComplete()
+        try await Task.sleep(for: .milliseconds(300))
+        precondition(m.state == .klayer, "state \(m.state): the end of the greeting folded a held request")
+        m.mouseEntered()
+        try await Task.sleep(for: .milliseconds(300))
+        precondition(m.state == .klayer, "state \(m.state): a hover folded a held request")
+        pending = false                                  // answered: the greeting folds again
+        m.mouseEntered()
+        try await waitFor(.petit, m, timeout: 2)
     }
 
     // MARK: - Held and external openings

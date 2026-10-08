@@ -422,9 +422,11 @@ struct QuestionView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // No release on disappear: folding to compact or showing another view keeps the
+        // question pending. It leaves when answered, sent to the terminal, or when its hook
+        // connection closes or times out (HookServer).
         .onAppear { resetQuestionState() }
         .onChange(of: state.pendingQuestion) { _, _ in resetQuestionState() }
-        .onDisappear { HookServer.shared.releaseQuestionFD() }
     }
 
     private func resetQuestionState() {

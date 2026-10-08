@@ -239,7 +239,8 @@ final class IslandStateMachine {
     private func scheduleGreetCollapse(delay: TimeInterval) {
         greetCollapseWork?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self, self.state == .klayer else { return }
+            // A request that arrived during the greeting stays open until it is answered.
+            guard let self, self.state == .klayer, self.isHeldOpen?() != true else { return }
             self.transition(to: .petit)
         }
         greetCollapseWork = item

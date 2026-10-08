@@ -129,22 +129,6 @@ final class HookServer: @unchecked Sendable {
         dismissQuestionCard(note: "")
     }
 
-    /// Called by QuestionView.onDisappear — card left screen without an explicit answer.
-    /// Sends "ask" immediately to unblock nb-hook; does NOT navigate (view already changed).
-    @MainActor
-    func releaseQuestionFD() {
-        guard pendingQuestionFD >= 0 else { return }
-        let fd = pendingQuestionFD
-        pendingQuestionFD = -1
-        let source = questionFDSource
-        questionFDSource = nil
-        AppState.shared.pendingQuestion = nil
-        Task.detached { [weak self] in
-            self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
-            DispatchQueue.main.async { source?.cancel() }
-        }
-    }
-
     /// Called by QuestionView "Reply in terminal" button.
     @MainActor
     func sendQuestionAsk() {
@@ -540,10 +524,11 @@ final class HookServer: @unchecked Sendable {
         default: isAlert = false
         }
         if state.mode == .expanded {
-            // Approval and question always win; other alerts are blocked while a card is showing
+            // Approval and question always win; other alerts are blocked while one is pending.
             if view == .approval || view == .question {
-                state.view = view
-            } else if isAlert && state.pendingApproval == nil {
+                // Same path as on a closed island, so the state machine holds it open.
+                NotificationCenter.default.post(name: .hookExpand, object: view)
+            } else if isAlert && state.pendingApproval == nil && state.pendingQuestion == nil {
                 state.view = view
             }
         } else if isAlert {

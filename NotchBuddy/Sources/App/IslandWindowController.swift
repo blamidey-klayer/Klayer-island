@@ -315,7 +315,14 @@ final class IslandWindowController: NSWindowController {
             self?.fsm.greetComplete()
         }
 
-        fsm.isHeldOpen = { AppState.shared.pendingApproval != nil }
+        // A permission or a question waiting for the user holds the island open (spec §4).
+        fsm.isHeldOpen = { Self.pendingRequest != nil }
+    }
+
+    /// The permission or question waiting for the user, if any.
+    private static var pendingRequest: PendingRequest? {
+        PendingRequest.first(approval: AppState.shared.pendingApproval != nil,
+                             question: AppState.shared.pendingQuestion != nil)
     }
 
     // MARK: - Polling loop
@@ -546,10 +553,13 @@ final class IslandWindowController: NSWindowController {
         expand(to: view)
     }
 
-    func collapse(allowPendingApproval: Bool = false) {
-        let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
-        guard fsm.isHeldOpen?() != true || keepsApprovalPending else { return }
-        if !keepsApprovalPending { state.isPinned = false }
+    /// Folds the open island to compact. Refused while a permission or a question is pending,
+    /// unless `keepingPendingRequest` (toggle hot key, jump to terminal): the request then stays
+    /// pending with its badge, as after a click outside.
+    func collapse(keepingPendingRequest: Bool = false) {
+        let keepsRequest = keepingPendingRequest && Self.pendingRequest != nil
+        guard fsm.isHeldOpen?() != true || keepsRequest else { return }
+        if !keepsRequest { state.isPinned = false }
         // Keep the FSM in step with what is on screen (home/klayer → petit now).
         fsm.collapse()
         setMode(.compact)
@@ -592,11 +602,13 @@ final class IslandWindowController: NSWindowController {
     }
 
     /// A click outside the open island, or Escape: the island closes, or folds to compact while
-    /// a permission is pending (Klay keeps its badge, hovering reopens it). A pinned island
-    /// stays open (⌘P, or a question card, which would go back to the terminal if it left the
-    /// screen), the rule Escape already followed.
+    /// a permission or a question is pending (Klay keeps its badge, hovering reopens it on the
+    /// request). Only an island pinned with ⌘P and no request pending stays open.
     private func closeFromOutside() {
-        guard state.mode == .expanded, !state.isPinned || state.pendingApproval != nil else { return }
+        guard state.mode == .expanded,
+              PendingRequest.outsideClickActs(pinned: state.isPinned,
+                                              requestPending: Self.pendingRequest != nil)
+        else { return }
         // An island the app opened without telling the FSM: sync it first.
         if fsm.state == .hidden || fsm.state == .petit { fsm.openedExternally() }
         fsm.clickedOutside()
@@ -615,7 +627,7 @@ final class IslandWindowController: NSWindowController {
         switch action {
         case .toggleIsland:
             if state.mode == .expanded {
-                collapse(allowPendingApproval: true)
+                collapse(keepingPendingRequest: true)
             } else {
                 islandPanel.makeKey()
                 fsm.openedExternally()
@@ -627,13 +639,10 @@ final class IslandWindowController: NSWindowController {
             expandOutsideFSM(to: .prompt)
 
         case .goToAlert:
-            if state.pendingApproval != nil {
+            if Self.pendingRequest != nil {
                 islandPanel.makeKey()
                 fsm.openedExternally()
-                expand(to: .approval)
-            } else if state.pendingQuestion != nil {
-                islandPanel.makeKey()
-                expandOutsideFSM(to: .question)
+                expand(to: defaultView())   // the permission first, then the question
             } else {
                 NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.annoyed)
                 SoundEngine.shared.play("error")
@@ -768,7 +777,7 @@ final class IslandWindowController: NSWindowController {
             NSWorkspace.shared.open(
                 URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
         }
-        collapse(allowPendingApproval: true)
+        collapse(keepingPendingRequest: true)
     }
 
     private func performAttachFrontWindow() {
@@ -794,7 +803,7 @@ final class IslandWindowController: NSWindowController {
                 if event.keyCode == 53 { // Escape
                     // Closes the island like a click outside. Escape typed in another app
                     // (Claude Code's own interrupt, an editor…) never folds a pending
-                    // approval away: only Escape in the notch does.
+                    // permission or question away: only Escape in the notch does.
                     if !self.state.isPinned { self.closeFromOutside() }
                 }
             }
@@ -1125,8 +1134,11 @@ final class IslandWindowController: NSWindowController {
     // MARK: - Helpers
 
     func defaultView() -> IslandView {
-        if state.pendingApproval != nil { return .approval }
-        return state.tasks.isEmpty ? .empty : .overview
+        switch Self.pendingRequest {
+        case .approval: return .approval
+        case .question: return .question
+        case nil:       return state.tasks.isEmpty ? .empty : .overview
+        }
     }
 
     func baseMode() -> IslandMode {
@@ -1145,7 +1157,8 @@ final class IslandWindowController: NSWindowController {
     private func handleDizzy() {
         let prevView = state.view
         state.stateOverride = .dizzy
-        expand(to: .confused)
+        // Also reached from the desktop Klay (its third slap), on a closed island.
+        expandOutsideFSM(to: .confused)
         confusedRecoveryTimer?.cancel()
         let recovery = DispatchWorkItem { [weak self] in
             guard let self else { return }
