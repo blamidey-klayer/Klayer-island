@@ -4,28 +4,6 @@ import AppKit
 
 struct SettingsView: View {
     @ObservedObject private var state = AppState.shared
-    @State private var apiKey: String = KeychainStore.shared.get("anthropic-api-key") ?? ""
-
-    // Claude model: dynamic list fetched from the API, static fallback if unavailable
-    private static let fallbackModels: [(id: String, label: String)] = [
-        ("claude-sonnet-4-6",         "Claude Sonnet 4.6"),
-        ("claude-sonnet-5-5",         "Claude Sonnet 5.5"),
-        ("claude-opus-5-5",           "Claude Opus 5.5"),
-        ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
-    ]
-    private static let customModelTag = "__custom__"
-    @State private var fetchedModels: [(id: String, label: String)] = []
-    @State private var modelChoice: String = {
-        let m = AppState.shared.claudeModel
-        return SettingsView.fallbackModels.contains { $0.id == m } ? m : SettingsView.customModelTag
-    }()
-    @State private var customModel: String = {
-        let m = AppState.shared.claudeModel
-        return SettingsView.fallbackModels.contains { $0.id == m } ? "" : m
-    }()
-    private var displayModels: [(id: String, label: String)] {
-        fetchedModels.isEmpty ? Self.fallbackModels : fetchedModels
-    }
     @State private var launchAtStartup: Bool = (SMAppService.mainApp.status == .enabled)
     @State private var statusMessage: String = ""
     @State private var showDiff: Bool = false
@@ -93,7 +71,6 @@ struct SettingsView: View {
                         SettingsSidebarRow(title: "General",      icon: "gearshape.fill",                    color: "#8E939C").tag("general")
                         SettingsSidebarRow(title: "Active pills", icon: "square.grid.2x2.fill",              color: "#F5A524").tag("activepills")
                         SettingsSidebarRow(title: "Agents",       icon: "terminal.fill",                     color: "#3B9EFF").tag("agents")
-                        SettingsSidebarRow(title: "Chat",         icon: "bubble.left.and.bubble.right.fill", color: "#E07950").tag("chat")
                         SettingsSidebarRow(title: "Integrations", icon: "puzzlepiece.extension.fill",        color: "#7C5CFF").tag("integrations")
                         SettingsSidebarRow(title: "Shortcuts",    icon: "keyboard.fill",                     color: "#6366F1").tag("shortcuts")
                     }
@@ -132,23 +109,9 @@ struct SettingsView: View {
         }
         .onAppear {
             state.refreshPlanRelayState()
-            guard fetchedModels.isEmpty,
-                  let key = KeychainStore.shared.get("anthropic-api-key"), !key.isEmpty else { return }
-            Task {
-                let models = await ClaudeService.fetchModels(apiKey: key)
-                guard !models.isEmpty else { return }
-                await MainActor.run {
-                    fetchedModels = models
-                    let m = state.claudeModel
-                    if models.contains(where: { $0.id == m }) {
-                        modelChoice = m
-                        customModel = ""
-                    } else if modelChoice != Self.customModelTag {
-                        modelChoice = Self.customModelTag
-                        customModel = m
-                    }
-                }
-            }
+            // The Chat section left with the API key (the chat runs through Claude Code): a
+            // section saved from an earlier version opens on General.
+            if selectedSection == "chat" { selectedSection = "general" }
         }
     }
 
@@ -159,7 +122,6 @@ struct SettingsView: View {
         case "general":      return String(localized: "General")
         case "activepills":  return String(localized: "Active pills")
         case "agents":       return String(localized: "Agents")
-        case "chat":         return String(localized: "Chat")
         case "integrations": return String(localized: "Integrations")
         case "shortcuts":    return String(localized: "Shortcuts")
         default:             return String(localized: "General")
@@ -170,7 +132,6 @@ struct SettingsView: View {
         switch selectedSection {
         case "activepills":  activePillsSection
         case "agents":       agentsSection
-        case "chat":         chatSection
         case "integrations": integrationsSection
         case "shortcuts":    ShortcutsSettingsView()
         default:             generalSection
@@ -485,49 +446,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Chat section
-
-    @ViewBuilder private var chatSection: some View {
-        GroupBox(String(localized: "chat.anthropic-api.title")) {
-            VStack(alignment: .leading, spacing: 8) {
-                SecureField(String(localized: "chat.api-key.claude"), text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-                Button(String(localized: "Save")) {
-                    KeychainStore.shared.set("anthropic-api-key", value: apiKey)
-                    statusMessage = String(localized: "status.key-saved")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Divider().padding(.vertical, 2)
-
-                Picker(String(localized: "chat.model"), selection: $modelChoice) {
-                    ForEach(displayModels, id: \.id) { preset in
-                        Text(preset.label).tag(preset.id)
-                    }
-                    Text(String(localized: "chat.model.custom")).tag(Self.customModelTag)
-                }
-                .onChange(of: modelChoice) { _, choice in
-                    if choice != Self.customModelTag {
-                        state.claudeModel = choice
-                    } else {
-                        applyCustomModel(customModel)
-                    }
-                }
-
-                if modelChoice == Self.customModelTag {
-                    TextField(String(localized: "chat.model.custom-id"), text: $customModel)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: customModel) { _, value in applyCustomModel(value) }
-                }
-
-                Text(String(localized: "chat.model.description"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-            .padding(6)
-        }
-    }
-
     // MARK: - Integrations section
 
     @ViewBuilder private var integrationsSection: some View {
@@ -555,11 +473,6 @@ struct SettingsView: View {
     }
 
     // MARK: - Actions
-
-    private func applyCustomModel(_ value: String) {
-        let id = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !id.isEmpty { state.claudeModel = id }
-    }
 
     private func toggleStartup(_ on: Bool) {
         do {

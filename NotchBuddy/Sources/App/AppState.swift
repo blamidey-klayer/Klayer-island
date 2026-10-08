@@ -88,12 +88,6 @@ final class AppState: ObservableObject {
         pillColors = PillColors.picking(hex, for: id, catalogColor: def.defaultColor, in: pillColors)
     }
 
-    // Claude model used by the chat and the search: persisted
-    static let defaultClaudeModel = "claude-sonnet-4-6"
-    @Published var claudeModel: String = AppState.defaultClaudeModel {
-        didSet { UserDefaults.standard.set(claudeModel, forKey: "claudeModel") }
-    }
-
     // The always-on workspace pill: Claude Code, the only one left since the editor pills went
     // (spec §6). Persisted.
     @Published var mainPillId: String = PillCatalog.defaultMainPillId {
@@ -163,9 +157,6 @@ final class AppState: ObservableObject {
             }
         }
     }
-
-    // Pending API result
-    @Published var searchResult: SearchResult? = nil
 
     // GitHub stats + pulse + activity (populated by GithubPoller)
     @Published var githubStats: GitHubStats? = nil
@@ -269,8 +260,6 @@ final class AppState: ObservableObject {
         if let v = ud.object(forKey: "soundVolume")  as? Double { soundVolume  = v }
         pillColors = PillColors.stored
         recentChoices = choiceHistory.latest(5)
-        if let v = ud.string(forKey: "claudeModel"),
-           !v.trimmingCharacters(in: .whitespaces).isEmpty { claudeModel = v }
         // Migrate old 60s default → 15s
         if let v = ud.object(forKey: "autoCloseInterval") as? Double {
             autoCloseInterval = (v == 60) ? 15 : v
@@ -489,18 +478,6 @@ enum PromptContext {
 struct DroppedFile {
     var url: URL
     var name: String
-}
-
-struct SearchResult {
-    var title: String
-    var items: [ResultItem]
-    var note: String?
-}
-
-struct ResultItem {
-    var label: String
-    var detail: String
-    var url: String?
 }
 
 // MARK: - GitHub

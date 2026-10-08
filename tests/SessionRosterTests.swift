@@ -214,7 +214,7 @@ enum SessionRosterTests {
 
     /// Every IslandView raw value, by group, as the island names them.
     static let restingViews = ["overview", "empty", "note", "greeting", "confused", "finished", "error"]
-    static let viewsInUse = ["prompt", "mail", "upload", "uploading", "choose", "searching", "result", "settings"]
+    static let viewsInUse = ["prompt", "mail", "upload", "uploading", "choose", "settings"]
     static let cardViews = ["approval", "question"]
 
     static func finishOpensAHiddenOrCompactIsland() {
@@ -464,6 +464,10 @@ enum SessionRosterTests {
             precondition(IslandView(rawValue: raw) != nil, "\(raw) is not an IslandView case")
         }
         precondition(Set(restingViews) == FinishPresentation.replaceableViews)
+        // And together they name every view: one added or removed later lands in a group here.
+        precondition(Set(restingViews + viewsInUse + cardViews) == Set(IslandView.allCases.map(\.rawValue)),
+                     "every IslandView case is in exactly one group of these tests")
+        precondition(restingViews.count + viewsInUse.count + cardViews.count == IslandView.allCases.count)
     }
 }
 

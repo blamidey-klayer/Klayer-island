@@ -226,8 +226,8 @@ enum FinishPresentation: Equatable {
     case badgeOnly
 
     /// The raw values of `IslandView` that a finish may replace: nothing the user is in the
-    /// middle of. Any other view (a draft in the chat or the mail, a file being sent, a result,
-    /// Settings, a permission or a question, or a view added later) is kept.
+    /// middle of. Any other view (a draft in the chat or the mail, a file being sent, Settings,
+    /// a permission or a question, or a view added later) is kept.
     static let replaceableViews: Set<String> = [
         "overview", "empty", "note", "greeting", "confused", "finished", "error",
     ]

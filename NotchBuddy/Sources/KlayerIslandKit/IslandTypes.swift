@@ -11,7 +11,7 @@ enum IslandMode: String, CaseIterable {
 enum IslandView: String, CaseIterable {
     case overview, empty, approval, question, error, finished
     case confused, upload, uploading, choose, mail, prompt
-    case searching, result, note, settings, greeting
+    case note, settings, greeting
 }
 
 // MARK: - Bot State
@@ -71,21 +71,6 @@ enum AgentSource: Equatable {
     case agent         // session tagged with the klayer_agent field (Claude desktop app)
 }
 
-// MARK: - Chat provider
-
-/// The chat talks to Anthropic only, with the API key kept in the Keychain.
-enum ChatProvider: String, CaseIterable, Codable {
-    case anthropic = "anthropic"
-
-    var displayName: String { "Anthropic" }
-
-    var accentHex: String { "#E07950" }
-
-    var defaultModel: String { "claude-sonnet-4-6" }
-
-    var keychainKey: String { "anthropic-api-key" }
-}
-
 // MARK: - View dimensions (from VIEWS in prototype)
 
 struct ViewLayout {
@@ -129,8 +114,6 @@ enum IslandConst {
         .choose:    ViewLayout(height: 176, botX: 60,  botY: 101, botDiameter: 52, agentMode: .column),
         .mail:      ViewLayout(height: 240, botX: 56,  botY: nil, botDiameter: 46, agentMode: .column),
         .prompt:    ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
-        .searching: ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
-        .result:    ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
         .note:      ViewLayout(height: 160, botX: 60,  botY: nil, botDiameter: 50, agentMode: .column),
         .settings:  ViewLayout(height: 160, botX: 54,  botY: nil, botDiameter: 46, agentMode: .none),
         // Greeting: bot drawn by GreetingCanvasView; no BotPlacement needed

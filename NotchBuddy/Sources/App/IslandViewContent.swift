@@ -20,8 +20,6 @@ struct IslandViewContent: View {
         case .choose:    ChooseView(state: state)
         case .mail:      MailView(state: state)
         case .prompt:    PromptView(state: state)
-        case .searching: SearchingView(state: state)
-        case .result:    ResultView(state: state)
         case .note:      NoteView(state: state)
         case .settings:  SettingsIslandView(state: state)
         case .greeting:  EmptyView()  // GreetingCanvasView overlaid in IslandRootView
@@ -1235,91 +1233,6 @@ struct TypingDotsView: View {
     }
 }
 
-// MARK: - Searching
-
-struct SearchingView: View {
-    @ObservedObject var state: AppState
-
-    var label: String {
-        switch state.promptContext {
-        case .window(_, let title, _): return String(format: String(localized: "Claude is reading %@…"), title)
-        case .file(let name, _):       return String(format: String(localized: "Claude is reading %@…"), name)
-        case nil:                      return String(localized: "Claude is searching…")
-        }
-    }
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            CardBackground(wash: .searching)
-
-            VStack(alignment: .leading, spacing: 8) {
-                if let ctx = state.promptContext {
-                    ContextChip(context: ctx)
-                }
-                ShimmeringText(label)
-                    .font(.system(size: 13.5))
-            }
-            .padding(.leading, 84)
-            .padding(.trailing, 16)
-        }
-    }
-}
-
-// MARK: - Result
-
-struct ResultView: View {
-    @ObservedObject var state: AppState
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            CardBackground(wash: .finished)
-
-            if let result = state.searchResult {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(result.title)
-                        .font(.system(size: 15, weight: .semibold))
-
-                    VStack(spacing: 4) {
-                        ForEach(result.items.prefix(3), id: \.label) { item in
-                            HStack {
-                                Text(item.label).font(.system(size: 12.5, weight: .semibold))
-                                Spacer()
-                                Text(item.detail).font(.system(size: 12.5)).foregroundColor(Color(hex: "#9398A1"))
-                            }
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Color.white.opacity(0.05))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                    }
-
-                    if let note = result.note {
-                        Text(note).font(.system(size: 11)).foregroundColor(Color(hex: "#6E737C"))
-                    }
-
-                    HStack(spacing: 8) {
-                        // The URL comes from the model, which may have read attacker-controlled
-                        // files or pages: only plain web links may leave the app.
-                        let openURL = safeWebURL(result.items.first?.url)
-                        PrimaryButton("Open") {
-                            if let openURL { NSWorkspace.shared.open(openURL) }
-                        }
-                        .disabled(openURL == nil)
-                        .help(openURL?.absoluteString ?? "")
-                        SecondaryButton("Copy") {
-                            let text = result.items.map { "\($0.label): \($0.detail)" }.joined(separator: "\n")
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(text, forType: .string)
-                        }
-                        SecondaryButton("Close") { state.view = state.tasks.isEmpty ? .empty : .overview }
-                    }
-                }
-                .padding(.leading, 84)
-                .padding(.trailing, 16)
-            }
-        }
-    }
-}
-
 // MARK: - Note (short message, auto-closes)
 
 struct NoteView: View {
@@ -2434,26 +2347,6 @@ struct MailField: View {
     }
 }
 
-struct ShimmeringText: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text)
-            .foregroundStyle(
-                LinearGradient(
-                    stops: [
-                        .init(color: Color(hex: "#7c818a"), location: 0),
-                        .init(color: .white, location: 0.4),
-                        .init(color: Color(hex: "#7c818a"), location: 0.7)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-    }
-}
-
 struct ShimmerOverlay: View {
     @State private var phase: CGFloat = 0.0
 
@@ -2579,10 +2472,8 @@ struct SettingsIslandView: View {
     /// read when this view comes on screen, never on each render: the view stays in the tree
     /// while another one shows.
     @State private var claudeConnected = false
-
-    private var apiConnected: Bool {
-        KeychainStore.shared.get("anthropic-api-key") != nil
-    }
+    /// The quick chat's Claude Code (installed, logged in with claude.ai), as last checked.
+    @ObservedObject private var chat = ChatSession.shared
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -2631,7 +2522,7 @@ struct SettingsIslandView: View {
                 // Connection status
                 HStack(spacing: 14) {
                     StatusBadge(label: "Claude Code", ok: claudeConnected)
-                    StatusBadge(label: "API", ok: apiConnected)
+                    StatusBadge(label: "Chat", ok: chat.knownAvailability == .ready)
                     Spacer()
                     Button("Settings…") {
                         NotificationCenter.default.post(name: .openFullSettings, object: nil)
@@ -2645,10 +2536,15 @@ struct SettingsIslandView: View {
             .padding(.trailing, 16)
             .padding(.vertical, 14)
         }
-        .onAppear { if state.view == .settings { claudeConnected = HookServer.claudeHooksInstalled() } }
+        .onAppear { if state.view == .settings { refreshStatus() } }
         .onChange(of: state.view) { _, view in
-            if view == .settings { claudeConnected = HookServer.claudeHooksInstalled() }
+            if view == .settings { refreshStatus() }
         }
+    }
+
+    private func refreshStatus() {
+        claudeConnected = HookServer.claudeHooksInstalled()
+        Task { _ = await ChatSession.shared.availability() }
     }
 }
 
