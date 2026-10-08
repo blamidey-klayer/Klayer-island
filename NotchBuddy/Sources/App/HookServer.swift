@@ -1582,6 +1582,12 @@ private let nbHookPython = """
 import sys, json, os, socket
 
 def main():
+    # The Claude Code processes that Klayer Island starts itself (quick chat, Gmail draft) set
+    # this variable: relay nothing for them, in any mode (events, permission, --ask, statusline).
+    # Exit at once, before reading stdin, without writing anything.
+    if 'KLAYER_ISLAND_INTERNAL' in os.environ:
+        return
+
     raw = b''
     payload = {}
     try:
