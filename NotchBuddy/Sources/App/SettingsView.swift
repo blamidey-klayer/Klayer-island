@@ -367,17 +367,6 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(state.activeIntegrations.count >= 4 ? .orange : .secondary)
 
-                Picker(String(localized: "settings.main-pill"), selection: $state.mainPillId) {
-                    ForEach(PillCatalog.all.filter { $0.category == .workspace && !$0.comingSoon }, id: \.id) { def in
-                        Text(def.name).tag(def.id)
-                    }
-                }
-                .onChange(of: state.mainPillId) { _, newId in
-                    state.activeIntegrations.remove(newId)
-                    state.loadIntegrationTasks()
-                    state.setFocus(newId)
-                }
-
                 ForEach(PillCategory.allCases, id: \.self) { cat in
                     let catPills = PillCatalog.all.filter { $0.category == cat }
                     if !catPills.isEmpty {

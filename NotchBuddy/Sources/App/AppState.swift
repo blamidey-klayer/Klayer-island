@@ -91,7 +91,8 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(claudeModel, forKey: "claudeModel") }
     }
 
-    // The always-on workspace pill (default: VS Code). Persisted.
+    // The always-on workspace pill: Claude Code, the only one left since the editor pills went
+    // (spec §6). Persisted.
     @Published var mainPillId: String = PillCatalog.defaultMainPillId {
         didSet { UserDefaults.standard.set(mainPillId, forKey: "mainPill") }
     }
@@ -277,6 +278,11 @@ final class AppState: ObservableObject {
         if let v = ud.string(forKey: "mainPill"), !v.isEmpty,
            PillCatalog.all.contains(where: { $0.id == v && $0.category == .workspace && !$0.comingSoon }) {
             mainPillId = v
+        } else {
+            // A main pill this build no longer has (the editor pill agent_cursor): Claude Code,
+            // the default, and the stale value leaves the preferences. loadIntegrationTasks drops
+            // a removed pill from the active list the same way.
+            ud.removeObject(forKey: "mainPill")
         }
         if let d = ud.data(forKey: "claudePlanUsage"),
            let u = try? JSONDecoder().decode(PlanUsage.self, from: d) { claudePlanUsage = u }
@@ -417,7 +423,7 @@ final class AppState: ObservableObject {
     }
 
     /// Toggle a catalog pill on/off.
-    /// mainPillId: never toggleable (change via the Main picker first).
+    /// mainPillId: never toggleable (it is always on).
     /// Max 4 non-main pills active at once.
     func toggleIntegration(_ id: String) {
         guard id != mainPillId else { return }

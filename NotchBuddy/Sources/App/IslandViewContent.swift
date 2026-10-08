@@ -1974,7 +1974,7 @@ struct AgentPill: View {
 
     private var effectiveColor: String { task.color }
 
-    // The Claude pill shows "VS Code" (or "Claude Code" for a terminal session) regardless of project name
+    // The Claude Code pill shows "Claude Code" regardless of project name
     private var displayName: String {
         task.id == "integration_claude" ? ClaudeHost.pillName(hostApp: task.hostApp) : task.name
     }

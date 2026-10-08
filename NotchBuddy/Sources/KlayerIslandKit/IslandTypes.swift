@@ -61,13 +61,13 @@ struct AgentTask: Identifiable, Equatable {
     var sessionCwd: String?  = nil  // last known working directory (Claude Code sessions)
     var sessionBundleId: String? = nil  // app the session runs in (hook bundle_id), for "Open terminal"
     var finalLine: String?   = nil  // last assistant message shown as static text after Stop
-    var hostApp: String?     = nil  // bundle id of the terminal running a Claude Code session; nil = VS Code
+    var hostApp: String?     = nil  // bundle id of the terminal running a Claude Code session; nil = an editor or unknown
 }
 
 enum AgentSource: Equatable {
     case claudeCode
     case integration   // persistent pill of a service (GitHub, Spotify)
-    case agent         // session tagged with the klayer_agent field (Claude desktop app) or the Cursor editor pill
+    case agent         // session tagged with the klayer_agent field (Claude desktop app)
 }
 
 // MARK: - Chat provider

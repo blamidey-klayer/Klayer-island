@@ -18,8 +18,6 @@ final class HookServer: @unchecked Sendable {
     static var socketPath: String { supportDir.appendingPathComponent("nb.sock").path }
     static var hookScriptPath: String { supportDir.appendingPathComponent("nb-hook").path }
 
-    // No approval blocking state — notch is notification-only, user answers in VS Code
-
     private static let maxPayload = 1_048_576          // 1 MB — reject oversized messages
     private static let receiveTimeoutSeconds: Int = 5   // SO_RCVTIMEO on client sockets
     private static let maxConnections = 32              // concurrent connection ceiling
@@ -857,7 +855,7 @@ final class HookServer: @unchecked Sendable {
         }
     }
 
-    /// "VS Code", "Warp"… — where the Claude Code pill's current session runs.
+    /// "Warp", "Terminal"… where the Claude Code pill's current session runs ("Claude Code" for an editor).
     @MainActor
     private var claudeHostName: String {
         ClaudeHost.name(for: AppState.shared.tasks.first { $0.id == "integration_claude" }?.hostApp)

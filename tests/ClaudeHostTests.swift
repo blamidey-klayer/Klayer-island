@@ -25,10 +25,10 @@ enum ClaudeHostTests {
         check("unknown → nil", ClaudeHost.terminal(termProgram: "", bundleId: "com.example.app") == nil)
 
         print("ClaudeHost.name / pillName")
-        check("nil host = VS Code", ClaudeHost.name(for: nil) == "VS Code")
+        check("nil host = Claude Code", ClaudeHost.name(for: nil) == "Claude Code")
         check("Warp host", ClaudeHost.name(for: "dev.warp.Warp-Stable") == "Warp")
-        check("unknown host = VS Code", ClaudeHost.name(for: "com.example.app") == "VS Code")
-        check("editor session → VS Code", ClaudeHost.pillName(hostApp: nil) == "VS Code")
+        check("unknown host = Claude Code", ClaudeHost.name(for: "com.example.app") == "Claude Code")
+        check("editor session → Claude Code", ClaudeHost.pillName(hostApp: nil) == "Claude Code")
         check("terminal session → Claude Code", ClaudeHost.pillName(hostApp: "dev.warp.Warp-Stable") == "Claude Code")
 
         print("ClaudeHost.terminalCardsEnabled")

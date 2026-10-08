@@ -45,16 +45,6 @@ struct PillDefinition {
         self.source = source
         self.comingSoon = comingSoon
     }
-
-    /// Label shown in the active-session card header (workspace/agent pills only).
-    var sessionSubtitle: String {
-        switch id {
-        case "integration_claude": return "Claude Code"
-        case "agent_cursor":       return "Cursor"
-        case "agent_claude-desktop": return "Claude Desktop"
-        default:                   return "Agent"
-        }
-    }
 }
 
 // MARK: - Catalog
@@ -63,10 +53,10 @@ enum PillCatalog {
     // All declared pills in display order.
     static let all: [PillDefinition] = [
         // ── Where you code ───────────────────────────────────────────────────
-        .init(id: "integration_claude",  name: "VS Code",     color: "#F5F6F8",
+        // Claude Code sessions, whatever runs them (a terminal or an editor): the editors have
+        // no pill of their own (spec §6). The ID stays: preferences and routing use it.
+        .init(id: "integration_claude",  name: "Claude Code", color: "#F5F6F8",
               category: .workspace, subtitle: "Integration",  source: .claudeCode),
-        .init(id: "agent_cursor",        name: "Cursor",      color: "#C0C4CC",
-              category: .workspace, subtitle: "Integration",  source: .agent),
         // ── Agents ───────────────────────────────────────────────────────────
         // Claude Code sessions run from the Claude desktop app: the relay tags them
         // `klayer_agent: claude-desktop` from CLAUDE_CODE_ENTRYPOINT, so nothing to install.
