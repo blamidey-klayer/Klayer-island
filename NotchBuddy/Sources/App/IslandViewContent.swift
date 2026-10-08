@@ -746,15 +746,18 @@ struct UploadView: View {
                     center: .bottom, startRadius: 0, endRadius: 200
                 ))
             // The invitation: Klay himself, arms open, then the text (same figure as the
-            // drag-over canvas, UploadCanvasView).
-            VStack(spacing: 8) {
+            // drag-over canvas, UploadCanvasView, drawn smaller). This view gets the 98 pt
+            // content frame, not the canvas' 124 pt card: figure 56 pt in a 64 pt frame
+            // (4 pt of room each side for the bob), 6 pt gap, ~16 pt of text = ~86 pt, so
+            // about 6 pt of margin above and below inside the dashed border.
+            VStack(spacing: 6) {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
                     Canvas { ctx, size in
                         KlayPaint.drawDropInvite(ctx, center: CGPoint(x: size.width / 2, y: size.height / 2),
-                                                 height: 72, time: tl.date.timeIntervalSinceReferenceDate)
+                                                 height: 56, time: tl.date.timeIntervalSinceReferenceDate)
                     }
                 }
-                .frame(width: 160, height: 76)
+                .frame(width: 140, height: 64)
                 Text("Dépose ton fichier")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(state.fileDragOver ? Color(hex: "#34D399") : Color(hex: "#D5D7DB"))

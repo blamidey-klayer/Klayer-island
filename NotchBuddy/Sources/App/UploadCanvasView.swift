@@ -175,8 +175,15 @@ struct UploadCanvasView: View {
         let ly = max(-1, min(1, (f.cursorY + 10 - Double(klayCY)) / 150))
         let look = CGPoint(x: CGFloat(lx) * 14, y: CGFloat(ly) * 12)
 
-        KlayPaint.drawDropInvite(tCtx, center: CGPoint(x: cx, y: klayCY), height: 72,
-                                 look: look, time: wallTime)
+        // The figure is several overlapping shapes (white eyes over the white hub, legs behind
+        // the glyph, arms over their rim): it is composited as one layer so the dim and the
+        // fade apply to the whole figure, not shape by shape. Inside the layer everything is
+        // opaque; the outer opacity is applied once, when the layer is composited.
+        tCtx.drawLayer { layer in
+            layer.opacity = 1
+            KlayPaint.drawDropInvite(layer, center: CGPoint(x: cx, y: klayCY), height: 72,
+                                     look: look, time: wallTime)
+        }
 
         let label = Text("Dépose ton fichier")
             .font(.system(size: 13, weight: .medium))

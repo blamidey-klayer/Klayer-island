@@ -71,38 +71,46 @@ drawerCell("dépôt", SIZE, SIZE, (x, t) => {
   drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.7, t);
 });
 
-const CARD_W = 620, CARD_H = 124;
-const actor = new BotEngine();
-actor.morph = 1;
-actor.slotH = 0.2;
-actor.slotHTarget = 0.2;
-drawerCell("dépôt, taille réelle (carte 620 × 124)", CARD_W, CARD_H, (x, t) => {
-  x.fillStyle = "#0D0E10";
-  x.beginPath();
-  x.roundRect(0, 0, CARD_W, CARD_H, 20);
-  x.fill();
-  x.strokeStyle = "rgba(255,255,255,0.14)";
-  x.lineWidth = 1.5;
-  x.setLineDash([6, 5]);
-  x.beginPath();
-  x.roundRect(0.75, 0.75, CARD_W - 1.5, CARD_H - 1.5, 19.5);
-  x.stroke();
-  x.setLineDash([]);
-  // The mailbox that follows the cursor, at its resting place (140, 104 on the island).
-  const W = 99.4;
-  x.save();
-  x.translate(130 - W / 2, 62 - W / 2);
-  actor.update(0.016);
-  actor.draw(x, W, W);
-  x.restore();
-  // The invitation: Klay 72 px tall and the text, centred on the card.
-  drawKlayDrop(x, CARD_W / 2, 50, 72, t);
-  x.fillStyle = "#D5D7DB";
-  x.font = `500 13px system-ui, sans-serif`;
-  x.textAlign = "center";
-  x.textBaseline = "middle";
-  x.fillText("Dépose ton fichier", CARD_W / 2, 102);
-}, minis);
+// The card as the Mac lays it out: the drag-over canvas has a 124 pt card (figure 72 pt,
+// text 13 pt under it); the Déposer tab gets the 98 pt content frame (figure 56 pt in a
+// 64 pt canvas, 6 pt gap, ~16 pt of text, centred). Same dashed border, same mailbox at
+// its resting place (140, 104 on the island).
+const CARD_W = 620;
+function dropCard(h: number, figH: number, figCY: number, textY: number, actorCY: number) {
+  const actor = new BotEngine();
+  actor.morph = 1;
+  actor.slotH = 0.2;
+  actor.slotHTarget = 0.2;
+  return (x: CanvasRenderingContext2D, t: number) => {
+    x.fillStyle = "#0D0E10";
+    x.beginPath();
+    x.roundRect(0, 0, CARD_W, h, 20);
+    x.fill();
+    x.strokeStyle = "rgba(255,255,255,0.14)";
+    x.lineWidth = 1.5;
+    x.setLineDash([6, 5]);
+    x.beginPath();
+    x.roundRect(0.75, 0.75, CARD_W - 1.5, h - 1.5, 19.5);
+    x.stroke();
+    x.setLineDash([]);
+    const W = 99.4;
+    x.save();
+    x.translate(130 - W / 2, actorCY - W / 2);
+    actor.update(0.016);
+    actor.draw(x, W, W);
+    x.restore();
+    drawKlayDrop(x, CARD_W / 2, figCY, figH, t);
+    x.fillStyle = "#D5D7DB";
+    x.font = `500 13px system-ui, sans-serif`;
+    x.textAlign = "center";
+    x.textBaseline = "middle";
+    x.fillText("Dépose ton fichier", CARD_W / 2, textY);
+  };
+}
+// Drag-over canvas: figure 14 pt under the card's top edge, text 14 pt above the bottom.
+drawerCell("dépôt, glisser (carte 620 × 124)", CARD_W, 124, dropCard(124, 72, 50, 102, 62), minis);
+// Déposer tab: 98 pt card, stack of 86 pt centred: 6 pt of margin, canvas 64 + gap 6 + text 16.
+drawerCell("dépôt, onglet Déposer (carte 620 × 98)", CARD_W, 98, dropCard(98, 56, 6 + 32, 6 + 64 + 6 + 8, 49), minis);
 
 for (const [state, color] of [
   ["working", "#D97757"], ["approval", "#635BFF"], ["finished", "#24292F"], ["idle", "#10323B"], ["sleeping", "#3E7280"],
