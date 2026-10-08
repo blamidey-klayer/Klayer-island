@@ -79,6 +79,9 @@ jobs:
       - name: Test ask question
         run: bash scripts/test-ask-question.sh
 
+      - name: Test Claude CLI
+        run: bash scripts/test-claude-cli.sh
+
       - name: GitHub pulse tests
         run: bash scripts/test-github-pulse.sh
 
