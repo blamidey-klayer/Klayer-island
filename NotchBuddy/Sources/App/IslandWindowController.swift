@@ -528,14 +528,6 @@ final class IslandWindowController: NSWindowController {
 
         case .desktopToggle:
             DesktopKlayController.shared.flyOutOrHome()
-
-        case .wardrobeToggle:
-            if state.mode == .expanded && state.view == .wardrobe {
-                collapse()
-            } else {
-                islandPanel.makeKey()
-                expand(to: .wardrobe)
-            }
         }
     }
 
@@ -707,18 +699,6 @@ final class IslandWindowController: NSWindowController {
             self?.collapse()
         }
 
-        // Wardrobe open/close from desktop Klay right-click (does NOT post .hookExpand)
-        NotificationCenter.default.addObserver(forName: .openWardrobeFromDesktop, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            if self.state.mode == .expanded && self.state.view == .wardrobe {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    self.state.view = .overview
-                }
-            } else {
-                self.expand(to: .wardrobe)
-            }
-        }
-
         // .botDizzy — posted by BotEngine.slap() on 3rd hit; show confused view + recover after 3.3s
         NotificationCenter.default.addObserver(forName: .botDizzy, object: nil, queue: .main) { [weak self] _ in
             self?.handleDizzy()
@@ -828,22 +808,6 @@ final class IslandWindowController: NSWindowController {
         }
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
             finishDrag()
-        }
-
-        NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
-            guard let self else { return event }
-            MainActor.assumeIsolated {
-                guard self.wasInIsland, self.isBotHit(event.locationInWindow) else { return }
-                guard !self.state.klayOnDesktop else { return }
-                if self.state.mode == .expanded && self.state.view == .wardrobe {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        self.state.view = .overview
-                    }
-                } else {
-                    self.expand(to: .wardrobe)
-                }
-            }
-            return event
         }
 
         // Track last external app for window context capture
@@ -1266,7 +1230,6 @@ extension Notification.Name {
     static let checkMondayRecap = Notification.Name("notchBuddy.checkMondayRecap")
     static let greetingHover    = Notification.Name("notchBuddy.greetingHover")
     static let greetingInterrupt = Notification.Name("notchBuddy.greetingInterrupt")
-    static let openWardrobeFromDesktop = Notification.Name("notchBuddy.openWardrobeFromDesktop")
     // Island moved to another screen (resting size may differ: notch vs bar)
     static let islandScreenChanged = Notification.Name("notchBuddy.islandScreenChanged")
 }

@@ -23,7 +23,6 @@ private enum GT {
 
 private let GC0     = CGPoint(x: 320, y: 90)
 private let GHB:    CGFloat = 58
-private let GASP:   CGFloat = 1.34
 private let GEAR_X: CGFloat = 40
 private let GEAR_HB:CGFloat = 17
 private let GCARD   = CGRect(x: 10, y: 36, width: 620, height: 104)
@@ -324,201 +323,98 @@ private func gRR(_ ctx: CGContext, _ x: CGFloat, _ y: CGFloat,
     ctx.closePath()
 }
 
-private func klayPath(hw: CGFloat, hh: CGFloat) -> CGPath {
-    let n: CGFloat = 3.2
-    let path = CGMutablePath()
-    let steps = 96
-    for i in 0...steps {
-        let a = CGFloat(i)/CGFloat(steps)*2 * .pi
-        let ca = cos(a), sa = sin(a)
-        let px = hw * (ca < 0 ? -1 : 1) * pow(abs(ca), 2/n)
-        let py = hh * (sa < 0 ? -1 : 1) * pow(abs(sa), 2/n)
-        if i == 0 { path.move(to: CGPoint(x: px, y: py)) }
-        else { path.addLine(to: CGPoint(x: px, y: py)) }
-    }
-    path.closeSubpath(); return path
-}
+// MARK: - Klay (GraphicsContext, drawn over the CG layer)
 
-private func whiteFill(_ ctx: CGContext, _ path: CGPath,
-                       x0: CGFloat, y0: CGFloat, x1: CGFloat, y1: CGFloat) {
-    let cs = CGColorSpaceCreateDeviceRGB()
-    let c0 = CGColor(red: 251/255, green: 251/255, blue: 252/255, alpha: 1)
-    let c1 = CGColor(red: 231/255, green: 233/255, blue: 236/255, alpha: 1)
-    guard let g = CGGradient(colorsSpace: cs, colors: [c0,c1] as CFArray, locations: [0,1]) else { return }
-    ctx.saveGState()
-    ctx.addPath(path); ctx.clip()
-    ctx.drawLinearGradient(g, start: CGPoint(x: x0, y: y0),
-                              end:   CGPoint(x: x1, y: y1),
-                              options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-    ctx.restoreGState()
-}
+/// Glyph width as a multiple of the pose's body height `hb`: Klay keeps the old
+/// character's footprint in the greeting card (78 pt wide at rest).
+private let GGLYPH_PER_HB: CGFloat = 1.34
 
-// Left hand: ball, waves (bobs vertically)
-private func drawHandL(_ ctx: CGContext, hw: CGFloat, hh: CGFloat, p: GreetPose) {
-    let k = CGFloat(p.handL); guard k > 0.01 else { return }
-    let hb = hh * 2
-    let r  = hb * 0.15 * k
-    let rx = gLerpF(-hw * 0.35, -hw - hb * 0.22, k)
-    let ry0 = gLerpF(hh * 0.85, hh * 0.62, k)
-    var ry = Double(ry0)
-    if p.wave >= 0 {
-        let w = p.wave
-        // Ramp in 0.08 s after pop1; ramp out over tuck0→tuck1
-        let rampIn  = gClamp(w / 0.08, 0, 1)
-        let waveEnd = GT.tuck0 - GT.pop1   // = 1.00
-        let rampOut = 1 - gClamp((w - waveEnd) / (GT.tuck1 - GT.tuck0), 0, 1)
-        let ramp    = rampIn * rampOut
-        ry += sin(w * 2 * .pi * 5.0) * Double(hb) * 0.14 * ramp
-    }
-    ctx.saveGState()
-    ctx.translateBy(x: rx, y: CGFloat(ry))
-    let circ = CGPath(ellipseIn: CGRect(x: -r, y: -r, width: r*2, height: r*2), transform: nil)
-    whiteFill(ctx, circ, x0: r, y0: -r, x1: -r, y1: r)
-    ctx.addEllipse(in: CGRect(x: -r, y: -r, width: r*2, height: r*2))
-    ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.08))
-    ctx.setLineWidth(0.8); ctx.strokePath()
-    ctx.restoreGState()
-}
+/// Klay in the greeting: the white glyph with its glow, limbs and eyes. (p.x, p.y) is
+/// the middle of Klay's full height; the right hand waves, the left one swings out.
+private func drawKlay(_ context: GraphicsContext, p: GreetPose) {
+    let hb = CGFloat(p.hb)
+    guard hb > 0.8 else { return }
+    let s = hb * GGLYPH_PER_HB / KlayGlyph.width   // points per glyph unit
+    let px = CGFloat(p.x), py = CGFloat(p.y)
 
-// Right hand: capsule, quasi-static with breathing rotation ±0.04 rad at 2.5 Hz
-private func drawHandR(_ ctx: CGContext, hw: CGFloat, hh: CGFloat, p: GreetPose) {
-    let k = CGFloat(p.handR); guard k > 0.01 else { return }
-    let hb = hh * 2, L = hb * 0.40 * k, T2 = hb * 0.22 * k
-    let rx0 = gLerpF(hw * 0.35, hw + hb * 0.20, k)
-    let ry0 = gLerpF(hh * 0.85, hh * 0.20, k)
-    // Breathing rotation ±0.04 rad at 2.5 Hz, only while wave is active; no displacement
-    let ang: CGFloat = p.wave >= 0
-        ? -0.61 + CGFloat(sin(p.wave * 2 * .pi * 2.5)) * 0.04
-        : -0.61
-    ctx.saveGState()
-    ctx.translateBy(x: rx0, y: ry0)
-    ctx.rotate(by: ang)
-    let cap = CGMutablePath()
-    gRR(ctx, -L/2, -T2/2, L, T2, T2/2)
-    cap.addPath(ctx.path!)
-    ctx.beginPath()
-    whiteFill(ctx, cap, x0: L/2, y0: -T2/2, x1: -L/2, y1: T2/2)
-    gRR(ctx, -L/2, -T2/2, L, T2, T2/2)
-    ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.08))
-    ctx.setLineWidth(0.8); ctx.strokePath()
-    ctx.restoreGState()
-}
-
-private func drawKlay(_ ctx: CGContext, p: GreetPose) {
-    let hh = CGFloat(p.hb/2), hw = hh*GASP; guard hh > 0.4 else { return }
-
-    // Halo (golden → blue)
-    if p.halo > 0 {
+    // Glow behind the rays: golden on arrival, blue as the island wakes up.
+    let glow = CGFloat(0.45 * p.halo + 0.4 * p.tint)
+    if glow > 0.01 {
         let bl = CGFloat(p.haloBlue)
-        let cr = gLerpF(232/255, 59/255, bl)
-        let cg = gLerpF(195/255, 158/255, bl)
-        let cb = gLerpF(154/255, 255/255, bl)
-        let cs = CGColorSpaceCreateDeviceRGB()
-        let px = CGFloat(p.x), py = CGFloat(p.y)
-        let R1 = hw * 2.6
-        let ic1 = CGColor(red: cr, green: cg, blue: cb, alpha: CGFloat(0.18 * p.halo))
-        let oc1 = CGColor(red: cr, green: cg, blue: cb, alpha: 0)
-        if let g1 = CGGradient(colorsSpace: cs, colors: [ic1,oc1] as CFArray, locations: [0,1]) {
-            ctx.saveGState()
-            ctx.addEllipse(in: CGRect(x: px-R1, y: py-R1, width: R1*2, height: R1*2))
-            ctx.clip()
-            ctx.drawRadialGradient(g1, startCenter: CGPoint(x: px,y: py), startRadius: 0,
-                                   endCenter: CGPoint(x: px,y: py), endRadius: R1, options: [])
-            ctx.restoreGState()
-        }
-        let R2 = hw * 4.2
-        let ic2 = CGColor(red: cr, green: cg, blue: cb, alpha: CGFloat(0.07 * p.halo))
-        let oc2 = CGColor(red: cr, green: cg, blue: cb, alpha: 0)
-        if let g2 = CGGradient(colorsSpace: cs, colors: [ic2,oc2] as CFArray, locations: [0,1]) {
-            ctx.saveGState()
-            ctx.addEllipse(in: CGRect(x: px-R2, y: py-R2, width: R2*2, height: R2*2))
-            ctx.clip()
-            ctx.drawRadialGradient(g2, startCenter: CGPoint(x: px,y: py), startRadius: 0,
-                                   endCenter: CGPoint(x: px,y: py), endRadius: R2, options: [])
-            ctx.restoreGState()
-        }
+        let color = Color(red: Double(gLerpF(232/255, 59/255, bl)),
+                          green: Double(gLerpF(195/255, 158/255, bl)),
+                          blue: Double(gLerpF(154/255, 255/255, bl)))
+        let hubY = py - KlayPaint.centerY * s
+        KlayPaint.drawGlow(context, center: CGPoint(x: px, y: hubY - 70 * s),
+                           radius: 380 * s, color: color, amount: glow)
     }
 
-    ctx.saveGState()
-    ctx.translateBy(x: CGFloat(p.x), y: CGFloat(p.y))
-    ctx.rotate(by: CGFloat(p.tilt))
-    ctx.scaleBy(x: CGFloat(p.sx), y: CGFloat(p.sy))
+    // Pose frame: centred on the middle of Klay's height, tilted and squashed there.
+    var frame = context
+    frame.translateBy(x: px, y: py)
+    frame.rotate(by: .radians(p.tilt))
+    frame.scaleBy(x: CGFloat(p.sx), y: CGFloat(p.sy))
 
-    drawHandL(ctx, hw: hw, hh: hh, p: p)
-    drawHandR(ctx, hw: hw, hh: hh, p: p)
+    // Klay's frame: origin on the hub, glyph units.
+    var c = frame
+    c.translateBy(x: 0, y: -KlayPaint.centerY * s)
+    c.scaleBy(x: s, y: s)
 
-    let mpath = klayPath(hw: hw, hh: hh)
-    whiteFill(ctx, mpath, x0: hw*0.6, y0: -hh, x1: -hw*0.6, y1: hh)
-
-    if p.tint > 0 {
-        let cs = CGColorSpaceCreateDeviceRGB()
-        let c0 = CGColor(red: 127/255, green: 180/255, blue: 234/255, alpha: CGFloat(p.tint))
-        let c1 = CGColor(red: 127/255, green: 180/255, blue: 234/255, alpha: 0)
-        if let g = CGGradient(colorsSpace: cs, colors: [c0,c1] as CFArray, locations: [0,1]) {
-            ctx.saveGState()
-            ctx.addPath(mpath); ctx.clip()
-            ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: hh),
-                                      end:   CGPoint(x: 0, y: -hh*0.1), options: [])
-            ctx.restoreGState()
-        }
+    if KlayGlyph.width * s >= KlayPaint.limbsMinPx {
+        KlayPaint.drawLimbs(c, greetLimbs(p))
     }
+    KlayPaint.drawGlyph(c)
 
-    ctx.saveGState()
-    ctx.addPath(mpath); ctx.clip()
-    ctx.setFillColor(gHex("#16171A"))
-    ctx.setStrokeColor(gHex("#16171A"))
-    let er = CGFloat(p.hb*0.06)
-    let sp = CGFloat(p.hb*0.19)
-    let lx = CGFloat(p.lookX)*hw*0.42
-    let ly = CGFloat(p.lookY)*hh*0.28 + hh*0.12 + CGFloat(p.eyeRoll)*hh*1.25
-    for sd: CGFloat in [-1, 1] {
-        ctx.saveGState()
-        ctx.translateBy(x: sd*sp+lx, y: ly)
-        if p.eye == .happy {
-            ctx.setLineWidth(er*0.95); ctx.setLineCap(.round)
-            ctx.beginPath()
-            ctx.addArc(center: CGPoint(x: 0, y: er*0.6), radius: er*1.25,
-                       startAngle: .pi*1.15, endAngle: .pi*1.85, clockwise: false)
-            ctx.strokePath()
-        } else if p.eye == .content {
-            ctx.setLineWidth(er*0.95); ctx.setLineCap(.round)
-            ctx.beginPath()
-            ctx.addArc(center: CGPoint(x: 0, y: -er*0.5), radius: er*1.25,
-                       startAngle: .pi*0.15, endAngle: .pi*0.85, clockwise: false)
-            ctx.strokePath()
-        } else {
-            ctx.scaleBy(x: 1, y: max(0.12, CGFloat(p.open)))
-            ctx.addEllipse(in: CGRect(x: -er, y: -er, width: er*2, height: er*2))
-            ctx.fillPath()
-        }
-        ctx.restoreGState()
+    let shape: EyeShape
+    switch p.eye {
+    case .dot:     shape = .pill
+    case .happy:   shape = .happy
+    case .content: shape = .closed
     }
-    ctx.restoreGState()
+    KlayPaint.drawEyes(c, shape: shape, mult: 1,
+                       look: CGPoint(x: CGFloat(p.lookX) * 14, y: CGFloat(p.lookY) * 12),
+                       open: CGFloat(p.open), time: 0)
 
-    // Activity badge
+    // Activity badge, top left of the rays
     if p.badge > 0.01 {
         let bs = CGFloat(p.badge)
-        let br = hh*0.3
-        ctx.saveGState()
-        ctx.translateBy(x: -hw*0.78, y: -hh*0.72)
-        ctx.scaleBy(x: bs, y: bs)
-        ctx.setFillColor(gHex("#000000"))
-        ctx.addEllipse(in: CGRect(x: -(br+hh*0.07), y: -(br+hh*0.07),
-                                  width: (br+hh*0.07)*2, height: (br+hh*0.07)*2))
-        ctx.fillPath()
-        ctx.setFillColor(gHex("#3BA0F5"))
-        ctx.addEllipse(in: CGRect(x: -br, y: -br, width: br*2, height: br*2))
-        ctx.fillPath()
-        ctx.setFillColor(gHex("#0B1B3A"))
+        let br = hb * 0.15
+        var b = frame
+        b.translateBy(x: -hb * 0.62, y: -hb * 0.40)
+        b.scaleBy(x: bs, y: bs)
+        let ring = br + hb * 0.035
+        b.fill(Path(ellipseIn: CGRect(x: -ring, y: -ring, width: ring * 2, height: ring * 2)),
+               with: .color(.black))
+        b.fill(Path(ellipseIn: CGRect(x: -br, y: -br, width: br * 2, height: br * 2)),
+               with: .color(Color(cgColor: gHex("#3BA0F5"))))
         for i: CGFloat in [-1, 0, 1] {
-            ctx.addEllipse(in: CGRect(x: i*br*0.5-br*0.17, y: -br*0.17,
-                                      width: br*0.34, height: br*0.34))
-            ctx.fillPath()
+            b.fill(Path(ellipseIn: CGRect(x: i * br * 0.5 - br * 0.17, y: -br * 0.17,
+                                          width: br * 0.34, height: br * 0.34)),
+                   with: .color(Color(cgColor: gHex("#0B1B3A"))))
         }
-        ctx.restoreGState()
     }
+}
 
-    ctx.restoreGState()
+/// Hands and feet for a greeting pose. handR raises the right hand into the wave,
+/// handL swings the left one out; both follow the wave's 0.08 s ramp-in.
+private func greetLimbs(_ p: GreetPose) -> KlayPaint.Limbs {
+    var l = KlayPaint.Limbs.rest
+    var ramp: CGFloat = 0
+    var wt: CGFloat = 0
+    if p.wave >= 0 {
+        let w = p.wave
+        let waveEnd = GT.tuck0 - GT.pop1
+        let rampIn = gClamp(w / 0.08, 0, 1)
+        let rampOut = 1 - gClamp((w - waveEnd) / (GT.tuck1 - GT.tuck0), 0, 1)
+        ramp = CGFloat(rampIn * rampOut)
+        wt = CGFloat(w)
+    }
+    let raised = CGPoint(x: 206, y: -40)
+    let waving = KlayPaint.blend(raised, KlayPaint.waveHand(t: wt), ramp)
+    l.rh = KlayPaint.blend(l.rh, waving, CGFloat(p.handR))
+    let out = CGPoint(x: -190, y: 70 + sin(wt * 2 * .pi * 2.5) * 12 * ramp)
+    l.lh = KlayPaint.blend(l.lh, out, CGFloat(p.handL))
+    return l
 }
 
 private func drawParticles(_ ctx: CGContext, t: Double, tc: Double, p: GreetPose) {
@@ -584,29 +480,34 @@ private func drawHeader(_ ctx: CGContext, alpha: Double) {
 
 private let miniColors = ["#E86A6A","#3E86E0","#EFAE5A","#8C73F2"]
 
-private func drawMinis(_ ctx: CGContext, alpha: Double, compact: IslandRestingLayout) {
+/// The four mini Klays that pop into the resting island: the white glyph on a disc of
+/// each pill's colour (the eyes are left out at this size).
+private func drawMinis(_ context: GraphicsContext, alpha: Double, compact: IslandRestingLayout) {
     guard alpha > 0.01 else { return }
     let cx = 320 - compact.width/2 + compact.miniGridCenterX
     let cy = compact.botCenterY
     let sp: CGFloat = 6 * compact.miniGridScale
     let offsets: [(CGFloat, CGFloat)] = [(-sp,-sp),(sp,-sp),(-sp,sp),(sp,sp)]
+    let discR: CGFloat = 4.6
     for (i,(dx,dy)) in offsets.enumerated() {
-        ctx.saveGState()
-        ctx.translateBy(x: cx+dx, y: cy+dy)
+        var c = context
+        c.translateBy(x: cx+dx, y: cy+dy)
         let scale = CGFloat(alpha) * compact.miniGridScale
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.setFillColor(gHex(miniColors[i]))
-        ctx.addPath(klayPath(hw: 5.3, hh: 4)); ctx.fillPath()
-        ctx.restoreGState()
+        c.scaleBy(x: scale, y: scale)
+        c.fill(Path(ellipseIn: CGRect(x: -discR, y: -discR, width: discR*2, height: discR*2)),
+               with: .color(Color(cgColor: gHex(miniColors[i]))))
+        let s = discR * 1.55 / KlayGlyph.width
+        c.scaleBy(x: s, y: s)
+        c.translateBy(x: 0, y: 70)
+        KlayPaint.drawGlyph(c)
     }
 }
 
 // MARK: - Full draw
 
-private func drawGreeting(_ ctx: CGContext, size: CGSize, t: Double,
-                          tc: Double, compact: IslandRestingLayout) {
-    let p = pose(t, tc: tc, compact: compact)
-
+/// The card and its particles (CoreGraphics). The minis and Klay are drawn over it
+/// by drawGreetingCharacters.
+private func drawGreeting(_ ctx: CGContext, p: GreetPose, t: Double, tc: Double) {
     if p.card > 0 {
         ctx.saveGState()
         ctx.setAlpha(CGFloat(p.card))
@@ -624,9 +525,12 @@ private func drawGreeting(_ ctx: CGContext, size: CGSize, t: Double,
         drawParticles(ctx, t: t, tc: tc, p: p)
         ctx.restoreGState()
     }
+}
 
-    drawMinis(ctx, alpha: p.minis, compact: compact)
-    drawKlay(ctx, p: p)
+private func drawGreetingCharacters(_ context: GraphicsContext, p: GreetPose,
+                                    compact: IslandRestingLayout) {
+    drawMinis(context, alpha: p.minis, compact: compact)
+    drawKlay(context, p: p)
 }
 
 // MARK: - SwiftUI View
@@ -642,12 +546,14 @@ struct GreetingCanvasView: View {
     var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSince(startDate)
-            Canvas { context, size in
+            Canvas { context, _ in
+                let compact = IslandRestingLayout(width: state.notchWidth + 160,
+                                                  height: state.notchHeight)
+                let p = pose(t, tc: tc, compact: compact)
                 context.withCGContext { cgCtx in
-                    drawGreeting(cgCtx, size: size, t: t, tc: tc,
-                                 compact: IslandRestingLayout(width: state.notchWidth + 160,
-                                                              height: state.notchHeight))
+                    drawGreeting(cgCtx, p: p, t: t, tc: tc)
                 }
+                drawGreetingCharacters(context, p: p, compact: compact)
             }
             .onChange(of: !greetFired && t >= GT.end && tc >= GT.autoLeave) { _, trigger in
                 if trigger { fireGreetComplete() }

@@ -39,9 +39,6 @@ struct DesktopBotView: View {
                 engine.lookX = tanh((appState.mousePosition.x - viewState.lookOrigin.x) / 260)
                 engine.lookY = -tanh((appState.mousePosition.y - viewState.lookOrigin.y) / 200)
 
-                // Desktop Klay is always the "main" Klay — always dressed
-                engine.setOutfit(appState.resolvedOutfit, animated: true)
-
                 // Dance when music plays (same rules as compact mode)
                 let dancing: Bool = {
                     #if !APPSTORE
@@ -60,24 +57,9 @@ struct DesktopBotView: View {
 
                 var c = ctx
                 engine.applyDance(&c, size: size)
-
-                // Rigid roll when outfit is present (matches BotCanvasView)
-                if engine.outfit != .none && engine.outfitPresence > 0.05 && abs(engine.roll) > 0.001 {
-                    let center = engine.bodyCenter(size: size)
-                    var rigidCtx = c
-                    rigidCtx.translateBy(x: center.x, y: center.y)
-                    rigidCtx.rotate(by: .radians(engine.roll))
-                    rigidCtx.translateBy(x: -center.x, y: -center.y)
-                    engine.drawHandsBehind(context: rigidCtx, size: size)
-                    engine.drawOutfitBehind(context: rigidCtx, size: size)
-                    engine.draw(context: rigidCtx, size: size)
-                    engine.drawOutfitFront(context: rigidCtx, size: size)
-                } else {
-                    engine.drawHandsBehind(context: c, size: size)
-                    engine.drawOutfitBehind(context: c, size: size)
-                    engine.draw(context: c, size: size)
-                    engine.drawOutfitFront(context: c, size: size)
-                }
+                // Klay (glow, limbs, glyph, eyes) spins as a whole on a roll; the
+                // badge and particles are drawn on top and do not spin.
+                engine.draw(context: c, size: size)
                 engine.drawHandsAndExtras(context: c, size: size)
             }
         }
@@ -86,7 +68,6 @@ struct DesktopBotView: View {
         }
         .onAppear {
             engine.setState(appState.effectiveState, force: true)
-            engine.setOutfit(appState.resolvedOutfit, animated: false)
         }
     }
 }
@@ -143,7 +124,6 @@ final class DesktopKlayController {
     private var mouseDraggedMonitor: Any?
     private var mouseUpMonitor:      Any?
     private var globalMouseUpMonitor: Any?
-    private var rightClickMonitor:   Any?
 
     // UserDefaults keys
     private static let posXKey    = "desktopKlayX"
@@ -184,7 +164,6 @@ final class DesktopKlayController {
         // Build engine + hosting view (autoresizingMask lets it grow with the panel animation)
         let eng = BotEngine()
         eng.setState(AppState.shared.effectiveState, force: true)
-        eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
         self.engine = eng
 
         let vs = DesktopBotViewState()
@@ -268,7 +247,6 @@ final class DesktopKlayController {
 
         let eng = BotEngine()
         eng.setState(AppState.shared.effectiveState, force: true)
-        eng.setOutfit(AppState.shared.resolvedOutfit, animated: false)
         self.engine = eng
 
         let vs = DesktopBotViewState()
@@ -594,14 +572,6 @@ final class DesktopKlayController {
             }
         }
 
-        rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
-            guard let self else { return event }
-            MainActor.assumeIsolated {
-                guard event.window === self.panel else { return }
-                NotificationCenter.default.post(name: .openWardrobeFromDesktop, object: nil)
-            }
-            return event
-        }
     }
 
     // MARK: - Click / drag helpers
@@ -649,7 +619,6 @@ final class DesktopKlayController {
         if let m = mouseDraggedMonitor  { NSEvent.removeMonitor(m); mouseDraggedMonitor  = nil }
         if let m = mouseUpMonitor       { NSEvent.removeMonitor(m); mouseUpMonitor       = nil }
         if let m = globalMouseUpMonitor { NSEvent.removeMonitor(m); globalMouseUpMonitor = nil }
-        if let m = rightClickMonitor    { NSEvent.removeMonitor(m); rightClickMonitor    = nil }
     }
 
     // MARK: - Screen sleep / wake

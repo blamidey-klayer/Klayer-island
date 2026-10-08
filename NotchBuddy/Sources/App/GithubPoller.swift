@@ -29,16 +29,9 @@ final class GithubPoller: @unchecked Sendable {
         }
     }
 
-    /// Pull requests, CI and activity are fetched when the GitHub pill is in
-    /// the notch, or when the iPhone sync is on (the iPhone shows GitHub even
-    /// when its pill isn't in the notch).
+    /// Pull requests, CI and activity are fetched only when the GitHub pill is in the notch.
     @MainActor private static var isWanted: Bool {
-        if AppState.shared.activeIntegrations.contains("integration_github") { return true }
-        #if PHONE_LINK
-        return UserDefaults.standard.bool(forKey: "iPhoneSyncEnabled")
-        #else
-        return false
-        #endif
+        AppState.shared.activeIntegrations.contains("integration_github")
     }
 
     // MARK: - Stats (unchanged logic)
@@ -145,8 +138,7 @@ final class GithubPoller: @unchecked Sendable {
                 let old = AppState.shared.githubPulse
                 let events = GitHubPulse.events(old: old, new: pulse)
                 AppState.shared.githubPulse = pulse
-                // Badge and sound only for the pill in the notch, not when the
-                // fetch only feeds the iPhone.
+                // Badge and sound only for the pill in the notch.
                 if AppState.shared.activeIntegrations.contains("integration_github") {
                     AppState.shared.handleGitHubEvents(events)
                 }

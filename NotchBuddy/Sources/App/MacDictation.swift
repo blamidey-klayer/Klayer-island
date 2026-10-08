@@ -3,7 +3,7 @@ import AVFoundation
 import Speech
 
 /// Speech to text for the notch chat (GitHub build), on-device when the Mac supports it.
-/// Same model as the iPhone's Dictation: not main-actor bound, because the audio tap and the
+/// Not main-actor bound, because the audio tap and the
 /// recognizer call back on their own threads; the published values are set on the main actor.
 @Observable
 final class MacDictation: @unchecked Sendable {
