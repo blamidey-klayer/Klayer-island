@@ -29,6 +29,9 @@ final class HookServer: @unchecked Sendable {
     private var approvalFDSource: (any DispatchSourceRead)? = nil  // monitors pendingApprovalFD
     private var pendingQuestionFD: Int32 = -1         // held open while user answers AskUserQuestion
     private var questionFDSource: (any DispatchSourceRead)? = nil  // monitors pendingQuestionFD
+    /// One token per held request, next to its fd: the timeouts and the read sources act only on
+    /// the request they were set up for (the next connection often reuses the fd number).
+    private var requestTokens = RequestTokens()
 
     private var questionPillId: String = ""           // pill that owns the pending question
     private var questionSessionId: String? = nil      // session that owns the pending question
@@ -54,6 +57,7 @@ final class HookServer: @unchecked Sendable {
         // Never close the fd here directly — Apple requires it to happen in the cancel handler.
         cancelApprovalFDSource()
         pendingApprovalFD = -1
+        requestTokens.release(.approval)
         let state = AppState.shared
         let pillId = state.pendingApproval?.pillId ?? "integration_claude"
         let sessionId = state.pendingApproval?.sessionId
@@ -97,6 +101,7 @@ final class HookServer: @unchecked Sendable {
     private func dismissQuestionCard(note: String) {
         cancelQuestionFDSource()
         pendingQuestionFD = -1
+        requestTokens.release(.question)
         let state = AppState.shared
         let pillId = questionPillId
         resumeSession(questionSessionId)
@@ -690,6 +695,7 @@ final class HookServer: @unchecked Sendable {
             }
         }
         pendingApprovalFD = fd
+        let token = requestTokens.hold(.approval)
         activeSessionId = sessionId
 
         upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName,
@@ -713,7 +719,7 @@ final class HookServer: @unchecked Sendable {
         // The cancel handler closes the fd — never close it anywhere else.
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
-            guard let self, self.pendingApprovalFD == fd else { return }
+            guard let self, self.requestTokens.isCurrent(token, .approval) else { return }
             self.dismissApprovalCard(note: "Handled in \(self.requestHostName(forPill: pillId)).")
         }
         source.setCancelHandler { close(fd) }
@@ -722,9 +728,9 @@ final class HookServer: @unchecked Sendable {
 
         // Safety timeout — show a note and cancel without sending a decision.
         // nb-hook reads EOF from the cancel handler's close and exits; Claude Code re-asks.
-        let captured = fd
+        // Keyed by the request's token: a later request on the same fd number is not dismissed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 115) { [weak self] in
-            guard let self, self.pendingApprovalFD == captured else { return }
+            guard let self, self.requestTokens.isCurrent(token, .approval) else { return }
             self.dismissApprovalCard(note: "Still waiting in \(self.requestHostName(forPill: pillId)).")
         }
     }
@@ -734,6 +740,7 @@ final class HookServer: @unchecked Sendable {
     func sendApprovalDecision(_ decision: String) {
         let fd = pendingApprovalFD
         pendingApprovalFD = -1
+        requestTokens.release(.approval)
         // Capture source before nulling — we send the decision first, then cancel the source.
         // The cancel handler closes the fd; never close it directly.
         let source = approvalFDSource
@@ -820,6 +827,7 @@ final class HookServer: @unchecked Sendable {
             }
         }
         pendingQuestionFD = fd
+        let token = requestTokens.hold(.question)
         activeSessionId = sessionId
         questionPillId = pillId
         questionSessionId = sessionId
@@ -840,16 +848,16 @@ final class HookServer: @unchecked Sendable {
 
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
-            guard let self, self.pendingQuestionFD == fd else { return }
+            guard let self, self.requestTokens.isCurrent(token, .question) else { return }
             self.dismissQuestionCard(note: "")
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         questionFDSource = source
 
-        let captured = fd
+        // Keyed by the request's token: a later question on the same fd number is not dismissed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
-            guard let self, self.pendingQuestionFD == captured else { return }
+            guard let self, self.requestTokens.isCurrent(token, .question) else { return }
             // Send "ask" so nb-hook exits cleanly; Claude Code re-asks in terminal.
             let askFD = self.pendingQuestionFD
             self.pendingQuestionFD = -1
