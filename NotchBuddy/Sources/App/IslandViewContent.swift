@@ -207,11 +207,23 @@ struct ApprovalView: View {
         state.mode == .expanded && state.view == .approval ? approval?.requestId : nil
     }
 
+    /// Who asks: the project of the request's session (its roster row, whatever the shared pill is
+    /// called now) on the color of its pill.
+    private var who: AgentTask? {
+        guard let approval else { return state.focusTask }
+        let pill = state.tasks.first { $0.id == approval.pillId }
+        let title = SessionRoster.title(of: approval.sessionId, in: state.sessions,
+                                        fallback: pill?.name ?? "Session")
+        let color = pill?.color ?? PillCatalog.definition(for: approval.pillId)?.color ?? "#C0C4CC"
+        return AgentTask(id: approval.pillId, name: title, color: color, state: .approval,
+                         steps: [], source: .agent)
+    }
+
     var body: some View {
         ZStack {
             CardBackground(wash: .approval)
             VStack(alignment: .leading, spacing: 5) {
-                AgentWho(task: state.focusTask, label: "needs permission")
+                AgentWho(task: who, label: "needs permission")
                 CodeBlock(text: approval?.command ?? approval?.tool ?? "…")
                 HStack(spacing: 8) {
                     SecondaryButton("Deny") {

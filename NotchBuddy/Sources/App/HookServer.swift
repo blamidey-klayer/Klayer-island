@@ -248,7 +248,8 @@ final class HookServer: @unchecked Sendable {
         let state = AppState.shared
         guard let pending = state.pendingQuestion,
               let record = ChoiceRecord.question(pending.questions.map(\.question), answers: answers,
-                                                 session: sessionName(for: questionPillId), date: Date())
+                                                 session: sessionTitle(questionSessionId, pillId: questionPillId),
+                                                 date: Date())
         else { return }
         state.recordChoice(record)
     }
@@ -257,6 +258,13 @@ final class HookServer: @unchecked Sendable {
     @MainActor
     private func sessionName(for pillId: String) -> String {
         AppState.shared.tasks.first { $0.id == pillId }?.name ?? "Session"
+    }
+
+    /// The name of a request's session for the history: its roster row's title, whatever its
+    /// shared pill is called now, else the pill's name.
+    @MainActor
+    private func sessionTitle(_ sessionId: String?, pillId: String) -> String {
+        SessionRoster.title(of: sessionId, in: AppState.shared.sessions, fallback: sessionName(for: pillId))
     }
 
     /// Returns the tool_input serialized as sorted-keys JSON, "" if absent or empty.
@@ -489,17 +497,20 @@ final class HookServer: @unchecked Sendable {
             // Approval dismissed — fall through so the resolving event updates state normally.
         }
 
-        // A question card of this pill waits for its answer. A turn that ends in ANOTHER session of the
-        // same pill must not put the pill on finished or error under the card, nor open over it: that
-        // session's row is updated, the pill is badged, the card stays. (The session that owns the
+        // A question card of this pill waits for its answer. No event of ANOTHER session of the same
+        // pill acts on it under the card (HookRouting.eventReachesPill), as under a permission card: it
+        // is not put on working, finished or error, not renamed, and no view opens over the card. That
+        // session's row is updated, and an end of turn badges the pill. (The session that owns the
         // question goes on below: its Stop only badges the pill while the card waits.)
-        if name == "Stop" || name == "StopFailure",
-           state.pendingQuestion != nil, agentId == questionPillId,
-           let owner = questionSessionId, sessionId != owner {
+        if !HookRouting.eventReachesPill(agentId, sessionId: sessionId,
+                                         questionPill: state.pendingQuestion != nil ? questionPillId : nil,
+                                         questionSession: questionSessionId) {
             trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
                          host: sessionHost)
-            SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
-            setPillBadge(id: agentId, badge: name == "Stop" ? .finished : .error)
+            if name == "Stop" || name == "StopFailure" {
+                SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
+                setPillBadge(id: agentId, badge: name == "Stop" ? .finished : .error)
+            }
             return
         }
 
@@ -680,7 +691,9 @@ final class HookServer: @unchecked Sendable {
         } else {
             color = IslandConst.colorForProject(name)
         }
-        let task = AgentTask(id: id, name: name, color: color, state: .idle, steps: [], source: .agent)
+        // The catalog's name (« Claude Desktop »), not the raw agent string « claude-desktop ».
+        let task = AgentTask(id: id, name: PillCatalog.definition(for: id)?.name ?? name, color: color,
+                             state: .idle, steps: [], source: .agent)
         if let claudeIdx = state.tasks.firstIndex(where: { $0.id == "integration_claude" }) {
             state.tasks.insert(task, at: claudeIdx + 1)
         } else {
@@ -885,7 +898,8 @@ final class HookServer: @unchecked Sendable {
         // History: after the decision is handed to nb-hook, while the request is still in
         // pendingApproval (cleared just below). "ask" hands it back to the terminal: no record.
         if fd >= 0, let info = state.pendingApproval,
-           let record = ChoiceRecord.permission(decision: decision, session: sessionName(for: pillId),
+           let record = ChoiceRecord.permission(decision: decision,
+                                                session: sessionTitle(info.sessionId, pillId: pillId),
                                                 command: info.command, date: Date()) {
             state.recordChoice(record)
         }

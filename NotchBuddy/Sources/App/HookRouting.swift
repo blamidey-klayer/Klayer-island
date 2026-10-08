@@ -30,4 +30,16 @@ enum HookRouting {
                               pendingQuestionPill: String?) -> Bool {
         pillId != pendingApprovalPill && pillId != pendingQuestionPill
     }
+
+    /// Whether an event of session `sessionId` may act on its pill `pillId` (its state, its name
+    /// and steps, the focus, a view it opens) while a question card may wait (`questionPill`,
+    /// `questionSession`, nil when none). Not when the card waits on that pill for another session:
+    /// that event only updates its own row (and badges the pill for an end of turn), so the pill
+    /// keeps the question's pose and name under the card, as it does under a permission card. The
+    /// session that owns the question, and the other pills, go on.
+    static func eventReachesPill(_ pillId: String, sessionId: String,
+                                 questionPill: String?, questionSession: String?) -> Bool {
+        guard let questionPill, let questionSession, pillId == questionPill else { return true }
+        return sessionId == questionSession
+    }
 }

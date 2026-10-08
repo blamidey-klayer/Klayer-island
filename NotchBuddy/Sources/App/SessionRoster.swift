@@ -135,6 +135,14 @@ struct SessionRoster {
             : collapsed
     }
 
+    /// The name a request of `sessionId` goes by on its card and in the history: the title of that
+    /// session's row, whatever its shared pill is called now; `fallback` (the pill's name) when the
+    /// session has no row.
+    static func title(of sessionId: String?, in rows: [SessionRow], fallback: String) -> String {
+        guard let sessionId, let row = rows.first(where: { $0.id == sessionId }) else { return fallback }
+        return row.title
+    }
+
     /// What went wrong in a `StopFailure`, as one line of a row, nil when the hook says nothing.
     /// Its input (Claude Code hooks reference) carries `error`, the type (`rate_limit`,
     /// `server_error`…), and optionally `error_details` and `last_assistant_message`, the error text

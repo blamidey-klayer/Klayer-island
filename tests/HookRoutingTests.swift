@@ -18,6 +18,8 @@ enum HookRoutingTests {
             ("a_pill_with_its_own_approval_waiting_stays", aPillWithItsOwnApprovalWaitingStays),
             ("a_pill_with_its_own_question_waiting_stays", aPillWithItsOwnQuestionWaitingStays),
             ("another_pills_card_does_not_keep_it", anotherPillsCardDoesNotKeepIt),
+            ("another_session_never_acts_on_a_pill_under_its_question", anotherSessionNeverActsOnAPillUnderItsQuestion),
+            ("the_question_owner_and_other_pills_go_on", theQuestionOwnerAndOtherPillsGoOn),
         ]
         for (name, run) in cases {
             run()
@@ -97,5 +99,32 @@ enum HookRoutingTests {
         precondition(!HookRouting.mayRemovePill(claudeCode,
                                                 pendingApprovalPill: claudeCode,
                                                 pendingQuestionPill: nil))
+    }
+
+    // MARK: - A question card keeps its pill (review M4)
+
+    static func anotherSessionNeverActsOnAPillUnderItsQuestion() {
+        // Two Claude app sessions share the desktop pill; A asks a question. B's PreToolUse,
+        // UserPromptSubmit or Stop must not put the pill on working, rename it, or open a view
+        // over the card: B's row is updated, the pill only badged for an end of turn.
+        let desktop = HookRouting.desktopPillId
+        precondition(!HookRouting.eventReachesPill(desktop, sessionId: "B",
+                                                   questionPill: desktop, questionSession: "A"))
+        let claudeCode = HookRouting.pillId(agent: "")
+        precondition(!HookRouting.eventReachesPill(claudeCode, sessionId: "term-2",
+                                                   questionPill: claudeCode, questionSession: "term-1"),
+                     "two terminal sessions share the Claude Code pill the same way")
+    }
+
+    static func theQuestionOwnerAndOtherPillsGoOn() {
+        let desktop = HookRouting.desktopPillId
+        precondition(HookRouting.eventReachesPill(desktop, sessionId: "A",
+                                                  questionPill: desktop, questionSession: "A"),
+                     "the session that owns the question goes on")
+        precondition(HookRouting.eventReachesPill(HookRouting.pillId(agent: ""), sessionId: "B",
+                                                  questionPill: desktop, questionSession: "A"),
+                     "another pill is not held by the question")
+        precondition(HookRouting.eventReachesPill(desktop, sessionId: "B", questionPill: nil, questionSession: nil),
+                     "no question waiting: every event goes on")
     }
 }

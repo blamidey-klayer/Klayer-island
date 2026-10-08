@@ -29,6 +29,7 @@ enum SessionRosterTests {
             ("a_searching_row_is_pruned_like_a_working_one", aSearchingRowIsPrunedLikeAWorkingOne),
             ("a_failure_says_the_error_claude_shows", aFailureSaysTheErrorClaudeShows),
             ("a_failure_without_text_has_none", aFailureWithoutTextHasNone),
+            ("a_request_is_named_after_its_session", aRequestIsNamedAfterItsSession),
         ]
         for (name, run) in cases {
             run()
@@ -411,5 +412,21 @@ enum SessionRosterTests {
         precondition(SessionRoster.failureText(of: ["hook_event_name": "StopFailure"]) == nil)
         precondition(SessionRoster.failureText(of: ["error": "", "error_details": 42]) == nil,
                      "empty or non-text fields say nothing: the view says no details are available")
+    }
+
+    // MARK: - Who asks (review M4)
+
+    static func aRequestIsNamedAfterItsSession() {
+        // The card and the history name the session of the request, whatever the shared pill is
+        // called now (another session of the Claude app pill may have renamed it).
+        var roster = SessionRoster()
+        roster.update(sessionId: "A", pillId: "agent_claude-desktop", title: "Projet A", phase: .approval,
+                      lastAction: "Write · a.txt", at: at(minutes: 0))
+        roster.update(sessionId: "B", pillId: "agent_claude-desktop", title: "Projet B", phase: .working,
+                      lastAction: nil, at: at(minutes: 1))
+        precondition(SessionRoster.title(of: "A", in: roster.rows, fallback: "Projet B") == "Projet A")
+        precondition(SessionRoster.title(of: "gone", in: roster.rows, fallback: "Claude Desktop") == "Claude Desktop",
+                     "a session without a row falls back to the pill's name")
+        precondition(SessionRoster.title(of: nil, in: roster.rows, fallback: "Session") == "Session")
     }
 }
