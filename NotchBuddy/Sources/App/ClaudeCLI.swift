@@ -134,6 +134,106 @@ enum ClaudeCLI {
     static let installURL = URL(string: "https://code.claude.com/docs/en/quickstart")!
 }
 
+// MARK: - The quick chat: availability, binary lookup, prompt, errors (Task 14)
+
+/// What the quick chat can do on this Mac. `missingCLI`: no `claude` binary, or one that
+/// cannot be started. `notLoggedIn`: Claude Code runs but is not logged in with a claude.ai
+/// account.
+enum ChatAvailability: Equatable, Sendable {
+    case ready
+    case missingCLI
+    case notLoggedIn
+}
+
+/// How a short command (`claude auth status`, the login shell lookup) ended.
+enum ShortRunOutcome: Equatable, Sendable {
+    /// The executable could not be started.
+    case launchFailed
+    /// Stopped by the island after its time limit.
+    case timedOut
+    /// Exited on its own, with what it printed on stdout.
+    case finished(status: Int32, output: Data)
+}
+
+extension ClaudeCLI {
+
+    /// `claude auth status` prints the login as JSON (exit 0 logged in, 1 not).
+    static let authStatusArguments = ["auth", "status"]
+    static let authStatusTimeout: TimeInterval = 5
+
+    /// When no usual install folder holds `claude`, a login shell is asked once where it is
+    /// (a GUI app does not inherit the user's PATH).
+    static let shellLookupArguments = ["-lc", "command -v claude"]
+    static let shellLookupTimeout: TimeInterval = 3
+
+    /// The chat process is stopped after 10 minutes without a message.
+    static let chatIdleLimit: TimeInterval = 10 * 60
+
+    /// What is kept of the chat process's stderr, to show a short error if it dies.
+    static let stderrTailBytes = 4096
+
+    /// The chat's availability after `claude auth status`. Nil when the check timed out: the
+    /// answer is unknown, it is not cached and the chat is tried (a turn error then says why).
+    /// Exit status 126 or 127: the binary is there but cannot run (an npm install whose
+    /// `node` is gone), which is a missing Claude Code for the user.
+    static func availability(afterAuthStatus outcome: ShortRunOutcome) -> ChatAvailability? {
+        switch outcome {
+        case .launchFailed:
+            return .missingCLI
+        case .timedOut:
+            return nil
+        case .finished(let status, let output):
+            if status == 126 || status == 127 { return .missingCLI }
+            return authIsClaudeAI(statusJSON: output) ? .ready : .notLoggedIn
+        }
+    }
+
+    /// The path printed by `command -v claude` in a login shell: the last line that is an
+    /// absolute path to an executable. Anything else (a greeting the shell prints, "not found",
+    /// an alias) gives nil.
+    static func shellLookupPath(output: String, isExecutable: (String) -> Bool) -> String? {
+        output.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("/") && isExecutable($0) }
+            .last
+    }
+
+    /// Klay's system prompt in the quick chat. Greets the user by their macOS first name when
+    /// there is one worth using (`resolveUserFirstName()`), and stays neutral otherwise.
+    static func chatSystemPrompt(firstName: String?) -> String {
+        let opening = if let firstName {
+            "You are Klay, \(firstName)'s quick assistant in the notch of their Mac."
+        } else {
+            "You are Klay, a quick assistant in the notch of the user's Mac."
+        }
+        return """
+        \(opening) \
+        You have no tools: you cannot open files, browse the web or run anything. \
+        The only file you can see is the one the user dropped on the notch, when its content is in their message. \
+        Keep your answers short and answer in the user's language. \
+        Use light Markdown when it helps: short paragraphs, bullet lists, **bold**, `inline code` and fenced code blocks. \
+        Avoid tables and big headings: the chat window is small.
+        """
+    }
+
+    /// `tail` followed by `chunk`, cut to its last `limit` bytes.
+    static func appendingTail(_ tail: Data, _ chunk: Data, limit: Int = stderrTailBytes) -> Data {
+        var joined = tail
+        joined.append(chunk)
+        return joined.count > limit ? Data(joined.suffix(limit)) : joined
+    }
+
+    /// The last non-blank line of what the process wrote on stderr, cut to 200 characters:
+    /// what the user sees when the process dies during an answer. Nil when there is none.
+    static func lastErrorLine(_ stderr: Data) -> String? {
+        guard let line = String(decoding: stderr, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .last(where: { !$0.isEmpty }) else { return nil }
+        return line.count > 200 ? String(line.prefix(199)) + "…" : line
+    }
+}
+
 // MARK: - What a dropped file becomes in the chat
 
 enum ChatAttachmentKind: Equatable {

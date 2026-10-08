@@ -20,6 +20,14 @@ enum ClaudeCLITests {
             ("gmail_draft_parse", gmailDraftParse),
             ("gmail_draft_preview", gmailDraftPreview),
             ("turn_token_rejects_stale_generations", turnTokenRejectsStaleGenerations),
+            ("chat_attachment_by_kind", chatAttachmentByKind),
+            ("chat_attachment_reads_the_file", chatAttachmentReadsTheFile),
+            ("chat_message_carries_context_and_question", chatMessageCarriesContextAndQuestion),
+            ("chat_transcript_keeps_the_latest_exchanges", chatTranscriptKeepsTheLatestExchanges),
+            ("availability_from_auth_status", availabilityFromAuthStatus),
+            ("shell_lookup_reads_an_executable_path", shellLookupReadsAnExecutablePath),
+            ("chat_system_prompt", chatSystemPrompt),
+            ("stderr_tail_and_last_line", stderrTailAndLastLine),
         ]
         for (name, run) in cases {
             run()
@@ -418,5 +426,236 @@ enum ClaudeCLITests {
         precondition(new != old && token.accepts(new))
         token.reset()
         precondition(!token.accepts(new) && !token.accepts(old))
+    }
+
+    // MARK: - Chat (Task 14)
+
+    static func chatAttachmentByKind() {
+        // An image up to 5 MB goes as base64 with its media type, its name as text.
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        guard case .ready(let image) = ChatAttachment.make(name: "capture.png", kind: .image(mediaType: "image/png"),
+                                                           data: png, pdfText: nil) else {
+            preconditionFailure("a small image is attached")
+        }
+        precondition(image.image == ChatImage(mediaType: "image/png", base64: png.base64EncodedString()))
+        precondition(image.text == "Fichier : capture.png")
+        precondition(ChatAttachment.maxImageBytes == 5 * 1024 * 1024)
+        let atCap = Data(count: ChatAttachment.maxImageBytes)
+        if case .refused = ChatAttachment.make(name: "a.jpg", kind: .image(mediaType: "image/jpeg"), data: atCap, pdfText: nil) {
+            preconditionFailure("5 MB exactly is accepted")
+        }
+        precondition(ChatAttachment.make(name: "a.jpg", kind: .image(mediaType: "image/jpeg"),
+                                         data: Data(count: ChatAttachment.maxImageBytes + 1), pdfText: nil)
+                     == .refused("Cette image dépasse 5 Mo."))
+
+        // A PDF goes as its text, cut at 200 000 characters, with a note when it is cut.
+        precondition(ChatAttachment.maxPDFCharacters == 200_000)
+        guard case .ready(let pdf) = ChatAttachment.make(name: "devis.pdf", kind: .pdf, data: nil,
+                                                         pdfText: "Total : 12 €") else {
+            preconditionFailure("a PDF with text is attached")
+        }
+        precondition(pdf.image == nil)
+        precondition(pdf.text == "Fichier : devis.pdf\n\nTotal : 12 €")
+        let long = String(repeating: "é", count: ChatAttachment.maxPDFCharacters + 10)
+        guard case .ready(let cut) = ChatAttachment.make(name: "long.pdf", kind: .pdf, data: nil, pdfText: long) else {
+            preconditionFailure("a long PDF is attached, cut")
+        }
+        precondition(cut.text == "Fichier : long.pdf\n\n" + String(repeating: "é", count: ChatAttachment.maxPDFCharacters)
+                     + "\n\n[Texte coupé à 200 000 caractères.]",
+                     "never more than 200 000 characters of the PDF, and the cut is said")
+        let exact = String(repeating: "a", count: ChatAttachment.maxPDFCharacters)
+        guard case .ready(let whole) = ChatAttachment.make(name: "x.pdf", kind: .pdf, data: nil, pdfText: exact) else {
+            preconditionFailure("200 000 characters fit")
+        }
+        precondition(!whole.text.contains("coupé"), "a PDF that fits is not marked as cut")
+        precondition(ChatAttachment.make(name: "scan.pdf", kind: .pdf, data: nil, pdfText: nil)
+                     == .refused("Ce PDF ne contient pas de texte lisible."))
+        precondition(ChatAttachment.make(name: "scan.pdf", kind: .pdf, data: nil, pdfText: " \n\t ")
+                     == .refused("Ce PDF ne contient pas de texte lisible."))
+
+        // UTF-8 text up to 200 KB goes inline, under its name.
+        precondition(ChatAttachment.maxTextBytes == 200_000)
+        guard case .ready(let text) = ChatAttachment.make(name: "notes.md", kind: .text,
+                                                          data: Data("# Titre\nligne".utf8), pdfText: nil) else {
+            preconditionFailure("a small text file is attached")
+        }
+        precondition(text.text == "Fichier : notes.md\n\n# Titre\nligne" && text.image == nil)
+        if case .refused = ChatAttachment.make(name: "a.txt", kind: .text, data: Data(count: 200_000), pdfText: nil) {
+            preconditionFailure("200 000 bytes exactly are accepted")
+        }
+        precondition(ChatAttachment.make(name: "a.txt", kind: .text, data: Data(repeating: 0x61, count: 200_001), pdfText: nil)
+                     == .refused("Ce fichier dépasse 200 Ko."))
+        precondition(ChatAttachment.make(name: "a.txt", kind: .text, data: Data([0xFF, 0xFE, 0x00, 0xC3]), pdfText: nil)
+                     == .refused("Impossible de lire ce fichier."), "a text file that is not UTF-8 is refused")
+
+        // Anything else, or a file that could not be read: refused, Claude is not started.
+        precondition(ChatAttachment.make(name: "a.zip", kind: .unsupported, data: Data([1]), pdfText: nil)
+                     == .refused("Ce type de fichier n'est pas pris en charge."))
+        precondition(ChatAttachment.unsupportedMessage == "Ce type de fichier n'est pas pris en charge.")
+        precondition(ChatAttachment.make(name: "a.png", kind: .image(mediaType: "image/png"), data: nil, pdfText: nil)
+                     == .refused("Impossible de lire ce fichier."))
+        precondition(ChatAttachment.make(name: "a.txt", kind: .text, data: nil, pdfText: nil)
+                     == .refused("Impossible de lire ce fichier."))
+    }
+
+    static func chatAttachmentReadsTheFile() {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("klayer-chat-attachment-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func file(_ name: String, _ data: Data) -> URL {
+            let url = dir.appendingPathComponent(name)
+            precondition(FileManager.default.createFile(atPath: url.path, contents: data))
+            return url
+        }
+
+        let notes = file("Notes.TXT", Data("Bonjour Klay".utf8))
+        guard case .ready(let text) = ChatAttachment.load(url: notes) else {
+            preconditionFailure("a text file on disk is attached")
+        }
+        precondition(text.text == "Fichier : Notes.TXT\n\nBonjour Klay", "the kind comes from the extension, any case")
+
+        let picture = file("photo.webp", Data([1, 2, 3]))
+        guard case .ready(let image) = ChatAttachment.load(url: picture) else {
+            preconditionFailure("an image on disk is attached")
+        }
+        precondition(image.image == ChatImage(mediaType: "image/webp", base64: Data([1, 2, 3]).base64EncodedString()))
+
+        // Too big: refused from the size on disk.
+        let big = file("big.log.txt", Data(repeating: 0x61, count: ChatAttachment.maxTextBytes + 1))
+        precondition(ChatAttachment.load(url: big) == .refused("Ce fichier dépasse 200 Ko."))
+        let huge = file("huge.png", Data(count: ChatAttachment.maxImageBytes + 1))
+        precondition(ChatAttachment.load(url: huge) == .refused("Cette image dépasse 5 Mo."))
+
+        precondition(ChatAttachment.load(url: file("archive.zip", Data([1]))) == .refused(ChatAttachment.unsupportedMessage))
+        precondition(ChatAttachment.load(url: dir.appendingPathComponent("gone.txt")) == .refused("Impossible de lire ce fichier."),
+                     "a file that is gone is refused, never a crash")
+    }
+
+    static func chatMessageCarriesContextAndQuestion() {
+        // The question alone.
+        let plain = ChatOutgoing.compose(query: "Quelle heure ?", windowContext: nil, attachment: nil, transcript: nil)
+        precondition(plain == ChatOutgoing(text: "Quelle heure ?", images: []))
+
+        // The window the user attached, as text before the question.
+        let window = ChatOutgoing.windowContext(appName: "Safari", title: "Devis Nortex", url: "https://exemple.fr/devis")
+        precondition(window == "Contexte : fenêtre « Devis Nortex » de l'app Safari, URL https://exemple.fr/devis")
+        precondition(ChatOutgoing.windowContext(appName: "Notes", title: "Courses", url: nil)
+                     == "Contexte : fenêtre « Courses » de l'app Notes")
+        precondition(!window.contains("\u{2014}"), "no em dash")
+
+        // Everything at once: earlier exchanges, window, file, question, in that order; the
+        // image of the file goes first in the line.
+        let attachment = ChatAttachment(name: "capture.png", text: "Fichier : capture.png",
+                                        image: ChatImage(mediaType: "image/png", base64: "QUJD"))
+        let full = ChatOutgoing.compose(query: "Que vois-tu ?", windowContext: window, attachment: attachment,
+                                        transcript: "Échanges précédents")
+        precondition(full.text == "Échanges précédents\n\n\(window)\n\nFichier : capture.png\n\nQue vois-tu ?")
+        precondition(full.images == [ChatImage(mediaType: "image/png", base64: "QUJD")])
+
+        let line = full.line
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              let content = (object["message"] as? [String: Any])?["content"] as? [[String: Any]] else {
+            preconditionFailure("the message reads back as a user line")
+        }
+        precondition(line.hasSuffix("\n") && !line.dropLast().contains("\n"), "one line on stdin")
+        precondition(content.count == 2 && content[0]["type"] as? String == "image"
+                     && content[1]["text"] as? String == full.text, "the image first, then the text")
+    }
+
+    static func chatTranscriptKeepsTheLatestExchanges() {
+        precondition(ChatOutgoing.transcript([]) == nil, "a new conversation has no earlier exchange")
+        precondition(ChatOutgoing.transcript([(fromUser: true, text: "  "), (fromUser: false, text: "")]) == nil,
+                     "empty bubbles are not exchanges")
+        let two = ChatOutgoing.transcript([(fromUser: true, text: "Bonjour"), (fromUser: false, text: "Salut !")])
+        precondition(two == "Échanges précédents de cette conversation :\nUtilisateur : Bonjour\nKlay : Salut !")
+
+        // Over the limit, the oldest exchanges go first; the newest one is always kept.
+        let history = (1...50).map { (fromUser: $0 % 2 == 1, text: "message \($0) " + String(repeating: "x", count: 100)) }
+        guard let cut = ChatOutgoing.transcript(history, limit: 1_000) else {
+            preconditionFailure("a long history still gives a transcript")
+        }
+        precondition(cut.count <= 1_000 + 100, "about the limit, never the whole history")
+        precondition(cut.contains("message 50 "), "the newest message is kept")
+        precondition(!cut.contains("message 1 "), "the oldest message goes first")
+        let lines = cut.split(separator: "\n").dropFirst()
+        let numbers = lines.compactMap { line in line.split(separator: " ").dropFirst(3).first.flatMap { Int($0) } }
+        precondition(numbers == numbers.sorted() && numbers.last == 50, "in their order: \(numbers)")
+        precondition(ChatOutgoing.transcriptLimit == 20_000)
+
+        // One message alone longer than the limit keeps its end.
+        let single = ChatOutgoing.transcript([(fromUser: false, text: String(repeating: "a", count: 5_000) + "FIN")], limit: 1_000)
+        precondition(single?.hasSuffix("FIN") == true && (single?.count ?? 0) <= 1_100)
+    }
+
+    static func availabilityFromAuthStatus() {
+        let claudeAI = Data("{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"email\":\"a@b.fr\"}".utf8)
+        precondition(ClaudeCLI.availability(afterAuthStatus: .finished(status: 0, output: claudeAI)) == .ready)
+        precondition(ClaudeCLI.availability(afterAuthStatus: .launchFailed) == .missingCLI,
+                     "a binary that cannot be started is a missing Claude Code")
+        precondition(ClaudeCLI.availability(afterAuthStatus: .finished(status: 1, output: Data("{\"loggedIn\":false,\"authMethod\":\"none\"}".utf8)))
+                     == .notLoggedIn)
+        precondition(ClaudeCLI.availability(afterAuthStatus: .finished(status: 0, output: Data("{\"loggedIn\":true,\"authMethod\":\"api_key\"}".utf8)))
+                     == .notLoggedIn, "only the claude.ai login counts")
+        precondition(ClaudeCLI.availability(afterAuthStatus: .finished(status: 1, output: Data("oops".utf8))) == .notLoggedIn)
+        // 126 and 127: the binary is there but cannot run (an npm install whose node is gone).
+        precondition(ClaudeCLI.availability(afterAuthStatus: .finished(status: 127, output: Data())) == .missingCLI)
+        precondition(ClaudeCLI.availability(afterAuthStatus: .finished(status: 126, output: Data())) == .missingCLI)
+        precondition(ClaudeCLI.availability(afterAuthStatus: .timedOut) == nil,
+                     "a check that timed out says nothing: not cached, the chat is tried")
+        precondition(ClaudeCLI.authStatusArguments == ["auth", "status"])
+        precondition(ClaudeCLI.authStatusTimeout == 5 && ClaudeCLI.shellLookupTimeout == 3)
+        precondition(ClaudeCLI.chatIdleLimit == 600, "the chat process stops after 10 minutes without a message")
+    }
+
+    static func shellLookupReadsAnExecutablePath() {
+        let isExec: (String) -> Bool = { $0 == "/Users/test/.volta/bin/claude" }
+        precondition(ClaudeCLI.shellLookupArguments == ["-lc", "command -v claude"])
+        precondition(ClaudeCLI.shellLookupPath(output: "/Users/test/.volta/bin/claude\n", isExecutable: isExec)
+                     == "/Users/test/.volta/bin/claude")
+        // A login shell may print its own lines first: the path is the last line that is one.
+        precondition(ClaudeCLI.shellLookupPath(output: "Bienvenue\n  /Users/test/.volta/bin/claude  \n\n", isExecutable: isExec)
+                     == "/Users/test/.volta/bin/claude")
+        precondition(ClaudeCLI.shellLookupPath(output: "/opt/old/bin/claude\n/Users/test/.volta/bin/claude\n",
+                                               isExecutable: { _ in true }) == "/Users/test/.volta/bin/claude",
+                     "the answer of `command -v` is the last line the shell prints")
+        precondition(ClaudeCLI.shellLookupPath(output: "", isExecutable: isExec) == nil)
+        precondition(ClaudeCLI.shellLookupPath(output: "claude not found\n", isExecutable: { _ in true }) == nil)
+        precondition(ClaudeCLI.shellLookupPath(output: "claude: aliased to npx claude\n", isExecutable: { _ in true }) == nil,
+                     "an alias is not a binary")
+        precondition(ClaudeCLI.shellLookupPath(output: "/usr/bin/claude\n", isExecutable: isExec) == nil,
+                     "a path that is not executable is not taken")
+    }
+
+    static func chatSystemPrompt() {
+        let named = ClaudeCLI.chatSystemPrompt(firstName: "Théo")
+        precondition(named.hasPrefix("You are Klay, Théo's quick assistant in the notch of their Mac."))
+        let neutral = ClaudeCLI.chatSystemPrompt(firstName: nil)
+        precondition(neutral.hasPrefix("You are Klay, a quick assistant in the notch of the user's Mac."))
+        for prompt in [named, neutral] {
+            precondition(prompt.contains("no tools"), "Klay knows he has no tools")
+            precondition(prompt.contains("cannot open files, browse the web or run anything"))
+            precondition(prompt.contains("dropped"), "the dropped file is the only one he sees")
+            precondition(prompt.contains("short") && prompt.contains("user's language"))
+            precondition(prompt.contains("light Markdown") && prompt.contains("Avoid tables and big headings"))
+            precondition(!prompt.lowercased().contains("web search access"), "no web search any more")
+            precondition(!prompt.contains("\u{2014}") && !prompt.contains("\u{2013}"), "no em or en dash")
+        }
+    }
+
+    static func stderrTailAndLastLine() {
+        precondition(ClaudeCLI.stderrTailBytes == 4096)
+        var tail = Data()
+        tail = ClaudeCLI.appendingTail(tail, Data(repeating: 0x61, count: 3_000))
+        tail = ClaudeCLI.appendingTail(tail, Data("\nError: Invalid API key\n".utf8))
+        tail = ClaudeCLI.appendingTail(tail, Data(repeating: 0x62, count: 2_000) + Data("\nfatal: boom\n".utf8))
+        precondition(tail.count == ClaudeCLI.stderrTailBytes, "only the last 4 KB are kept")
+        precondition(String(decoding: tail, as: UTF8.self).hasSuffix("fatal: boom\n"))
+        precondition(ClaudeCLI.lastErrorLine(tail) == "fatal: boom")
+        precondition(ClaudeCLI.lastErrorLine(Data("Error: Invalid API key\n\n  \n".utf8)) == "Error: Invalid API key")
+        precondition(ClaudeCLI.lastErrorLine(Data()) == nil)
+        precondition(ClaudeCLI.lastErrorLine(Data(" \n\n".utf8)) == nil)
+        let long = ClaudeCLI.lastErrorLine(Data(String(repeating: "z", count: 1_000).utf8)) ?? ""
+        precondition(long.count == 200 && long.hasSuffix("…"), "a short error, cut at 200 characters")
     }
 }
