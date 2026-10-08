@@ -1,4 +1,9 @@
 import Foundation
+// On macOS, Foundation alone gives CGRect no minX/maxY/width/height: they come from
+// CoreGraphics. On Linux, Foundation already has them and CoreGraphics does not exist.
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// Resting island dimensions, using a physical notch only when the screen has one.
 struct IslandScreenGeometry {
