@@ -25,6 +25,9 @@ jobs:
       - name: Test Claude hook detection
         run: bash scripts/test-claude-hooks.sh
 
+      - name: Test hook routing
+        run: bash scripts/test-hook-routing.sh
+
       - name: Test display choice
         run: bash scripts/test-display-choice.sh
 
