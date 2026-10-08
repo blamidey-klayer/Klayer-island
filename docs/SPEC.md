@@ -1,4 +1,4 @@
-# Notch Buddy — spécification
+# Klayer Island — spécification
 
 Toutes les mesures sont en points macOS. Les valeurs viennent de `reference/notch-buddy.html` (constantes `NW`, `NH`, `EW`, `VIEWS`, `STATES`, `EMOTES`, `PISTES`, `AGENTS`, classe `Bot`). En cas de doute, relire le code du prototype.
 
@@ -38,7 +38,7 @@ Toutes les mesures sont en points macOS. Les valeurs viennent de `reference/notc
 
 Grille compact : pastilles Ø 9,5 autour du point (largeur − 27, hN/2), écart ±6. 1 agent : centré. 2 : côte à côte. 3 : deux en haut, un en bas. 4 : carré.
 
-## 3. Règles de comportement (validées par Louis)
+## 3. Règles de comportement
 
 1. **Rien ne tourne** → `hidden`. Totalement invisible.
 2. **Souris sur le notch** alors que `hidden` → `peek` immédiatement, le bonhomme sort en faisant klayer (mains + son `peek` + son `greet`). Si la souris reste 650 ms → `expanded` (vue `overview`, ou `empty` s'il n'y a aucune tâche). Si elle part pendant le peek → retour `hidden` après 600 ms.
@@ -120,7 +120,7 @@ Règles :
 - Max 4 pastilles autres que `mainPillId` actives à la fois (`activeIntegrations`, persisté).
 - `removeTask` sur `mainPillId` ou une pastille déclarée + active → reset à `.idle` + `pillBadge = nil` + nom du catalogue (pas de suppression). Sinon → suppression normale.
 - `sortTasksByCatalog` : pastilles du catalogue dans l'ordre du catalogue ; pastilles hors catalogue juste après `integration_claude`.
-- Pastilles `githubOnly` : exclues des builds App Store (`#if APPSTORE`).
+- Pastilles `githubOnly` : historiquement exclues du build App Store de Coucou ; Klayer Island n'a pas de build App Store.
 - Hooks (Gemini CLI, Antigravity, Codex, Copilot CLI, Muse Code) et plugins (OpenCode, Amp, Hermes) : `isConfigured` = méthodes correspondantes de `HookServer` sous `#if !APPSTORE`. La section Codex Hooks dans Settings installe les hooks dans `~/.codex/hooks.json` avec le même flux backup + preview que Gemini CLI. Après l'installation, la carte affiche : « run /hooks in Codex or open Hooks in the app's settings to trust them ». Approbations Codex, Copilot CLI, Muse Code : carte avec Allow et Deny seulement (pas Always) ; updatedPermissions jamais envoyé pour Codex/Copilot/Muse ; notes « Handled in Codex. » / « Handled in Copilot CLI. » / « Handled in Muse Code. ». OpenCode : plugin JS dans `~/.config/opencode/plugins/klayer.js`, événements mappés via EVENT_MAP, lecture depuis `event.properties`. Amp : plugin TypeScript dans `~/.config/amp/plugins/klayer.ts`, `tool.call` retourne toujours `{ action: 'allow' }`. Hermes : plugin Python dans `~/.hermes/plugins/klayer/__init__.py`, approuver depuis le notch nécessite `register_approval_transport` (non disponible en 0.15.x) ; en attendant, `pre_approval_request` affiche « ⏳ Approval pending in Hermes » dans le fil.
 - Pastilles IA (cloud) : `isConfigured` = clé API dans le Keychain. Pastilles IA locales (Ollama, LM Studio) : `isConfigured` = URL serveur non vide (définie via le bouton **Connect** dans Réglages → Chat). Bouton « Chat with… » → change le fournisseur et ouvre la vue `.prompt`.
 
@@ -154,28 +154,30 @@ Nom d'une session Claude Code = nom du dossier de travail (`cwd`), avec une tabl
 
 ## 7. Le personnage : Klay
 
-Porter la classe `Bot` du prototype **telle quelle** en Swift (`Canvas` dans `TimelineView(.animation(paused:))`). Constantes Klay (`PISTES.klay`) :
+Référence de rendu : `windows/src/klay/engine.ts` (portée en Swift dans `KlayerIslandKit`). Unités : unités du glyphe (le glyphe Klayer fait 797 × 512), origine au centre du moyeu (la partie pleine sous les rayons), y vers le bas.
 
-- R = 0,3 × côté du canvas. Corps : superellipse d'exposant 2,7, rayons rx = 1,14 R, ry = 0,88 R, décalé de +0,06 R vers le bas.
-- Dégradé du corps : `#FFFAF5` (haut droite) → `#DDCCBF` (bas gauche). Teinte d'état : dégradé linéaire de bas en haut, couleur d'état à 92 % × tint jusqu'à transparent à −0,25 ry. Ombrage radial (bord 20 % noir) et reflet radial blanc 55 % en haut à droite.
-- Joues : deux ellipses rose `rgba(255,120,150,.5 × blush)`, blush minimum 0,35 pour Klay, suivent le regard.
-- Yeux : encre `#1A1412`, largeur 0,25 R, hauteur 0,27 R, écart angulaire ±0,37 rad, inclinaison verticale −0,12 rad. Projection sur une sphère (yaw, pitch, roll) avec raccourci de perspective et découpe par la silhouette : c'est ce qui donne les roulades (les yeux sortent par le haut et reviennent par le bas).
-- Regard : suit la souris avec retard (`tanh(dx/260)`, `tanh(dy/200)`, lissage exponentiel). Clignement aléatoire toutes les 2,2 à 5,4 s, double clignement 22 % du temps.
-- Mini-bonhommes : même moteur, corps teinté de la couleur de l'agent, badges réduits.
-- Canvas du gros bonhomme : 230 pt × 2 (Retina) ; mini : 76 pt × 2.
+- **Corps** : le glyphe Klayer (`glyph.ts`, généré depuis le SVG du design system), blanc sur l'île sombre, jamais redessiné ni déformé. Il occupe 62 % de la largeur du canvas. Écrasements, inclinaisons, sauts et vrilles s'appliquent au personnage entier.
+- **Halo** : dégradé radial de la couleur de l'état derrière les rayons, rayon 380 unités, opacité 0,55 × teinte au centre. Au repos : teal-light Klayer `#3E7280`, teinte 0,35.
+- **Yeux** : deux yeux ronds blancs (rayon 52, écart ±56, liseré teal-deep `#071B20` de 9) posés sur le moyeu. La forme d'œil (pilule, arc content, fente, spirale, cœur, étoile…) se dessine dans chaque œil en teal-deep. Le regard décale l'œil (×0,4) et la pupille (×0,8) jusqu'à ±14 unités en x et ±12 en y.
+- **Bras** : nouilles blanches de 26 unités, liseré teal-deep de 7, mains rondes (rayon 26), devant le glyphe pour rester lisibles sur les rayons. Épaules à (±82, 50). La pose des mains dépend de l'état (`limbTargets`) : repos (±168, 150), tape au clavier en `working`, main au menton en `thinking`, visière en `searching`, bras levés en `approval`, grattage de tête en `question`, bras ballants en `error`, `ratelimit` et `sleeping`, V en `finished`, moulinets en `dizzy`. Salut : main droite levée, va-et-vient à 13 rad/s.
+- **Jambes** : deux jambes blanches derrière le glyphe, hanches à (±17, 104), pieds ovales (32 × 15) à (±36, 212). Piétinement en `working`.
+- **Membres masqués** en dessous de 30 px de largeur de glyphe (île compacte).
+- **Boîte aux lettres** (dépôt de fichier) : le glyphe rétrécit et s'efface, une boîte blanche à dégradé brume `#ECEDE7` apparaît avec une fente sombre et les mêmes yeux.
+- **Mini-Klay** (pastilles d'agents et de services) : glyphe blanc et yeux sur un disque de la couleur de la pastille, sans membres.
+- Regard : suit la souris avec retard. Clignement aléatoire toutes les 2,2 à 5,4 s, double clignement 22 % du temps.
 
 ### États (`STATES`)
 
 | Clé | Libellé | Couleur | Teinte | Yeux | Badge | Particularité |
 |---|---|---|---|---|---|---|
-| `idle` | Au repos | `#E6E9EE` | 0 | pilule | aucun | |
+| `idle` | Au repos | `#3E7280` | 0,35 | pilule | aucun | |
 | `working` | Travaille | `#3B9EFF` | 0,72 | pilule | pilule « ••• » animée | |
 | `thinking` | Réfléchit | `#8B5CF6` | 0,72 | pilule | « ••• » | regarde en haut à droite |
 | `searching` | Cherche | `#6366F1` | 0,72 | pilule | « ••• » | yeux qui balaient de gauche à droite |
 | `approval` | Attend ton feu vert | `#F5A524` | 0,78 | grands | « ! » | petits sauts en boucle |
-| `question` | Pose une question | `#22D3EE` | 0,75 | pilule | « ? » | tête penchée 0,17 rad |
-| `error` | Erreur | `#F4505E` | 0,78 | plats | point rouge | secousse horizontale à l'entrée |
-| `finished` | Terminé | `#34D399` | 0,35 | contents (arc) | point vert | roulade complète 950 ms + étincelles |
+| `question` | Pose une question | `#22D3EE` | 0,75 | pilule | « ? » | tête penchée 0,12 rad, se gratte la tête |
+| `error` | Erreur | `#DE623B` | 0,78 | plats | point brique | secousse horizontale à l'entrée |
+| `finished` | Terminé | `#34D399` | 0,5 | contents (arc) | point vert | saut + vrille de 700 ms + étincelles |
 | `ratelimit` | Limite atteinte | `#FB923C` | 0,72 | fatigués | point orange | gouttes de sueur |
 | `sleeping` | Dort | `#94A3B8` | 0,32 | fermés | aucun | respiration, « z » qui montent |
 | `dizzy` | Sonné | `#F472B6` | 0,7 | spirales | aucun | double roulade 1,3 s |
@@ -246,37 +248,9 @@ Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Hotkey** : raccourci global pour ouvrir le notch.
 - **Startup** : lancer au démarrage (`SMAppService.mainApp`).
 
-### Garde-robe (`WardrobeView`)
+### Clic droit sur Klay
 
-Accessible par clic droit sur la tête de Klay (étendu ou compact). L'île s'étend sur `.wardrobe`.
-
-**Mise en page** : Klay à gauche (même position qu'overview, avec la tenue survolée en aperçu direct). À droite : en-tête « Wardrobe » 12 pt semibold + la tenue sélectionnée en 11 pt #8E939C. Si Auto : « Auto · Witch hat » (tenue de saison actuelle).
-
-Grille de pastilles 30 pt, coins 7 pt, fond blanc 6 %, bord blanc 8 % (sélectionnée : 40 %). Chaque pastille affiche l'accessoire dessiné en Canvas statique. La pastille **Auto** porte un badge « AUTO » en 8 pt ; au survol, l'en-tête de droite affiche le nom de la tenue de saison (ou « None » si aucune). Survol : fond 10 % + aperçu sur Klay. Clic → sélectionne, sauvegarde, son « pop », émote proud.
-
-**Affichage de la tenue** : la tenue n'est visible sur le gros Klay que quand `focusId == mainPillId` (ou `focusId == nil`), ou quand l'île n'est pas en mode expanded, ou quand la vue active est `.wardrobe`. Dans tous les autres cas (focus sur une autre tâche en expanded), Klay porte `.none`.
-
-**Transitions** : chaque accessoire dispose d'une valeur `presence` (0 → 1, animée en 350 ms `Ease.inOut`). À l'entrée, la position est interpolée avec `Ease.back` (légère surcourse). Chaque accessoire est dessiné dans un calque dédié (`GraphicsContext.drawLayer`) pour éviter les transparences parasites entre formes superposées ; opacité du calque = `min(1, presence × 2.5)`. Déplacements typiques à l'entrée : chapeaux descendent de 1,0 ry ; oreilles montent ; écharpe et nœud émergent de leur position de repos.
-
-**Physique** : `physDx` et `physDy` (ressort ω₀ ≈ √60 rad/s, ζ ≈ 0,6) suivent la vélocité du yaw (décalage horizontal) et du bounce (décalage vertical). Impulsions supplémentaires : `physVy += 0,6` lors d'un écrasement (`squash`) ; force centrifuge `rollVel × 0,18` ajoutée à la cible de `physDx` pendant la roulade avec tenue.
-
-**Roulade** : quand Klay porte une tenue (`outfit != .none`, `outfitPresence > 0,05`), la roulade est **rigide** — tout Klay (mains derrière, accessoires, corps, yeux, mains devant) est dessiné dans un contexte tourné de `roll` autour du centre du corps. Les accessoires utilisent une projection sans roll (`H.roll = 0`) et restent posés sur la tête ; ils co-tournent via le contexte. Particules et badge sont dessinés hors du contexte tourné. Quand aucune tenue n'est portée, la roulade originale s'applique (illusion sphérique par les yeux uniquement).
-
-**Fermeture** : Échap, clic maison, ou clic droit sur Klay à nouveau.
-
-**Référence visuelle** : `design/outfits/` (`klay-outfits.js`, `sheet.html`, `klay-outfits-reference.png`). Outil de développement : `scripts/render-outfits.sh` (hors CI) — génère `/tmp/klayer-outfits.png`, `/tmp/klayer-roll.png`, `/tmp/klayer-transition.png`.
-
-**Calendrier des saisons** (mode Auto) :
-- 1 oct – 1 nov : Witch hat
-- 1 déc – 26 déc : Santa hat
-- 31 déc – 2 jan : Party hat
-- Pâques −2 / +1 : Bunny ears
-- 21 juin – 31 août : Sunglasses
-
-**Identifiants stables** (UserDefaults key `klayOutfit`) :
-`auto`, `none`, `partyHat`, `beanie`, `crown`, `witchHat`, `santaHat`, `bunnyEars`, `bow`, `sunglasses`, `roundGlasses`, `scarf`, `pumpkin`
-
-Les valeurs supprimées (`topHat`, `cap`, `heartsHeadband`, `strawHat`) sont migrées vers `auto` à la lecture.
+Un émote Amour (son `love`). La garde-robe de Coucou n'existe pas dans Klayer Island.
 
 ## 11. Jalons
 
@@ -303,7 +277,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 
 ## 13. Klay sur le bureau
 
-Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il conserve tout son comportement (tenue, émotes, suivi des yeux, danse) et réagit aux alertes.
+Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il conserve tout son comportement (émotes, suivi des yeux, danse) et réagit aux alertes.
 
 ### Pose et panneau
 
@@ -323,7 +297,7 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 |---|---|
 | Clic simple | Slap (`engine.slap()`) — différé de `NSEvent.doubleClickInterval` |
 | Double-clic | Annule le slap en attente ; vol vers la notch (`flyHome()`), island réapparaît |
-| Clic droit | Ouvre/ferme la garde-robe (`.openWardrobeFromDesktop`, sans `.hookExpand`) |
+| Clic droit | Émote Amour |
 | Glisser → zone notch | Vol vers la notch (`flyHome()`) |
 | Glisser → fenêtre (GitHub) | Attache le contexte, Klay revient à sa position initiale, island ouvre `.prompt` |
 | Glisser → ailleurs | Repositionne le panneau (borné au `visibleFrame`) |
@@ -331,7 +305,6 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 ### Personnage complet
 
 - Respiration, clignements, suivi des yeux depuis la position du panneau (pas depuis l'island).
-- Tenue : toujours celle de `state.resolvedOutfit` (main Klay = toujours habillé).
 - Danse : mêmes règles que le mode compact (musique + intégration active + état autorisé).
 - 30 fps actif, 10 fps au repos (`TimelineView` adapte `minimumInterval` selon `isSleeping`).
 
@@ -376,16 +349,14 @@ Ces raccourcis fonctionnent en arrière-plan sans permission Accessibilité.
 | Ouvrir le chat (`openChat`) | ⌃⌥Espace | `shortcut.openChat.keyCode` / `.flags` | Oui |
 | Aller à l'alerte (`goToAlert`) | ⌃⌥A | `shortcut.goToAlert.keyCode` / `.flags` | Oui |
 | Sauter au terminal (`jumpToTerminal`) | ⌃⌥T | `shortcut.jumpToTerminal.keyCode` / `.flags` | Oui |
-| Attacher la fenêtre active (`attachFrontWindow`) | ⌃⌥W | `shortcut.attachFrontWindow.keyCode` / `.flags` | Oui (hors App Store) |
+| Attacher la fenêtre active (`attachFrontWindow`) | ⌃⌥W | `shortcut.attachFrontWindow.keyCode` / `.flags` | Oui |
 | Pilule suivante (`nextPill`) | ⌃⌥] | `shortcut.nextPill.keyCode` / `.flags` | Oui |
 | Pilule précédente (`prevPill`) | ⌃⌥[ | `shortcut.prevPill.keyCode` / `.flags` | Oui |
 | Couper le son (`toggleMute`) | ⌃⌥M | `shortcut.toggleMute.keyCode` / `.flags` | Oui |
 | Klay sur le bureau (`toggleDesktopKlay`) | ⌃⌥D | `shortcut.toggleDesktopKlay.keyCode` / `.flags` | Oui |
-| Ouvrir la garde-robe (`openWardrobe`) | ⌃⌥G | `shortcut.openWardrobe.keyCode` / `.flags` | Oui |
 
 - Si Carbon ne peut pas enregistrer un raccourci (conflit système), l'action est marquée `.conflict` dans `HotKeyCenter` et un indicateur apparaît dans Réglages → Raccourcis.
 - `toggleIsland` conserve les clés UserDefaults historiques (`hotkeyCode`, `hotkeyFlags`, `hotkeyEnabled`) pour ne pas casser les préférences existantes.
-- Les actions marquées `isNonAppStore` (`attachFrontWindow`) sont omises du build App Store.
 
 ### 14.2 Raccourcis locaux (actifs quand l'île a le focus)
 

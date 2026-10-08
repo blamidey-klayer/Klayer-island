@@ -15,7 +15,6 @@ import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../klay/engine";
 import { Greeting } from "../klay/greeting";
 import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../klay/minibots";
-import { SeasonCache, parseOutfit } from "../klay/wardrobe";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
@@ -72,7 +71,6 @@ export class Island {
   private engine = new BotEngine();
   private greeting = new Greeting();
   private greetingShown = false;
-  private seasons = new SeasonCache();
 
   private running = false;
   private lastFrame = 0;
@@ -112,7 +110,6 @@ export class Island {
     this.root = root;
     this.desktop = new DesktopLink({
       reveal: () => this.reveal(),
-      wardrobeFromDesktop: () => this.wardrobeFromDesktop(),
       dizzyFromDesktop: () => this.handleDizzy(),
     });
     this.build();
@@ -233,18 +230,6 @@ export class Island {
       },
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
-      chooseOutfit: (selection) => {
-        if (parseOutfit(State.settings.klayOutfit) === selection) return;
-        State.settings.klayOutfit = selection;
-        void Bridge.saveSettings(State.settings);
-        Sound.play("pop");
-        this.engine.triggerEmote("proud");
-        State.notify();
-      },
-      previewOutfit: (outfit) => {
-        State.wardrobePreview = outfit;
-        State.notify();
-      },
     };
 
     this.wakeStrip = h("div", { id: "wake-strip" });
@@ -426,35 +411,13 @@ export class Island {
     this.fsm.reveal();
   }
 
-  /** Right-click on Klay: wardrobe open ↔ back to the usual view. */
-  toggleWardrobe() {
+  /** Right-click on Klay: a little love. */
+  loveTap() {
     if (State.paused || State.mode === "hidden") return;
     // The greeting and the drop sequence draw a Klay of their own.
     if (State.mode === "expanded" && (State.view === "greeting" || this.uploadActive)) return;
-    if (State.mode === "expanded" && State.view === "wardrobe") this.setView(State.defaultView());
-    else this.setView("wardrobe");
-  }
-
-  /**
-   * Right-click on the desktop Klay (macOS openWardrobeFromDesktop): opens the
-   * wardrobe from any state, or goes back if it is already open.
-   */
-  wardrobeFromDesktop() {
-    this.wardrobeAnywhere();
-  }
-
-  /**
-   * The wardrobe from any state — compact or hidden island included — or back
-   * to the usual view if it is already open. The desktop Klay's right-click
-   * and the wardrobe shortcut (`open-wardrobe`) both land here.
-   */
-  wardrobeAnywhere() {
-    if (State.mode === "expanded" && State.view === "wardrobe") {
-      this.setView(State.defaultView());
-      return;
-    }
-    if (State.paused) return;
-    this.alert("wardrobe");
+    Sound.play("love");
+    this.engine.triggerEmote("love");
   }
 
   /** An alert stopped waiting for an answer: let the island auto-close again. */
@@ -702,10 +665,10 @@ export class Island {
       if (e.button === 0 && this.isBotHit(e.clientX, e.clientY)) {
         this.botPress = { x: e.clientX, y: e.clientY };
       }
-      // Right-click on Klay opens the wardrobe, and closes it again.
+      // Right-click on Klay: a little love.
       if (e.button === 2 && this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
-        this.toggleWardrobe();
+        this.loveTap();
         return;
       }
       if (State.mode !== "expanded") {
@@ -718,7 +681,7 @@ export class Island {
       }
     });
 
-    // No browser menu over Klay: his right-click is the wardrobe. Everywhere
+    // No browser menu over Klay: his right-click is his own. Everywhere
     // else (the chat field) the webview keeps its own menu.
     this.islandEl.addEventListener("contextmenu", (e) => {
       if (this.isBotHit(e.clientX, e.clientY)) e.preventDefault();
@@ -1039,16 +1002,6 @@ export class Island {
         this.engine.slotHVel = 0;
       }
     }
-    // Only the main Klay is dressed — the one of the main tool's pill (Settings →
-    // Active pills): a focused integration pill shows its own colours, unless
-    // the wardrobe is open (BotCanvasView.showOutfit, macOS).
-    // In the wardrobe the hovered outfit swaps in at once, without the drop-in.
-    const inWardrobe = State.mode === "expanded" && State.view === "wardrobe";
-    const mainFocused = State.focusId == null || State.focusId === State.mainPillId;
-    const showOutfit = mainFocused || State.mode !== "expanded" || inWardrobe;
-    const outfit = State.wardrobePreview ?? this.seasons.get(parseOutfit(State.settings.klayOutfit));
-    this.engine.setOutfit(showOutfit ? outfit : "none", !inWardrobe);
-
     this.engine.update(dt);
     ctx.setTransform(dpr, 0, 0, dpr, BOT_SIDE * dpr, 0);
     ctx.clearRect(-BOT_SIDE, 0, wCss, hCss);
@@ -1098,8 +1051,6 @@ export class Island {
     // Leaving the greeting, however it ends, lets its sound fade out.
     if (this.greetingShown && !greetingActive) this.greeting.leave();
     this.greetingShown = greetingActive;
-    // A wardrobe try-on never outlives the wardrobe.
-    if (State.wardrobePreview && !(expanded && State.view === "wardrobe")) State.wardrobePreview = null;
 
     this.header.sync();
     for (const [name, view] of this.views) {

@@ -64,10 +64,6 @@ async function main() {
         setPaused(false);
         void Recap.open(island);
         break;
-      case "wardrobe":
-        setPaused(false);
-        island.alert("wardrobe");
-        break;
       case "pause":
         setPaused(!State.paused);
         if (State.paused) island.fsm.forceHidden();

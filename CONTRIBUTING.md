@@ -1,6 +1,6 @@
 # Contributing to Klayer Island
 
-Thanks for wanting to help Klay grow up! 🫶
+Thanks for helping Klay grow.
 
 ## Getting started
 

@@ -19,8 +19,6 @@ import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
 import { buildRecap } from "./recap";
-import { buildWardrobe } from "./wardrobe";
-import type { Outfit, OutfitSelection } from "../klay/wardrobe";
 import { language, t, tl, type Msg } from "../i18n/i18n";
 
 export interface ViewActions {
@@ -45,10 +43,6 @@ export interface ViewActions {
   setAutoClose(seconds: number): void;
   openSettingsWindow(): void;
   blip(): void;
-  /** Wardrobe click: keeps the outfit ("auto" and "none" included). */
-  chooseOutfit(selection: OutfitSelection): void;
-  /** Wardrobe hover: shows an outfit on Klay without keeping it; null ends it. */
-  previewOutfit(outfit: Outfit | null): void;
 }
 
 export interface ViewHost {
@@ -763,7 +757,6 @@ export function buildViews(
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   map.set("recap", buildRecap(actions));
-  map.set("wardrobe", buildWardrobe(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));

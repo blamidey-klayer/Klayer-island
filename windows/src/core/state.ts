@@ -10,7 +10,6 @@ import type { CodexPlanUsage, PlanUsage } from "./plan";
 import type { ProviderId } from "./providers";
 import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
-import { DEFAULT_OUTFIT, type Outfit } from "../klay/wardrobe";
 import { pillColor } from "./pill-colors";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
@@ -128,11 +127,6 @@ export interface Settings {
   /** Global shortcuts the user changed, by action id (see core/shortcuts.ts). */
   shortcuts: Bindings;
   /**
-   * Klay's outfit: "auto" (dresses for the season), "none" or an outfit id.
-   * Same raw values as the Mac's "klayOutfit"; read it through parseOutfit.
-   */
-  klayOutfit: string;
-  /**
    * A colour of the user's own for a pill's Klay, by pill ID ("#RRGGBB").
    * Empty means the catalog's colours; read it through core/pill-colors.ts.
    * Same key and values as the Mac's "pillColors".
@@ -172,7 +166,6 @@ export const DEFAULT_SETTINGS: Settings = {
   lmstudioUrl: "",
   customUrl: "",
   shortcuts: {},
-  klayOutfit: DEFAULT_OUTFIT,
   pillColors: {},
   language: "",
 };
@@ -234,9 +227,6 @@ class AppState {
    * there — so the island's own Klay is hidden (AppState.klayOnDesktop).
    */
   klayOnDesktop = false;
-
-  /** Outfit shown on Klay while the pointer rests on a wardrobe button. */
-  wardrobePreview: Outfit | null = null;
 
   lastActivity = performance.now();
 

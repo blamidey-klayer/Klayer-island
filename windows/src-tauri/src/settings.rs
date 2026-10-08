@@ -50,17 +50,13 @@ pub struct Settings {
     /// Global shortcuts the user changed, by action id; the others keep their
     /// default (see shortcuts.rs).
     pub shortcuts: crate::shortcuts::Bindings,
-    /// Klay's outfit, picked in the wardrobe: "auto" (dresses for the
-    /// season), "none" or an outfit id — the Mac's raw values. The island reads
-    /// anything it doesn't know as "auto", so the value is stored as it comes.
-    pub klay_outfit: String,
     /// A colour of the user's own for a pill's Klay, by pill ID ("#RRGGBB"),
     /// picked in Settings → Active pills. Empty means the catalog's colours.
-    /// Kept as it comes, like `klay_outfit`: src/core/pill-colors.ts reads
+    /// Kept as it comes: src/core/pill-colors.ts reads
     /// whatever is not a colour as "no choice".
     pub pill_colors: BTreeMap<String, String>,
     /// Interface language: "" follows the system, else one of i18n::LANGUAGES
-    /// ("fr", "pt-BR", "zh-Hans"…). Kept as it comes, like `klay_outfit`: a
+    /// ("fr", "pt-BR", "zh-Hans"…). Kept as it comes: a
     /// code this build doesn't know reads as "".
     pub language: String,
     /// Klay on the desktop: whether he lives there, and his spot. Owned by
@@ -116,7 +112,6 @@ impl Default for Settings {
             lmstudio_url: String::new(),
             custom_url: String::new(),
             shortcuts: Default::default(),
-            klay_outfit: "auto".into(),
             pill_colors: BTreeMap::new(),
             language: String::new(),
             desktop_klay: DesktopKlayPref::default(),
@@ -392,7 +387,6 @@ mod tests {
   "lmstudioUrl": "http://127.0.0.1:1234",
   "customUrl": "https://llm.example.com",
   "shortcuts": { "openChat": { "keys": "Ctrl+Shift+K", "enabled": false } },
-  "klayOutfit": "witchHat",
   "pillColors": { "integration_claude": "#2DD4BF" },
   "language": "pt-BR",
   "desktopKlay": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } }
@@ -486,19 +480,11 @@ mod tests {
     }
 
     #[test]
-    fn a_file_from_before_the_wardrobe_dresses_klay_for_the_seasons() {
-        let loaded = parse(&custom_with("klayOutfit", None)).unwrap();
-        assert_eq!(loaded.klay_outfit, "auto");
-        assert_eq!(loaded.model, "some-model");
-        assert!(!loaded.sound_enabled);
-    }
-
-    #[test]
     fn a_file_from_before_the_desktop_klay_keeps_him_in_the_island() {
         let loaded = parse(&custom_with("desktopKlay", None)).unwrap();
         assert_eq!(loaded.desktop_klay, DesktopKlayPref::default());
         assert!(!loaded.desktop_klay.on_desktop);
-        assert_eq!(loaded.klay_outfit, "witchHat");
+        assert_eq!(loaded.model, "some-model");
     }
 
     #[test]
@@ -521,7 +507,7 @@ mod tests {
     fn a_file_from_before_the_colours_paints_every_pill_as_the_catalog_says() {
         let loaded = parse(&custom_with("pillColors", None)).unwrap();
         assert!(loaded.pill_colors.is_empty());
-        assert_eq!(loaded.klay_outfit, "witchHat");
+        assert_eq!(loaded.model, "some-model");
     }
 
     #[test]
@@ -536,12 +522,8 @@ mod tests {
     }
 
     #[test]
-    fn an_outfit_this_build_does_not_know_is_kept_as_written() {
-        // A newer build may add outfits: the island shows "auto" for it, but
-        // the choice must survive a save made by this one.
-        let loaded = parse(&custom_with("klayOutfit", Some(json!("topHat")))).unwrap();
-        assert_eq!(loaded.klay_outfit, "topHat");
-        // The language too: "" (follow the system) when absent, as it comes otherwise.
+    fn the_language_is_kept_as_written() {
+        // "" (follow the system) when absent, as it comes otherwise.
         assert_eq!(parse(&custom_with("language", None)).unwrap().language, "");
         assert_eq!(parse(&custom_with("language", Some(json!("xx")))).unwrap().language, "xx");
     }
@@ -794,7 +776,6 @@ mod tests {
                 "lmstudioUrl",
                 "customUrl",
                 "shortcuts",
-                "klayOutfit",
                 "pillColors",
                 "language",
                 "desktopKlay",

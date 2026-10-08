@@ -1,14 +1,17 @@
-// Klay — direct port of NotchBuddy/Sources/App/BotEngine.swift to Canvas 2D.
-// Same constants, same tweens, same easings, same particles. The only intentional
-// difference is the `happy`/`wink` eye arc, which follows the prototype
-// (design/prototype/notch-buddy.html, the visual source of truth) — the Swift
-// arc angles produce a different shape.
+// Klay — the Klayer Island character, drawn in Canvas 2D.
+//
+// The body is the Klayer glyph itself (glyph.ts), drawn white on the dark
+// island, never reshaped. Klay's character comes from what is added around it:
+// two eyes on the solid hub under the rays, noodle arms with round hands, two
+// little legs under the tip, and a glow of the current state's colour behind
+// the rays, like the sun the mark already draws. The state machine, tweens and
+// particles keep the engine's original timings (MIT code from Coucou); the
+// drawing below is Klay's own.
 
 import { Ease, lerp, type EaseFn } from "../core/anim";
 import { Sound } from "../core/sound";
 import type { BotEmoteName, BotStateName } from "../core/layout";
-import { PUMPKIN_BODY, drawOutfitBehind, drawOutfitFront, makeHead } from "./outfits";
-import type { Outfit } from "./wardrobe";
+import { GLYPH_W, glyphPath } from "./glyph";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,8 +41,7 @@ interface Tween {
 
 type PropKey =
   | "yaw" | "pitch" | "roll" | "tilt" | "open" | "sx" | "sy"
-  | "oy" | "ox" | "tint" | "morph" | "hands" | "blush" | "es" | "badgeS"
-  | "outfitPresence";
+  | "oy" | "ox" | "tint" | "morph" | "hands" | "blush" | "es" | "badgeS";
 
 interface BotStateCfg {
   color: RGB;
@@ -61,25 +63,68 @@ interface Particle {
   age: number; life: number; rot: number; size: number;
 }
 
-// ── Constants (KlayConst / PISTES.klay) ─────────────────────────────────────
+/** A point in Klay's own frame: glyph units, origin on the hub, y down. */
+interface P { x: number; y: number }
 
-const EYE_W = 0.25;
-const EYE_H = 0.27;
-const EYE_SP = 0.37;
-const EYE_P = -0.12;
-const BASE_TOP: RGB = [0.929, 0.929, 0.937]; // #EDEDEF
-const BASE_BOTTOM: RGB = [0.769, 0.773, 0.792]; // #C4C5CA
-const INK = "rgb(26,20,18)"; // #1A1412
-const MINI_INK = "rgb(16,19,26)"; // #10131A
+// ── Geometry (glyph units: the glyph is 797 × 512) ───────────────────────────
+
+/** Hub centre in the glyph — the solid part under the rays, where the face sits. */
+const HUB_X = 398.5;
+const HUB_Y = 400;
+/** Eyes, relative to the hub centre: two round eyes, white with a teal-deep rim. */
+const EYE_DX = 56;
+const EYE_DY = -6;
+const EYE_R = 52;
+const EYE_RIM = 9;
+/** The pupil (or whatever shape the eye takes) inside each eye. */
+const EYE_W = 33;
+const EYE_H = 52;
+/** Shoulders and hips, relative to the hub centre. */
+const SHOULDER: P = { x: 82, y: 50 };
+const HIP: P = { x: 17, y: 104 };
+/** Where the hands and feet rest. */
+const HAND_REST: P = { x: 168, y: 150 };
+const FOOT_REST: P = { x: 36, y: 212 };
+const LIMB_W = 26;
+const LIMB_RIM = 7;
+const HAND_R = 26;
+const FOOT_RX = 32;
+const FOOT_RY = 15;
+/** Top and bottom of the whole character (glyph top, soles), relative to the hub. */
+const TOP = -HUB_Y;
+const BOTTOM = FOOT_REST.y + FOOT_RY;
+/** Vertical offset that centres the character's full height on the canvas centre. */
+const CENTER_Y = (TOP + BOTTOM) / 2;
+/** Klay's figure, for whoever draws him outside the engine (the launch greeting). */
+export const KLAY_FIGURE = {
+  top: TOP,
+  bottom: BOTTOM,
+  centerY: CENTER_Y,
+  halfWidth: 398.5,
+  handRest: HAND_REST,
+  footRest: FOOT_REST,
+} as const;
+/** Fraction of the canvas width the glyph spans. */
+const GLYPH_SPAN = 0.62;
+/** Below this glyph width (px) the limbs would be sub-pixel noise: they are left out. */
+const LIMBS_MIN_PX = 30;
+
+// ── Colours ───────────────────────────────────────────────────────────────────
+
+/** Glyph white on the dark island (the brand's glyph-white). */
+const BODY = "#FFFFFF";
+/** Eyes: Klayer teal-deep. */
+export const INK = "rgb(7,27,32)"; // #071B20
+const MINI_INK = "rgb(7,27,32)";
 
 const C = {
-  idle: [0.902, 0.914, 0.933] as RGB,
+  idle: [0.243, 0.447, 0.502] as RGB, // Klayer teal-light #3E7280
   working: [0.231, 0.62, 1] as RGB,
   thinking: [0.545, 0.361, 0.965] as RGB,
   searching: [0.388, 0.396, 0.949] as RGB,
   approval: [0.961, 0.647, 0.141] as RGB,
   question: [0.133, 0.827, 0.933] as RGB,
-  error: [0.957, 0.314, 0.369] as RGB,
+  error: [0.871, 0.384, 0.231] as RGB, // brick, brightened for the dark island
   finished: [0.204, 0.831, 0.6] as RGB,
   ratelimit: [0.984, 0.573, 0.235] as RGB,
   sleeping: [0.58, 0.635, 0.722] as RGB,
@@ -92,16 +137,16 @@ const base = {
 };
 
 export const BOT_STATES: Record<BotStateName, BotStateCfg> = {
-  idle: { ...base, color: C.idle, tint: 0, eye: "pill", badge: null },
+  idle: { ...base, color: C.idle, tint: 0.35, eye: "pill", badge: null },
   working: { ...base, color: C.working, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.working } },
-  thinking: { ...base, color: C.thinking, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.thinking }, look: [0.55, 0.55] },
+  thinking: { ...base, color: C.thinking, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.thinking }, look: [0.55, -0.55] },
   searching: { ...base, color: C.searching, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.searching }, scans: true },
   approval: { ...base, color: C.approval, tint: 0.78, eye: "wide", badge: { kind: "bang", color: C.approval }, bounces: true },
-  question: { ...base, color: C.question, tint: 0.75, eye: "pill", badge: { kind: "question", color: C.question }, tilt: 0.17 },
+  question: { ...base, color: C.question, tint: 0.75, eye: "pill", badge: { kind: "question", color: C.question }, tilt: 0.12 },
   error: { ...base, color: C.error, tint: 0.78, eye: "flat", badge: { kind: "dot", color: C.error } },
-  finished: { ...base, color: C.finished, tint: 0.35, eye: "happy", badge: { kind: "dot", color: C.finished } },
+  finished: { ...base, color: C.finished, tint: 0.5, eye: "happy", badge: { kind: "dot", color: C.finished } },
   ratelimit: { ...base, color: C.ratelimit, tint: 0.72, eye: "tired", badge: { kind: "dot", color: C.ratelimit }, sweat: true },
-  sleeping: { ...base, color: C.sleeping, tint: 0.32, eye: "closed", badge: null, breathes: true, zz: true },
+  sleeping: { ...base, color: C.sleeping, tint: 0.25, eye: "closed", badge: null, breathes: true, zz: true },
   dizzy: { ...base, color: C.dizzy, tint: 0.7, eye: "spiral", badge: null },
 };
 
@@ -165,33 +210,330 @@ function starPath(x: CanvasRenderingContext2D, ro: number, ri: number) {
 
 const FONT = `system-ui, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
 
+/** Where the hands and feet want to be for a state, at time `t` (seconds). */
+export function limbTargets(
+  state: BotStateName, t: number, waving: number,
+): { lh: P; rh: P; lf: P; rf: P } {
+  const rest = (sd: number, dy = 0): P => ({ x: sd * HAND_REST.x, y: HAND_REST.y + dy + Math.sin(t * 1.8 + sd) * 3 });
+  let lh = rest(-1);
+  let rh = rest(1);
+  let lf: P = { x: -FOOT_REST.x, y: FOOT_REST.y };
+  let rf: P = { x: FOOT_REST.x, y: FOOT_REST.y };
+
+  switch (state) {
+    case "working": {
+      // Busy hands, typing in turn, and a little march in place.
+      const k = Math.sin(t * 9);
+      lh = { x: -132, y: 104 + k * 14 };
+      rh = { x: 132, y: 104 - k * 14 };
+      lf = { x: -FOOT_REST.x, y: FOOT_REST.y - Math.max(0, Math.sin(t * 6)) * 10 };
+      rf = { x: FOOT_REST.x, y: FOOT_REST.y - Math.max(0, -Math.sin(t * 6)) * 10 };
+      break;
+    }
+    case "thinking":
+      // Hand on the chin.
+      rh = { x: 52 + Math.sin(t * 2) * 3, y: 92 };
+      break;
+    case "searching":
+      // A hand over the eyes, scanning the horizon.
+      rh = { x: 78, y: -34 + Math.sin(t * 2.6) * 4 };
+      break;
+    case "approval": {
+      // Both arms up, waving for attention.
+      const k = Math.sin(t * 11);
+      lh = { x: -196, y: -66 + k * 14 };
+      rh = { x: 196, y: -66 - k * 14 };
+      break;
+    }
+    case "question":
+      // Scratching the side of the head.
+      rh = { x: 150, y: -40 + Math.sin(t * 14) * 6 };
+      break;
+    case "error":
+      lh = { x: -112, y: 150 };
+      rh = { x: 112, y: 150 };
+      break;
+    case "finished":
+      // Arms up in a V.
+      lh = { x: -214, y: -96 + Math.sin(t * 4) * 5 };
+      rh = { x: 214, y: -96 - Math.sin(t * 4) * 5 };
+      break;
+    case "ratelimit":
+      lh = { x: -118, y: 158 };
+      rh = { x: 118, y: 158 };
+      break;
+    case "sleeping":
+      lh = { x: -122, y: 146 };
+      rh = { x: 122, y: 146 };
+      break;
+    case "dizzy":
+      lh = { x: -170 + Math.sin(t * 7) * 30, y: 40 + Math.cos(t * 9) * 50 };
+      rh = { x: 170 + Math.sin(t * 8 + 1) * 30, y: 40 + Math.cos(t * 7 + 2) * 50 };
+      lf = { x: -FOOT_REST.x - Math.max(0, Math.sin(t * 5)) * 12, y: FOOT_REST.y };
+      rf = { x: FOOT_REST.x + Math.max(0, -Math.sin(t * 5)) * 12, y: FOOT_REST.y };
+      break;
+    default:
+      break;
+  }
+
+  if (waving > 0) {
+    // The hello: right hand up, waving fast.
+    const wave = { x: 206 + Math.cos(13 * t) * 16, y: -40 - Math.sin(13 * t) * 26 };
+    rh = { x: lerp(rh.x, wave.x, waving), y: lerp(rh.y, wave.y, waving) };
+  }
+  return { lh, rh, lf, rf };
+}
+
+/** The glyph, white, placed so that its hub sits on Klay's origin. */
+export function drawKlayGlyph(x: CanvasRenderingContext2D) {
+  x.save();
+  x.translate(-HUB_X, -HUB_Y);
+  x.fillStyle = BODY;
+  x.fill(glyphPath());
+  x.restore();
+}
+
+/** Legs with little oval feet, behind the glyph. In Klay's frame. */
+export function drawKlayLegs(x: CanvasRenderingContext2D, lf: P, rf: P) {
+  x.save();
+  x.strokeStyle = BODY;
+  x.fillStyle = BODY;
+  x.lineWidth = LIMB_W;
+  x.lineCap = "round";
+  for (const [sd, foot] of [[-1, lf], [1, rf]] as const) {
+    const hip = { x: sd * HIP.x, y: HIP.y };
+    const knee = { x: (hip.x + foot.x) / 2 + sd * 8, y: (hip.y + foot.y) / 2 };
+    x.beginPath();
+    x.moveTo(hip.x, hip.y);
+    x.quadraticCurveTo(knee.x, knee.y, foot.x, foot.y - FOOT_RY * 0.4);
+    x.stroke();
+    x.beginPath();
+    x.ellipse(foot.x + sd * 8, foot.y, FOOT_RX, FOOT_RY, 0, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.restore();
+}
+
+/**
+ * Noodle arms with round hands, in front of the glyph and rimmed in ink like the
+ * eyes, so a raised hand still reads over the white rays. A white disc over each
+ * shoulder hides where the rim starts, inside the hub. In Klay's frame.
+ */
+export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: string = INK) {
+  x.save();
+  x.lineCap = "round";
+  x.lineJoin = "round";
+  for (const [sd, hand] of [[-1, lh], [1, rh]] as const) {
+    const sh = { x: sd * SHOULDER.x, y: SHOULDER.y };
+    // The elbow bows outwards and down, which keeps the noodle look in every pose.
+    const elbow = {
+      x: (sh.x + hand.x) / 2 + sd * 26,
+      y: (sh.y + hand.y) / 2 + 20,
+    };
+    const arm = new Path2D();
+    arm.moveTo(sh.x, sh.y);
+    arm.quadraticCurveTo(elbow.x, elbow.y, hand.x, hand.y);
+    x.strokeStyle = ink;
+    x.lineWidth = LIMB_W + 2 * LIMB_RIM;
+    x.stroke(arm);
+    x.fillStyle = ink;
+    x.beginPath();
+    x.arc(hand.x, hand.y, HAND_R + LIMB_RIM, 0, Math.PI * 2);
+    x.fill();
+    x.strokeStyle = BODY;
+    x.lineWidth = LIMB_W;
+    x.stroke(arm);
+    x.fillStyle = BODY;
+    x.beginPath();
+    x.arc(hand.x, hand.y, HAND_R, 0, Math.PI * 2);
+    x.fill();
+    x.beginPath();
+    x.arc(sh.x, sh.y, LIMB_W / 2 + LIMB_RIM + 1, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.restore();
+}
+
+/** Pink cheeks under the eyes, `b` 0…1. In Klay's frame. */
+export function drawKlayBlush(x: CanvasRenderingContext2D, b: number) {
+  if (b <= 0.01) return;
+  x.save();
+  x.fillStyle = `rgba(255,120,150,${0.55 * b})`;
+  for (const sd of [-1, 1]) {
+    x.beginPath();
+    x.ellipse(sd * 74, 44, 20, 11, 0, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.restore();
+}
+
+export interface EyeLook {
+shape: EyeShape;
+/** 1 = open, towards 0 while blinking. */
+open: number;
+/** Eye scale (surprised = bigger). */
+es: number;
+/** Where Klay looks, −1…1 each way. */
+yaw: number;
+pitch: number;
+ink: string;
+}
+
+/**
+ * Eyes, in Klay's frame (glyph units) around (cxu, cyu): two round white eyes
+ * with a teal-deep rim. They slide a little towards where Klay looks, the
+ * pupils twice as far.
+ */
+export function drawKlayEyes(x: CanvasRenderingContext2D, e: EyeLook, mult: number, cxu: number, cyu: number) {
+const { shape, ink } = e;
+  x.save();
+  x.fillStyle = ink;
+  x.strokeStyle = ink;
+  const lookX = Math.max(-1, Math.min(1, e.yaw)) * 14;
+  const lookY = Math.max(-1, Math.min(1, e.pitch)) * 12;
+  const ew = EYE_W * e.es * mult;
+  const eh = EYE_H * e.es * mult;
+  const er = EYE_R * e.es * mult;
+  const dx = EYE_DX * mult;
+  for (const sd of [-1, 1]) {
+    x.save();
+    // The eye itself follows the look a little; the pupil, twice as far.
+    x.translate(cxu + sd * dx + lookX * 0.4 * mult, cyu + EYE_DY * mult + lookY * 0.4 * mult);
+    x.beginPath();
+    x.arc(0, 0, er, 0, Math.PI * 2);
+    x.fillStyle = "#FFFFFF";
+    x.fill();
+    x.lineWidth = EYE_RIM * mult;
+    x.strokeStyle = ink;
+    x.stroke();
+    x.translate(lookX * 0.8 * mult, lookY * 0.8 * mult);
+    x.fillStyle = ink;
+    drawEyeShape(x, shape, ew, eh, sd, e.open);
+    x.restore();
+  }
+  x.restore();
+}
+
+function drawEyeShape(
+x: CanvasRenderingContext2D, shape: EyeShape,
+w: number, h: number, sd: number, open: number,
+) {
+  const t = now();
+  switch (shape) {
+    case "wide":
+      drawEyeShape(x, "pill", w * 1.16, h * 1.12, sd, open);
+      break;
+    case "pill": {
+      const hh = Math.max(h * open, w * 0.3);
+      roundRectPath(x, -w / 2, -hh / 2, w, hh, Math.min(w / 2, hh / 2));
+      x.fill();
+      break;
+    }
+    case "dot":
+      x.beginPath();
+      x.arc(0, 0, w * 0.5, 0, Math.PI * 2);
+      x.fill();
+      break;
+    case "line":
+      x.rotate(-sd * 0.25);
+      roundRectPath(x, -w * 0.8, -w * 0.22, w * 1.6, w * 0.44, w * 0.22);
+      x.fill();
+      break;
+    case "flat":
+      roundRectPath(x, -w * 0.75, -w * 0.21, w * 1.5, w * 0.42, w * 0.21);
+      x.fill();
+      break;
+    case "happy":
+      x.lineWidth = w * 0.42;
+      x.lineCap = "round";
+      x.beginPath();
+      x.arc(0, h * 0.2, w * 0.7, Math.PI * 1.15, Math.PI * 1.85);
+      x.stroke();
+      break;
+    case "closed":
+      x.lineWidth = w * 0.34;
+      x.lineCap = "round";
+      x.beginPath();
+      x.arc(0, -h * 0.12, w * 0.68, Math.PI * 0.18, Math.PI * 0.82);
+      x.stroke();
+      break;
+    case "spiral": {
+      x.lineWidth = w * 0.2;
+      x.lineCap = "round";
+      x.beginPath();
+      for (let a = 0; a < 4.4 * Math.PI; a += 0.2) {
+        const r = w * 0.06 + a * w * 0.055;
+        const aa = a + t * 9 * sd;
+        const px = Math.cos(aa) * r;
+        const py = Math.sin(aa) * r;
+        if (a === 0) x.moveTo(px, py);
+        else x.lineTo(px, py);
+      }
+      x.stroke();
+      break;
+    }
+    case "heart":
+      x.fillStyle = "#E8445E";
+      heartPath(x, w * 1.15);
+      x.fill();
+      x.fillStyle = INK;
+      break;
+    case "star":
+      x.fillStyle = "#E3A21A";
+      x.rotate(t * 1.5 * sd);
+      starPath(x, w * 1.0, w * 0.44);
+      x.fill();
+      x.fillStyle = INK;
+      break;
+    case "tired":
+      roundRectPath(x, -w / 2, -h * 0.02, w, h * 0.38, w / 2);
+      x.fill();
+      roundRectPath(x, -w * 0.62, -h * 0.1, w * 1.24, w * 0.22, w * 0.11);
+      x.fill();
+      break;
+    case "wink":
+      if (sd < 0) {
+        const hh = Math.max(h * open, w * 0.3);
+        roundRectPath(x, -w / 2, -hh / 2, w, hh, Math.min(w / 2, hh / 2));
+        x.fill();
+      } else {
+        x.lineWidth = w * 0.42;
+        x.lineCap = "round";
+        x.beginPath();
+        x.arc(0, h * 0.2, w * 0.7, Math.PI * 1.15, Math.PI * 1.85);
+        x.stroke();
+      }
+      break;
+    case "cup": {
+      // Flat top, rounded bottom corners (U shape) — used while the box is open
+      const hh = Math.max(h * open, w * 0.3);
+      const cr = Math.min(w / 2, hh / 2);
+      x.beginPath();
+      x.moveTo(-w / 2, -hh / 2);
+      x.lineTo(w / 2, -hh / 2);
+      x.lineTo(w / 2, hh / 2 - cr);
+      x.quadraticCurveTo(w / 2, hh / 2, w / 2 - cr, hh / 2);
+      x.lineTo(-w / 2 + cr, hh / 2);
+      x.quadraticCurveTo(-w / 2, hh / 2, -w / 2, hh / 2 - cr);
+      x.closePath();
+      x.fill();
+      break;
+    }
+  }
+}
+
+
 // ── Engine ────────────────────────────────────────────────────────────────────
 
 export class BotEngine {
   isMini = false;
-  /** Solid body colour for mini bots / integration pills (null = Klay gradient). */
+  /** Disc colour behind a mini Klay (integration pills, agents). null = the main Klay. */
   bodyColor: RGB | null = null;
 
-  // Animated state (BotEngine `s`)
+  // Animated state
   yaw = 0; pitch = 0; roll = 0; tilt = 0; open = 1;
   sx = 1; sy = 1; oy = 0; ox = 0;
   tint = 0; morph = 0; hands = 0; blush = 0; es = 1; badgeS = 0;
-
-  // Outfit (the main Klay only — minis never wear one). `outfit` is what is
-  // drawn; it changes only once the previous one has left.
-  outfit: Outfit = "none";
-  /** 0 = gone, 1 = fully on. */
-  outfitPresence = 0;
-  private outfitTarget: Outfit = "none";
-
-  // Spring lag of the soft parts (pompoms, hat tips, scarf end), −1…1.
-  physDx = 0;
-  physDy = 0;
-  private physVx = 0;
-  private physVy = 0;
-  private prevYaw = 0;
-  private prevOy = 0;
-  private prevRoll = 0;
 
   // Targets
   tgYaw = 0; tgPitch = 0; tgTilt = 0; tgSy = 1; tgSx = 1; tgEs = 1;
@@ -221,6 +563,12 @@ export class BotEngine {
   private tweens = new Map<PropKey, Tween>();
   private locks = new Set<PropKey>();
   private particles: Particle[] = [];
+
+  // Limbs, in Klay's frame (glyph units), eased towards limbTargets().
+  private lh: P = { x: -HAND_REST.x, y: HAND_REST.y };
+  private rh: P = { x: HAND_REST.x, y: HAND_REST.y };
+  private lf: P = { x: -FOOT_REST.x, y: FOOT_REST.y };
+  private rf: P = { x: FOOT_REST.x, y: FOOT_REST.y };
 
   lookX = 0;
   lookY = 0;
@@ -253,7 +601,9 @@ export class BotEngine {
 
     switch (next) {
       case "finished":
-        this.doRoll(950, 1);
+        // A little jump and a full spin, then sparks.
+        this.anim("oy", [[-0.35, 260, Ease.out], [0, 380, Ease.back]]);
+        this.doRoll(700, 1);
         setTimeout(() => this.emit("spark", 5), 500);
         break;
       case "error":
@@ -298,9 +648,8 @@ export class BotEngine {
   }
 
   squash() {
-    this.physVy += 0.6;
-    this.anim("sy", [[0.78, 70, Ease.out], [1.1, 130, Ease.out], [1, 170, Ease.inOut]]);
-    this.anim("sx", [[1.16, 70, Ease.out], [0.95, 130, Ease.out], [1, 170, Ease.inOut]]);
+    this.anim("sy", [[0.8, 70, Ease.out], [1.1, 130, Ease.out], [1, 170, Ease.inOut]]);
+    this.anim("sx", [[1.14, 70, Ease.out], [0.95, 130, Ease.out], [1, 170, Ease.inOut]]);
   }
 
   /** Mailbox swallow — opens the slot, chews, then closes. */
@@ -324,8 +673,6 @@ export class BotEngine {
     this.slapTimes.push(t);
     Sound.play("slap");
     this.squash();
-    this.physVy -= 1.2;
-    this.physVx += Math.random() < 0.5 ? 0.7 : -0.7;
     if (this.slapTimes.length >= 3) {
       this.slapTimes = [];
       this.onDizzy?.();
@@ -341,13 +688,12 @@ export class BotEngine {
     this.anim("roll", [[Math.PI * 2 * turns, durationMs, Ease.inOut]], () => { this.roll = 0; });
   }
 
-  /** Peek wave — the "klayer". Timings from BotEngine.greet(). */
+  /** The hello wave when the island peeks out. */
   greet() {
     const t = now();
     const tok = ++this.greetToken;
     this.waveStart = t + 0.45;
     this.waveUntil = t + 1.55;
-    this.physVx += 0.2;
 
     this.eyeOverride = "happy";
     this.eyeOverrideUntil = t + 2.0;
@@ -475,37 +821,6 @@ export class BotEngine {
     this.morph = 0;
   }
 
-  /**
-   * Dresses Klay. Animated: the old outfit leaves (180 ms), the new one drops
-   * in (350 ms) and Klay does a little squash — BotEngine.setOutfit on macOS.
-   */
-  setOutfit(next: Outfit, animated = true) {
-    if (next === this.outfitTarget) return;
-    this.outfitTarget = next;
-    this.tweens.delete("outfitPresence");
-    this.locks.delete("outfitPresence");
-    const enter = () => {
-      this.outfit = next;
-      this.anim("outfitPresence", [[1, 350, Ease.inOut]], () => this.squash());
-    };
-    if (!animated) {
-      this.outfit = next;
-      this.outfitPresence = next !== "none" ? 1 : 0;
-    } else if (next === "none") {
-      this.anim("outfitPresence", [[0, 180, Ease.inOut]], () => { this.outfit = "none"; });
-    } else if (this.outfit === "none") {
-      this.outfitPresence = 0;
-      enter();
-    } else {
-      this.anim("outfitPresence", [[0, 180, Ease.inOut]], enter);
-    }
-  }
-
-  /** Wearing something visible: the body then turns as one piece when it rolls. */
-  private get rigidRoll(): boolean {
-    return !this.isMini && this.outfit !== "none" && this.outfitPresence > 0.05;
-  }
-
   /** True while anything is still moving — lets the island stop its RAF loop. */
   get busy(): boolean {
     return (
@@ -513,6 +828,8 @@ export class BotEngine {
       this.particles.length > 0 ||
       this.cfg.bounces || this.cfg.scans || this.cfg.breathes || this.cfg.zz || this.cfg.sweat ||
       this.isMini ||
+      // Klay's limbs keep moving in every state but idle and sleeping.
+      (this.state !== "idle" && this.state !== "sleeping") ||
       Math.abs(this.tgYaw - this.yaw) > 0.002 ||
       Math.abs(this.tgPitch - this.pitch) > 0.002 ||
       Math.abs(this.tgTilt - this.tilt) > 0.002 ||
@@ -522,8 +839,7 @@ export class BotEngine {
       this.slotH > 0.001 || Math.abs(this.slotHVel) > 0.001 ||
       Math.abs(this.col[0] - this.colT[0]) > 0.003 ||
       Math.abs(this.col[1] - this.colT[1]) > 0.003 ||
-      Math.abs(this.col[2] - this.colT[2]) > 0.003 ||
-      (this.outfit !== "none" && (Math.abs(this.physVx) > 0.01 || Math.abs(this.physVy) > 0.01))
+      Math.abs(this.col[2] - this.colT[2]) > 0.003
     );
   }
 
@@ -570,10 +886,10 @@ export class BotEngine {
       ty = Math.sin(t * 2.6) * 0.6;
       tp = -0.06;
     }
-    if (this.state === "sleeping") { ty = 0; tp = -0.14; }
+    if (this.state === "sleeping") { ty = 0; tp = 0.14; }
     if (this.state === "dizzy") { ty = Math.sin(t * 9) * 0.25; }
 
-    // Mini bots never follow the mouse — they wander.
+    // Mini Klays never follow the mouse — they wander.
     if (this.isMini && !this.cfg.look && !this.cfg.scans && this.state !== "sleeping" && this.state !== "dizzy") {
       if (n > this.miniLookNextTime) {
         this.miniLookTarget = {
@@ -590,9 +906,10 @@ export class BotEngine {
     this.tgPitch = tp;
     this.tgTilt = this.cfg.tilt;
 
-    if (n > this.waveStart && n < this.waveUntil) {
+    const waving = n > this.waveStart && n < this.waveUntil;
+    if (waving) {
       const wt = n - this.waveStart;
-      this.tgTilt = -0.06 + Math.sin(2 * Math.PI * 1.2 * wt) * 0.07;
+      this.tgTilt = -0.04 + Math.sin(2 * Math.PI * 1.2 * wt) * 0.05;
     }
 
     const bounce = this.cfg.bounces ? -Math.abs(Math.sin(t * 5.2)) * 0.07 : 0;
@@ -623,6 +940,16 @@ export class BotEngine {
 
     this.col = mix3(this.col, this.colT, 1 - Math.pow(0.002, dt));
 
+    // Limbs follow their targets with a quick, springy ease.
+    const lt = limbTargets(this.state, t, waving ? this.hands : 0);
+    const kLimb = 1 - Math.pow(0.00002, dt);
+    for (const key of ["lh", "rh", "lf", "rf"] as const) {
+      this[key] = {
+        x: this[key].x + (lt[key].x - this[key].x) * kLimb,
+        y: this[key].y + (lt[key].y - this[key].y) * kLimb,
+      };
+    }
+
     if (n > this.nextBlink) {
       if (this.state !== "sleeping" && this.state !== "dizzy") {
         this.blink();
@@ -651,25 +978,6 @@ export class BotEngine {
     const acc = omega * omega * (this.slotHTarget - this.slotH) - 2 * zeta * omega * this.slotHVel;
     this.slotHVel += acc * dt;
     this.slotH = Math.max(0, this.slotH + this.slotHVel * dt);
-
-    // Soft-part spring: lags behind head turns, hops and rolls (stiffness 60, damping 9).
-    if (dt > 0) {
-      const yawVel = (this.yaw - this.prevYaw) / dt;
-      const oyVel = (this.oy - this.prevOy) / dt;
-      // A finished roll snaps from 2π·turns back to 0: that jump is not motion.
-      const dRoll = this.roll - this.prevRoll;
-      const rollVel = Math.abs(dRoll) > Math.PI ? 0 : dRoll / dt;
-      const centrifugal = this.rigidRoll ? rollVel * 0.18 : 0;
-      const tDx = Math.max(-1, Math.min(1, -yawVel * 0.35 - this.tilt * 2 + centrifugal));
-      const tDy = Math.max(-1, Math.min(1, oyVel * 0.5));
-      this.physVx += (60 * (tDx - this.physDx) - 9 * this.physVx) * dt;
-      this.physVy += (60 * (tDy - this.physDy) - 9 * this.physVy) * dt;
-      this.physDx += this.physVx * dt;
-      this.physDy += this.physVy * dt;
-    }
-    this.prevYaw = this.yaw;
-    this.prevOy = this.oy;
-    this.prevRoll = this.roll;
 
     this.lastTime = n;
   }
@@ -711,61 +1019,16 @@ export class BotEngine {
   // ── Draw ────────────────────────────────────────────────────────────────────
 
   /**
-   * Draws hands, body, blush, eyes, mouth, badge and particles into a canvas of
-   * `w`×`h` CSS pixels (the caller has already applied the DPR transform).
+   * Draws Klay — glow, limbs, glyph, eyes, mailbox, badge and particles — into a
+   * canvas of `W`×`H` CSS pixels (the caller has already applied the DPR transform).
    */
   draw(x: CanvasRenderingContext2D, W: number, H: number) {
     const R = W * 0.3;
-    const rx = R * 1.14;
-    const ry = R * 0.88;
     const cx = W / 2 + this.ox * R;
-    const cy = H / 2 + this.particleOverhang / 2 + this.oy * R + R * 0.06;
+    const cy = H / 2 + this.particleOverhang / 2 + this.oy * R;
 
-    // With an outfit on, a roll turns the whole character — hat included — as
-    // one piece instead of rolling the eyes over the body (BotCanvasView, macOS).
-    x.save();
-    if (this.rigidRoll && Math.abs(this.roll) > 0.001) {
-      x.translate(cx, cy);
-      x.rotate(this.roll);
-      x.translate(-cx, -cy);
-    }
-
-    this.drawHandsBehind(x, R, rx, ry, cx, cy);
-
-    x.save();
-    x.translate(cx, cy);
-    if (this.tilt !== 0) x.rotate(this.tilt);
-    x.scale(this.sx, this.sy);
-
-    const dressed = !this.isMini && this.outfit !== "none";
-    const head = dressed ? makeHead(R, this.yaw, this.pitch, this.physDx, this.physDy) : null;
-    const outfitState = { presence: this.outfitPresence, morph: this.morph };
-    if (head) drawOutfitBehind(x, this.outfit, head, outfitState);
-
-    const body = this.bodyPath(rx, ry, R);
-    this.drawBody(x, body, R, rx, ry);
-
-    const blushVal = Math.max(this.blush, this.tint * 0.5) * (1 - this.morph);
-    if (blushVal > 0.01) {
-      x.save();
-      x.clip(body);
-      const yOffset = Math.sin(this.yaw) * rx * 0.8;
-      x.fillStyle = `rgba(255,120,150,${0.5 * blushVal})`;
-      for (const sd of [-1, 1]) {
-        x.beginPath();
-        x.ellipse(sd * rx * 0.55 + yOffset, ry * 0.2, R * 0.17, R * 0.1, 0, 0, Math.PI * 2);
-        x.fill();
-      }
-      x.restore();
-    }
-
-    this.drawEyes(x, body, R, rx, ry);
-    if (this.morph > 0.05) this.drawMouth(x, body, R);
-
-    if (head) drawOutfitFront(x, this.outfit, head, outfitState);
-
-    x.restore();
-    x.restore();
+    if (this.isMini) this.drawMini(x, R, cx, cy);
+    else this.drawMain(x, W, R, cx, cy);
 
     if (this.badge && this.badgeS > 0.01 && this.morph < 0.25) {
       this.drawBadge(x, this.badge, R, cx, cy);
@@ -773,350 +1036,139 @@ export class BotEngine {
     this.drawParticles(x, R, cx, cy);
   }
 
-  private bodyPath(rx: number, ry: number, R: number): Path2D {
-    const n = 72;
-    const expN = 2.0 / 2.7;
-    const tw = R * 1.0;
-    const th = R * 0.94;
-    const tr = R * 0.42;
-    const p = new Path2D();
+  private drawMain(x: CanvasRenderingContext2D, W: number, R: number, cx: number, cy: number) {
     const m = this.morph;
-    for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      const px0 = rx * (ca >= 0 ? Math.pow(ca, expN) : -Math.pow(-ca, expN));
-      const py0 = ry * (sa >= 0 ? Math.pow(sa, expN) : -Math.pow(-sa, expN));
-      let px = px0;
-      let py = py0;
-      if (m >= 0.005) {
-        const rr = rrPoint(ca, sa, tw, th, tr);
-        px = lerp(px0, rr.x, m);
-        py = lerp(py0, rr.y, m);
-      }
-      if (i === 0) p.moveTo(px, py);
-      else p.lineTo(px, py);
-    }
-    p.closePath();
-    return p;
-  }
+    const s = (W * GLYPH_SPAN) / GLYPH_W; // px per glyph unit
+    const ox = cx;
+    const oy = cy - CENTER_Y * s; // the hub, in canvas px
 
-  /** How much of the pumpkin's orange shows on the body (it comes and goes with the outfit). */
-  private get pumpkinAlpha(): number {
-    if (this.isMini || this.outfit !== "pumpkin") return 0;
-    return Math.min(1, this.outfitPresence * 2.5) * (1 - this.morph);
-  }
-
-  private drawBody(x: CanvasRenderingContext2D, body: Path2D, R: number, rx: number, ry: number) {
-    const pumpkin = this.pumpkinAlpha;
-    if (this.bodyColor) {
-      // Mini bots: flat solid fill — no gradient, no reflection, no highlight
-      x.fillStyle = rgba(this.bodyColor, 1);
-      x.fill(body);
-      if (pumpkin <= 0.001) return;
-    } else {
-      const g = x.createLinearGradient(rx * 0.7, -ry * 0.85, -rx * 0.8, ry * 0.9);
-      g.addColorStop(0, rgba(BASE_TOP));
-      g.addColorStop(1, rgba(BASE_BOTTOM));
+    // Glow of the state colour behind the rays.
+    const glow = this.tint * (1 - m);
+    if (glow > 0.01) {
+      const gx = ox;
+      const gy = oy - 70 * s;
+      const g = x.createRadialGradient(gx, gy, 0, gx, gy, 380 * s);
+      g.addColorStop(0, rgba(this.col, 0.55 * glow));
+      g.addColorStop(0.55, rgba(this.col, 0.22 * glow));
+      g.addColorStop(1, rgba(this.col, 0));
       x.fillStyle = g;
-      x.fill(body);
+      x.fillRect(gx - 400 * s, gy - 400 * s, 800 * s, 800 * s);
     }
+
     x.save();
-    if (pumpkin > 0.001) {
-      const pg = x.createLinearGradient(rx * 0.7, -ry * 0.85, -rx * 0.8, ry * 0.9);
-      pg.addColorStop(0, PUMPKIN_BODY[0]);
-      pg.addColorStop(1, PUMPKIN_BODY[1]);
-      x.globalAlpha = pumpkin;
-      x.fillStyle = pg;
-      x.fill(body);
-      // A flat-coloured body only gets the shading while it is a pumpkin.
-      x.globalAlpha = this.bodyColor ? pumpkin : 1;
+    x.translate(ox, oy);
+    if (Math.abs(this.roll) > 0.001) {
+      // Spins turn the whole of Klay around the middle of its height.
+      x.translate(0, CENTER_Y * s);
+      x.rotate(this.roll);
+      x.translate(0, -CENTER_Y * s);
     }
+    if (this.tilt !== 0) x.rotate(this.tilt);
+    x.scale(this.sx * s, this.sy * s);
 
-    const effectiveTint = this.tint * (1 - this.morph);
-    if (effectiveTint > 0.01) {
-      const tg = x.createLinearGradient(0, ry, 0, -ry);
-      tg.addColorStop(0, rgba(this.col, 0.72 * effectiveTint));
-      tg.addColorStop(1, rgba(this.col, 0));
-      x.fillStyle = tg;
-      x.fill(body);
+    if (m < 0.999) {
+      x.save();
+      x.globalAlpha = 1 - m;
+      const k = 1 - 0.35 * m;
+      x.scale(k, k);
+      const limbs = W * GLYPH_SPAN >= LIMBS_MIN_PX;
+      if (limbs) drawKlayLegs(x, this.lf, this.rf);
+      drawKlayGlyph(x);
+      if (limbs) drawKlayArms(x, this.lh, this.rh);
+      drawKlayBlush(x, this.blush * (1 - m));
+      this.drawEyes(x, 1, 0, 0);
+      x.restore();
     }
+    x.restore();
 
-    const sh = x.createRadialGradient(0, 0, R * 0.15, 0, 0, R * 1.25);
-    sh.addColorStop(0, "rgba(0,0,0,0)");
-    sh.addColorStop(0.6, "rgba(0,0,0,0)");
-    sh.addColorStop(1, "rgba(0,0,0,0.2)");
-    x.fillStyle = sh;
-    x.fill(body);
+    if (m > 0.001) this.drawBox(x, R, cx, cy);
+  }
 
-    const hl = x.createRadialGradient(rx * 0.34, -ry * 0.46, 0, rx * 0.34, -ry * 0.46, R * 0.42);
-    hl.addColorStop(0, "rgba(255,255,255,0.55)");
-    hl.addColorStop(1, "rgba(255,255,255,0)");
-    x.fillStyle = hl;
-    x.fill(body);
+  /** Mini Klay: the white glyph and eyes on a disc of the agent's or service's colour. */
+  private drawMini(x: CanvasRenderingContext2D, R: number, cx: number, cy: number) {
+    const disc = this.bodyColor ?? C.idle;
+    x.save();
+    x.translate(cx, cy);
+    if (this.tilt !== 0) x.rotate(this.tilt);
+    x.scale(this.sx, this.sy);
+    x.beginPath();
+    x.arc(0, 0, R, 0, Math.PI * 2);
+    x.fillStyle = rgba(disc, 1);
+    x.fill();
+
+    // The glyph fills the disc: 1.55 R wide, its hub a touch below the centre.
+    const s = (R * 1.55) / GLYPH_W;
+    x.scale(s, s);
+    x.translate(0, 70);
+    x.save();
+    x.translate(-HUB_X, -HUB_Y);
+    x.fillStyle = BODY;
+    x.fill(glyphPath());
+    x.restore();
+    this.drawEyes(x, 1.1, 0, 0);
     x.restore();
   }
 
-  private drawEyes(x: CanvasRenderingContext2D, body: Path2D, R: number, rx: number, ry: number) {
+  /** Eye shape now: the state's, an emote's, or the mailbox's while it eats. */
+  private eyeShape(): EyeShape {
     let shape: EyeShape = this.eyeOverride ?? this.cfg.eye;
     if (this.morph > 0.5) {
       if (this.isChewing) shape = "happy";
       else if (this.slotHTarget > 0.05 || this.slotH > 0.1) shape = "cup";
     }
-
-    x.save();
-    x.clip(body);
-    const ink = this.isMini ? MINI_INK : INK;
-    x.fillStyle = ink;
-    x.strokeStyle = ink;
-
-    for (const sd of [-1, 1]) {
-      const eyeYaw = sd * EYE_SP + this.yaw;
-      // Rolling with an outfit on, the whole body turns: the eyes must not roll again.
-      let eyePitch = EYE_P + this.pitch + (this.rigidRoll ? 0 : this.roll);
-      eyePitch = (((eyePitch + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-      const cp = Math.cos(eyePitch);
-      if (Math.cos(eyeYaw) * cp <= 0.04) continue;
-
-      const ex = Math.sin(eyeYaw) * cp * rx;
-      const ey = -Math.sin(eyePitch) * ry + (this.morph > 0 ? ry * 0.14 * this.morph : 0);
-      const fx = lerp(Math.max(0.18, Math.cos(eyeYaw)), 1, this.morph * 0.7);
-      const fy = lerp(Math.max(0.18, cp), 1, this.morph * 0.7);
-      const eyeMult = this.isMini ? 1.9 : 1.0;
-      const ew = R * EYE_W * this.es * eyeMult;
-      const eh = R * EYE_H * this.es * eyeMult;
-
-      x.save();
-      x.translate(ex, ey);
-      x.scale(fx, fy);
-      this.drawEyeShape(x, shape, ew, eh, sd, ink);
-      x.restore();
-    }
-    x.restore();
+    return shape;
   }
 
-  private drawEyeShape(
-    x: CanvasRenderingContext2D, shape: EyeShape,
-    w: number, h: number, sd: number, ink: string,
-  ) {
-    const t = now();
-    switch (shape) {
-      case "wide":
-        this.drawEyeShape(x, "pill", w * 1.16, h * 1.12, sd, ink);
-        break;
-      case "pill": {
-        const hh = Math.max(h * this.open, w * 0.3);
-        roundRectPath(x, -w / 2, -hh / 2, w, hh, Math.min(w / 2, hh / 2));
-        x.fill();
-        break;
-      }
-      case "dot":
-        x.beginPath();
-        x.arc(0, 0, w * 0.45, 0, Math.PI * 2);
-        x.fill();
-        break;
-      case "line":
-        x.rotate(-sd * 0.2);
-        roundRectPath(x, -w * 0.78, -w * 0.21, w * 1.56, w * 0.42, w * 0.21);
-        x.fill();
-        break;
-      case "flat":
-        roundRectPath(x, -w * 0.72, -w * 0.2, w * 1.44, w * 0.4, w * 0.2);
-        x.fill();
-        break;
-      case "happy":
-        x.lineWidth = w * 0.5;
-        x.lineCap = "round";
-        x.beginPath();
-        x.arc(0, h * 0.18, w * 0.82, Math.PI * 1.12, Math.PI * 1.88);
-        x.stroke();
-        break;
-      case "closed":
-        x.lineWidth = w * 0.36;
-        x.lineCap = "round";
-        x.beginPath();
-        x.arc(0, -h * 0.08, w * 0.78, Math.PI * 0.15, Math.PI * 0.85);
-        x.stroke();
-        break;
-      case "spiral": {
-        x.lineWidth = w * 0.22;
-        x.lineCap = "round";
-        x.beginPath();
-        for (let a = 0; a < 4.4 * Math.PI; a += 0.2) {
-          const r = w * 0.06 + a * w * 0.058;
-          const aa = a + t * 9 * sd;
-          const px = Math.cos(aa) * r;
-          const py = Math.sin(aa) * r;
-          if (a === 0) x.moveTo(px, py);
-          else x.lineTo(px, py);
-        }
-        x.stroke();
-        break;
-      }
-      case "heart":
-        x.fillStyle = "#FF4D6D";
-        heartPath(x, w * 1.2);
-        x.fill();
-        x.fillStyle = ink;
-        break;
-      case "star":
-        x.fillStyle = "#F7B32B";
-        x.rotate(t * 1.5 * sd);
-        starPath(x, w * 1.05, w * 0.46);
-        x.fill();
-        x.fillStyle = ink;
-        break;
-      case "tired":
-        roundRectPath(x, -w / 2, -h * 0.02, w, h * 0.38, w / 2);
-        x.fill();
-        roundRectPath(x, -w * 0.62, -h * 0.1, w * 1.24, w * 0.22, w * 0.11);
-        x.fill();
-        break;
-      case "wink":
-        if (sd < 0) {
-          const hh = Math.max(h * this.open, w * 0.3);
-          roundRectPath(x, -w / 2, -hh / 2, w, hh, Math.min(w / 2, hh / 2));
-          x.fill();
-        } else {
-          x.lineWidth = w * 0.5;
-          x.lineCap = "round";
-          x.beginPath();
-          x.arc(0, h * 0.18, w * 0.82, Math.PI * 1.12, Math.PI * 1.88);
-          x.stroke();
-        }
-        break;
-      case "cup": {
-        // Flat top, rounded bottom corners (U shape) — used while the box is open
-        const hh = Math.max(h * this.open, w * 0.3);
-        const cr = Math.min(w / 2, hh / 2);
-        x.beginPath();
-        x.moveTo(-w / 2, -hh / 2);
-        x.lineTo(w / 2, -hh / 2);
-        x.lineTo(w / 2, hh / 2 - cr);
-        x.quadraticCurveTo(w / 2, hh / 2, w / 2 - cr, hh / 2);
-        x.lineTo(-w / 2 + cr, hh / 2);
-        x.quadraticCurveTo(-w / 2, hh / 2, -w / 2, hh / 2 - cr);
-        x.closePath();
-        x.fill();
-        break;
-      }
-    }
+  private drawEyes(x: CanvasRenderingContext2D, mult: number, cxu: number, cyu: number) {
+    drawKlayEyes(x, {
+      shape: this.eyeShape(), open: this.open, es: this.es, yaw: this.yaw, pitch: this.pitch,
+      ink: this.isMini ? MINI_INK : INK,
+    }, mult, cxu, cyu);
   }
 
-  /** Mailbox slot: dark pill cut into the box face, with rim and lip highlights. */
-  private drawMouth(x: CanvasRenderingContext2D, body: Path2D, R: number) {
+  /**
+   * The mailbox Klay turns into when a file is dropped: a white rounded box with
+   * a slot on top and the same eyes. It grows in as the glyph shrinks away.
+   */
+  private drawBox(x: CanvasRenderingContext2D, R: number, cx: number, cy: number) {
     const m = this.morph;
-    const hW = R * 1.8 * m;
-    const hH = this.slotH * R * m;
-    const hX = -hW / 2;
-    const boxTop = -R * (0.88 + 0.06 * m);
-    const hY = boxTop + R * 0.08 * m;
-
+    const k = 0.55 + 0.45 * m;
+    const bw = R * 1.0 * k;
+    const bh = R * 0.94 * k;
     x.save();
-    x.clip(body);
+    x.translate(cx, cy);
+    if (this.tilt !== 0) x.rotate(this.tilt);
+    x.scale(this.sx, this.sy);
+    x.globalAlpha = Math.min(1, m * 1.4);
+    roundRectPath(x, -bw, -bh, bw * 2, bh * 2, R * 0.42 * k);
+    const g = x.createLinearGradient(0, -bh, 0, bh);
+    g.addColorStop(0, "#FFFFFF");
+    g.addColorStop(1, "#ECEDE7"); // Klayer brume
+    x.fillStyle = g;
+    x.fill();
 
-    x.strokeStyle = `rgba(255,255,255,${0.55 * m})`;
-    x.lineWidth = 1;
-    x.lineCap = "round";
-    x.beginPath();
-    x.moveTo(-R * 0.9 * m, boxTop + 1);
-    x.lineTo(R * 0.9 * m, boxTop + 1);
-    x.stroke();
-
+    // Slot
+    const hW = R * 1.8 * m * k * 0.9;
+    const hH = this.slotH * R * m;
+    const hY = -bh + R * 0.1 * m;
     if (hH > 0.8) {
       const hR = Math.min(hW / 2, hH / 2);
-      const g = x.createLinearGradient(0, hY, 0, hY + hH);
-      g.addColorStop(0, "rgb(7,8,10)");
-      g.addColorStop(1, "rgb(16,19,26)");
-      roundRectPath(x, hX, hY, hW, hH, hR);
-      x.fillStyle = g;
+      roundRectPath(x, -hW / 2, hY, hW, hH, hR);
+      x.fillStyle = "rgb(7,27,32)";
       x.fill();
-      if (hH > 4) {
-        const lipR = Math.min(hR, (hW - 2) / 2);
-        x.strokeStyle = `rgba(255,255,255,${0.28 * m})`;
-        x.beginPath();
-        x.moveTo(hX + lipR, hY + hH - 0.5);
-        x.lineTo(hX + hW - lipR, hY + hH - 0.5);
-        x.stroke();
-      }
     }
+
+    // Eyes on the box face (box units → glyph units: the eye shapes are sized in glyph units).
+    const u = R / 100;
+    x.scale(u, u);
+    this.drawEyes(x, 0.62, 0, 12);
     x.restore();
-  }
-
-  /** Hands sit behind the body — drawn before it, in world coordinates. */
-  private drawHandsBehind(
-    x: CanvasRenderingContext2D,
-    R: number, rx: number, ry: number, cx: number, cy: number,
-  ) {
-    if (this.hands <= 0.01 || this.isMini) return;
-    if (R <= 14) return; // meaningless at compact/peek sizes
-
-    const n = now();
-    const bodyH = 2 * ry;
-    const hew = 0.3 * ry * this.hands;
-    const heh = 0.26 * ry * this.hands;
-    const hwB = rx * this.sx;
-    const hhB = ry * this.sy;
-    const isWaving = n >= this.waveStart && this.waveStart > 0 && n < this.waveUntil;
-
-    for (const sd of [-1, 1]) {
-      let localX: number;
-      let localY: number;
-      let handRot = 0;
-
-      if (sd > 0 && isWaving) {
-        const wt = n - this.waveStart;
-        const rise = Math.min(1, wt / 0.18);
-        const riseEased = 1 - Math.pow(1 - rise, 3);
-        const restX = hwB * 1.08;
-        const restY = hhB * 0.7;
-        const oscX = Math.cos(13 * wt) * 0.06 * bodyH;
-        const oscY = -Math.sin(13 * wt) * 0.14 * bodyH;
-        const waveX = hwB * 1.1 + oscX;
-        const waveY = -hhB * 0.15 + oscY;
-        localX = restX + (waveX - restX) * riseEased;
-        localY = restY + (waveY - restY) * riseEased;
-        handRot = (-0.5 + Math.sin(13 * wt) * 0.35) * riseEased;
-      } else if (sd < 0 && isWaving) {
-        const wt = n - this.waveStart;
-        localX = -hwB * 1.08;
-        localY = hhB * 0.7 + Math.sin(6 * wt) * 0.04 * bodyH;
-      } else {
-        localX = sd * hwB * 1.08;
-        localY = hhB * 0.7;
-      }
-
-      const cosT = Math.cos(this.tilt);
-      const sinT = Math.sin(this.tilt);
-      const worldX = cx + cosT * localX - sinT * localY;
-      const worldY = cy + sinT * localX + cosT * localY;
-
-      x.save();
-      x.translate(worldX, worldY);
-      if (handRot !== 0) x.rotate(handRot);
-      const g = x.createLinearGradient(hew * 0.7, -heh * 0.85, -hew * 0.8, heh * 0.9);
-      if (this.bodyColor) {
-        g.addColorStop(0, rgba(mix3(this.bodyColor, [1, 1, 1], 0.35)));
-        g.addColorStop(1, rgba(this.bodyColor));
-      } else {
-        g.addColorStop(0, rgba(BASE_TOP));
-        g.addColorStop(1, rgba(BASE_BOTTOM));
-      }
-      x.beginPath();
-      x.ellipse(0, 0, hew, heh, 0, 0, Math.PI * 2);
-      x.fillStyle = g;
-      x.fill();
-      x.strokeStyle = "rgba(0,0,0,0.08)";
-      x.lineWidth = 1;
-      x.stroke();
-      x.restore();
-    }
   }
 
   private drawBadge(x: CanvasRenderingContext2D, badge: Badge, R: number, cx: number, cy: number) {
     const bs = this.badgeS * (this.isMini ? 1.25 : 1);
-    const bx = cx - R * 0.72 * this.sx;
-    const by = cy - R * 0.72 * this.sy;
+    const bx = cx - R * (this.isMini ? 0.72 : 0.95) * this.sx;
+    const by = cy - R * (this.isMini ? 0.72 : 0.62) * this.sy;
     const t = now();
 
     x.save();
@@ -1195,13 +1247,13 @@ export class BotEngine {
       switch (p.type) {
         case "heart":
           x.rotate(Math.sin(p.age * 6) * 0.3);
-          x.fillStyle = "#FF4D6D";
+          x.fillStyle = "#E8445E";
           heartPath(x, sz);
           x.fill();
           break;
         case "star":
           x.rotate(p.rot + p.age * 2);
-          x.fillStyle = "#F7B32B";
+          x.fillStyle = "#E3A21A";
           starPath(x, sz, sz * 0.45);
           x.fill();
           break;
@@ -1230,39 +1282,4 @@ export class BotEngine {
       x.restore();
     }
   }
-}
-
-/** Ray → rounded-rect boundary intersection, for the mailbox morph. */
-function rrPoint(ca: number, sa: number, W: number, H: number, cr: number): { x: number; y: number } {
-  const eps = 1e-6;
-  const kx = ca >= 0 ? 1 : -1;
-  const ky = sa >= 0 ? 1 : -1;
-  const cx = kx * (W - cr);
-  const cy = ky * (H - cr);
-
-  const dot = ca * cx + sa * cy;
-  const disc = dot * dot - (cx * cx + cy * cy - cr * cr);
-  if (disc >= 0) {
-    const t = dot + Math.sqrt(disc);
-    if (t > eps) {
-      const px = ca * t;
-      const py = sa * t;
-      if (Math.abs(px) >= W - cr - eps && Math.abs(py) >= H - cr - eps) return { x: px, y: py };
-    }
-  }
-  if (Math.abs(sa) > eps) {
-    const t = (ky * H) / sa;
-    if (t > eps) {
-      const px = ca * t;
-      if (Math.abs(px) <= W - cr + eps) return { x: px, y: ky * H };
-    }
-  }
-  if (Math.abs(ca) > eps) {
-    const t = (kx * W) / ca;
-    if (t > eps) {
-      const py = sa * t;
-      if (Math.abs(py) <= H - cr + eps) return { x: kx * W, y: py };
-    }
-  }
-  return { x: kx * W, y: ky * H };
 }

@@ -155,39 +155,6 @@
    "ru": "Прикрепить активное окно к чату",
    "id": "Lampirkan jendela depan ke obrolan"
   },
-  "Auto (seasons)": {
-   "zh-Hans": "自动（随季节）",
-   "hi": "ऑटो (मौसम के अनुसार)",
-   "es": "Auto (estaciones)",
-   "ar": "تلقائي (حسب المواسم)",
-   "fr": "Auto (saisons)",
-   "bn": "অটো (ঋতু অনুযায়ী)",
-   "pt-BR": "Auto (estações)",
-   "ru": "Авто (по сезону)",
-   "id": "Otomatis (musim)"
-  },
-  "Auto · follows the seasons (now: {outfit})": {
-   "zh-Hans": "自动 · 随季节变化（当前：{outfit}）",
-   "hi": "ऑटो · मौसम के साथ बदलता है (अभी: {outfit})",
-   "es": "Auto · sigue las estaciones (ahora: {outfit})",
-   "ar": "تلقائي · يتبع المواسم (الآن: {outfit})",
-   "fr": "Auto · suit les saisons (en ce moment : {outfit})",
-   "bn": "অটো · ঋতু অনুযায়ী বদলায় (এখন: {outfit})",
-   "pt-BR": "Auto · acompanha as estações (agora: {outfit})",
-   "ru": "Авто · по сезону (сейчас: {outfit})",
-   "id": "Otomatis · mengikuti musim (sekarang: {outfit})"
-  },
-  "Auto · {outfit}": {
-   "zh-Hans": "自动 · {outfit}",
-   "hi": "ऑटो · {outfit}",
-   "es": "Auto · {outfit}",
-   "ar": "تلقائي · {outfit}",
-   "fr": "Auto · {outfit}",
-   "bn": "অটো · {outfit}",
-   "pt-BR": "Auto · {outfit}",
-   "ru": "Авто · {outfit}",
-   "id": "Otomatis · {outfit}"
-  },
   "Auto-close": {
    "zh-Hans": "自动关闭",
    "hi": "अपने आप बंद",
@@ -264,39 +231,6 @@
    "pt-BR": "Resposta da API inválida: {error}",
    "ru": "Некорректный ответ API: {error}",
    "id": "Respons API tidak valid: {error}"
-  },
-  "Beanie": {
-   "zh-Hans": "毛线帽",
-   "hi": "ऊनी टोपी",
-   "es": "Gorro de lana",
-   "ar": "قبعة صوفية",
-   "fr": "Bonnet",
-   "bn": "উলের টুপি",
-   "pt-BR": "Gorro",
-   "ru": "Шапка",
-   "id": "Kupluk"
-  },
-  "Bow": {
-   "zh-Hans": "蝴蝶结",
-   "hi": "बो",
-   "es": "Lazo",
-   "ar": "فيونكة",
-   "fr": "Nœud",
-   "bn": "বো",
-   "pt-BR": "Laço",
-   "ru": "Бантик",
-   "id": "Pita"
-  },
-  "Bunny ears": {
-   "zh-Hans": "兔耳朵",
-   "hi": "खरगोश के कान",
-   "es": "Orejas de conejo",
-   "ar": "أذنا أرنب",
-   "fr": "Oreilles de lapin",
-   "bn": "খরগোশের কান",
-   "pt-BR": "Orelhas de coelho",
-   "ru": "Заячьи ушки",
-   "id": "Telinga kelinci"
   },
   "Can't read {path}: {error}": {
    "zh-Hans": "无法读取 {path}：{error}",
@@ -649,17 +583,6 @@
    "pt-BR": "Somente contagens e nomes de projeto — nunca comandos, arquivos ou prompts. Mantido neste computador por 12 semanas.",
    "ru": "Только счётчики и названия проектов — никогда команды, файлы или промпты. Хранится на этом компьютере 12 недель.",
    "id": "Hanya hitungan dan nama proyek — tidak pernah perintah, file, atau prompt. Disimpan di komputer ini selama 12 minggu."
-  },
-  "Crown": {
-   "zh-Hans": "王冠",
-   "hi": "मुकुट",
-   "es": "Corona",
-   "ar": "تاج",
-   "fr": "Couronne",
-   "bn": "মুকুট",
-   "pt-BR": "Coroa",
-   "ru": "Корона",
-   "id": "Mahkota"
   },
   "Custom server": {
    "zh-Hans": "自定义服务器",
@@ -1563,17 +1486,6 @@
    "ru": "Открыть терминал",
    "id": "Buka terminal"
   },
-  "Open the wardrobe": {
-   "zh-Hans": "打开衣橱",
-   "hi": "अलमारी खोलें",
-   "es": "Abrir el guardarropa",
-   "ar": "فتح خزانة الملابس",
-   "fr": "Ouvrir la garde-robe",
-   "bn": "পোশাক ঘর খুলুন",
-   "pt-BR": "Abrir o guarda-roupa",
-   "ru": "Открыть гардероб",
-   "id": "Buka lemari"
-  },
   "OpenAI-compatible": {
    "zh-Hans": "兼容 OpenAI",
    "hi": "OpenAI-संगत",
@@ -1606,17 +1518,6 @@
    "pt-BR": "PDF",
    "ru": "PDF",
    "id": "PDF"
-  },
-  "Party hat": {
-   "zh-Hans": "派对帽",
-   "hi": "पार्टी टोपी",
-   "es": "Gorro de fiesta",
-   "ar": "قبعة الحفلة",
-   "fr": "Chapeau de fête",
-   "bn": "পার্টি টুপি",
-   "pt-BR": "Chapéu de festa",
-   "ru": "Праздничный колпак",
-   "id": "Topi pesta"
   },
   "Payment": {
    "zh-Hans": "付款",
@@ -1694,17 +1595,6 @@
    "pt-BR": "Aba anterior",
    "ru": "Предыдущая вкладка",
    "id": "Tab sebelumnya"
-  },
-  "Pumpkin": {
-   "zh-Hans": "南瓜",
-   "hi": "कद्दू",
-   "es": "Calabaza",
-   "ar": "يقطينة",
-   "fr": "Citrouille",
-   "bn": "কুমড়া",
-   "pt-BR": "Abóbora",
-   "ru": "Тыква",
-   "id": "Labu"
   },
   "Questions": {
    "zh-Hans": "问题",
@@ -1860,28 +1750,6 @@
    "ru": "Результат",
    "id": "Hasil"
   },
-  "Round glasses": {
-   "zh-Hans": "圆框眼镜",
-   "hi": "गोल चश्मा",
-   "es": "Gafas redondas",
-   "ar": "نظارة دائرية",
-   "fr": "Lunettes rondes",
-   "bn": "গোল চশমা",
-   "pt-BR": "Óculos redondos",
-   "ru": "Круглые очки",
-   "id": "Kacamata bulat"
-  },
-  "Santa hat": {
-   "zh-Hans": "圣诞帽",
-   "hi": "सांता टोपी",
-   "es": "Gorro de Papá Noel",
-   "ar": "قبعة بابا نويل",
-   "fr": "Bonnet de Père Noël",
-   "bn": "সান্তা টুপি",
-   "pt-BR": "Gorro de Papai Noel",
-   "ru": "Шапка Санты",
-   "id": "Topi Sinterklas"
-  },
   "Saturday": {
    "zh-Hans": "星期六",
    "hi": "शनिवार",
@@ -1947,17 +1815,6 @@
    "pt-BR": "Salvando…",
    "ru": "Сохранение…",
    "id": "Menyimpan…"
-  },
-  "Scarf": {
-   "zh-Hans": "围巾",
-   "hi": "मफ़लर",
-   "es": "Bufanda",
-   "ar": "وشاح",
-   "fr": "Écharpe",
-   "bn": "মাফলার",
-   "pt-BR": "Cachecol",
-   "ru": "Шарф",
-   "id": "Syal"
   },
   "Secret key": {
    "zh-Hans": "私密密钥",
@@ -2189,17 +2046,6 @@
    "pt-BR": "Domingo",
    "ru": "Воскресенье",
    "id": "Minggu"
-  },
-  "Sunglasses": {
-   "zh-Hans": "墨镜",
-   "hi": "धूप का चश्मा",
-   "es": "Gafas de sol",
-   "ar": "نظارة شمسية",
-   "fr": "Lunettes de soleil",
-   "bn": "সানগ্লাস",
-   "pt-BR": "Óculos de sol",
-   "ru": "Солнечные очки",
-   "id": "Kacamata hitam"
   },
   "Switch provider or model": {
    "zh-Hans": "切换服务商或模型",
@@ -2608,17 +2454,6 @@
    "ru": "Используется дважды",
    "id": "Dipakai dua kali"
   },
-  "Wardrobe…": {
-   "zh-Hans": "衣橱…",
-   "hi": "अलमारी…",
-   "es": "Guardarropa…",
-   "ar": "خزانة الملابس…",
-   "fr": "Garde-robe…",
-   "bn": "পোশাক ঘর…",
-   "pt-BR": "Guarda-roupa…",
-   "ru": "Гардероб…",
-   "id": "Lemari…"
-  },
   "Warning: the key would be sent unencrypted (http://) to another machine. Use https://, or a server on this computer.": {
    "zh-Hans": "警告：密钥将以未加密的方式（http://）发送到另一台机器。请使用 https://，或本机上的服务器。",
    "hi": "चेतावनी: कुंजी बिना एन्क्रिप्शन (http://) के किसी दूसरी मशीन को भेजी जाएगी। https:// या इसी कंप्यूटर का सर्वर उपयोग करें।",
@@ -2651,17 +2486,6 @@
    "pt-BR": "Onde você programa",
    "ru": "Где вы пишете код",
    "id": "Tempat Anda membuat kode"
-  },
-  "Witch hat": {
-   "zh-Hans": "女巫帽",
-   "hi": "चुड़ैल की टोपी",
-   "es": "Sombrero de bruja",
-   "ar": "قبعة ساحرة",
-   "fr": "Chapeau de sorcière",
-   "bn": "ডাইনির টুপি",
-   "pt-BR": "Chapéu de bruxa",
-   "ru": "Шляпа ведьмы",
-   "id": "Topi penyihir"
   },
   "Work from any app. Click a shortcut to change it, then press the new keys — Esc cancels, Backspace removes it.": {
    "zh-Hans": "在任何应用中都可使用。点击某个快捷键即可修改，然后按下新的按键 — Esc 取消，Backspace 删除。",

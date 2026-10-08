@@ -54,19 +54,18 @@ You can also [build it yourself](#build-it-yourself).
 | Click the small island | It opens |
 | Click Klay | It gets annoyed. Three times in a row and it goes dizzy |
 | Rest the pointer on Klay for two seconds | Hearts |
-| Right-click Klay | The wardrobe: rest the pointer on an outfit to try it on, click to keep it. **Auto** dresses him for the season (witch hat in October, Santa hat in December…) |
-| Drag Klay out of the island | He moves onto your desktop and hangs out there, in his outfit, watching your cursor. Drop him back on the island to bring him home |
-| On the desktop: click / right-click / double-click Klay | Poke him / the wardrobe / he flies home. Drag him to move him |
+| Right-click Klay | A little love: heart eyes and floating hearts |
+| Drag Klay out of the island | He moves onto your desktop and hangs out there, watching your cursor. Drop him back on the island to bring him home |
+| On the desktop: click / right-click / double-click Klay | Poke him / a little love / he flies home. Drag him to move him |
 | Drag a file onto the island | Klay turns into a box, swallows it, then offers to answer questions about it |
 | Click a file in the session ticker | Its diff opens in the island; ↗ opens the file in VS Code, ‹ or `Esc` goes back |
 | `Esc` | Closes the island |
-| Tray icon | Open, Weekly recap, Wardrobe…, Settings…, Pause, Quit |
+| Tray icon | Open, Weekly recap, Settings…, Pause, Quit |
 | `Ctrl+Alt+Space` | Opens the chat, from any app |
 | `Ctrl+Alt+A` | Jumps to the waiting permission or question |
 | `Ctrl+Alt+T` | Brings the session's window forward ("Open terminal") |
 | `Ctrl+Alt+→` / `Ctrl+Alt+←` | Next / previous pill |
 | `Ctrl+Alt+S` | Mutes or unmutes Klay |
-| `Ctrl+Alt+G` | Opens the wardrobe |
 | `Ctrl+Alt+N` | Opens and closes the island (off until you turn it on) |
 | In the open island: `Ctrl+→` `Ctrl+←`, `Ctrl+1`–`Ctrl+9` | Switch pills |
 | In the open island: `Ctrl+Enter`, `Ctrl+K` | Send, start a new chat |
@@ -427,8 +426,7 @@ own window.
   never the file itself. Counts and diffs come from Claude Code's Edit,
   MultiEdit and Write, on whichever pill its session is on (VS Code, Cursor,
   Claude Desktop); other agents' edits show as plain steps.
-- The GitHub lists are clicked, not walked with the arrow keys, and there is no
-  iPhone to keep fetching them while the pill is off.
+- The GitHub lists are clicked, not walked with the arrow keys.
 - Keyboard shortcuts use `Ctrl+Alt` where the Mac uses `⌃⌥`, with different
   keys (see [Keyboard shortcuts](#keyboard-shortcuts)), and `Ctrl` where the
   Mac uses `⌘` inside the island. "Bring the terminal forward" is "Open
@@ -455,9 +453,6 @@ own window.
     leaves to the image. A turn cut short by the session ending still counts.
   - Tray → Pause doesn't stop the history (it stays on the machine anyway);
     switch it off in Settings → General.
-- The wardrobe opens with a right-click on Klay, from the tray menu, or with
-  its global shortcut (`Ctrl+Alt+G` by default). In the compact island a tall hat
-  is cut by the top edge of the screen, as it is by the notch on a Mac.
 - Languages: chosen in Settings, independently of the system, and applied
   without a restart (the Mac's **Restart Klayer Island** isn't needed). Arabic turns
   the island's text right to left but not its layout: Klay and the pills keep
@@ -530,8 +525,7 @@ What changes on Linux:
   desktop's own keyboard settings instead:
   `klayer --shortcut openChat` (or the AppImage's path) runs the action in the
   Klayer Island that is already open. The ids are `toggleIsland`, `openChat`,
-  `goToAlert`, `jumpToTerminal`, `nextPill`, `prevPill`, `muteToggle` and
-  `wardrobeToggle`.
+  `goToAlert`, `jumpToTerminal`, `nextPill`, `prevPill` and `muteToggle`.
 - **Keys** live in the Secret Service (GNOME Keyring, KWallet).
 - **Plan usage**: the status line relay is `~/.local/share/klayer/bin/klayer-hook
   --statusline` and runs your previous status line with `/bin/sh -c`, like Claude

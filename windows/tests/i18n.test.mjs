@@ -86,11 +86,11 @@ test("plurals follow each language's rules", () => {
 });
 
 test("labels() tables and dates read in the current language", () => {
-  const table = labels({ bow: N_("Bow"), hat: N_("Party hat") });
-  assert.equal(table.bow, "Bow");
+  const table = labels({ pause: N_("Pause"), quit: N_("Quit") });
+  assert.equal(table.pause, "Pause");
   inLanguage("fr", () => {
-    assert.equal(table.bow, "Nœud");
-    assert.deepEqual(Object.keys(table), ["bow", "hat"]);
+    assert.equal(table.quit, "Quitter");
+    assert.deepEqual(Object.keys(table), ["pause", "quit"]);
     assert.match(monthShort(9), /^oct/);
   });
   assert.equal(monthShort(9), "Oct");
@@ -250,7 +250,7 @@ test("lookup() answers from the merged tables", () => {
 // upload canvas or the recap that is exactly a translated string, and is not
 // the argument of t() / tl() / tn() / N_(), is English that would stay English.
 
-const CHECKED = ["src/views", "src/settings", "src/island", "src/upload", "src/recap", "src/klay/wardrobe.ts", "src/main.ts"];
+const CHECKED = ["src/views", "src/settings", "src/island", "src/upload", "src/recap", "src/main.ts"];
 /** Literals that are a translated word but are values in the code, not text on screen. */
 const NOT_TEXT = new Set([
   "file", // the kind of a chat context: { kind: "file" }

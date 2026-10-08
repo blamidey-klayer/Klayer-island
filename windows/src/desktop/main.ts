@@ -1,5 +1,5 @@
 // The desktop Klay's own window (klay.html): draws him, and turns clicks and
-// drags on him into pokes, flights home, the wardrobe and a new spot. Port of
+// drags on him into pokes, flights home, a little love and a new spot. Port of
 // DesktopBotView + the mouse half of DesktopKlayController (DesktopKlay.swift).
 //
 // What he shows comes from the island (DESKTOP_EVENTS.state), where he is from
@@ -36,7 +36,7 @@ class DesktopKlay {
   private mode: DesktopMode = "off";
 
   private snap: DesktopSnapshot = {
-    state: "idle", outfit: "none", soundEnabled: true, soundVolume: 0.12, paused: false,
+    state: "idle", soundEnabled: true, soundVolume: 0.12, paused: false,
   };
 
   private visible = false;
@@ -121,7 +121,6 @@ class DesktopKlay {
       this.lastAgentActive = performance.now();
       this.asleep = false;
       this.engine.setState(this.snap.state, true);
-      this.engine.setOutfit(this.snap.outfit, false);
       this.schedule();
       return;
     }
@@ -196,7 +195,6 @@ class DesktopKlay {
     const ctx = this.canvas.getContext("2d");
     if (!ctx) return;
     const engine = this.engine;
-    engine.setOutfit(this.snap.outfit, true);
     if (!this.asleep) {
       // Windows: the global cursor. Linux: only while the pointer is over him.
       const fresh = this.mode === "poll" || now - this.lastPointer < 1500;
@@ -274,7 +272,7 @@ class DesktopKlay {
 
     document.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      if (isOverBody(this.local(e))) void emitToWindow(ISLAND, DESKTOP_EVENTS.wardrobe);
+      if (isOverBody(this.local(e))) this.engine.triggerEmote("love");
     });
 
     document.addEventListener("pointerleave", () => {

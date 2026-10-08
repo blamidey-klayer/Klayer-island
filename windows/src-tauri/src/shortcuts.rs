@@ -3,8 +3,7 @@
 // The shortcuts are registered from Rust through tauri-plugin-global-shortcut
 // (RegisterHotKey on Windows, XGrabKey on X11). A press is handed to the island
 // as a `shortcut` event carrying the action id; the island does the rest, the
-// same way it handles the tray menu. The wardrobe is the exception: it goes out
-// as its own `open-wardrobe` event, which the wardrobe view listens to.
+// same way it handles the tray menu.
 //
 // Default keys. The Mac uses ⌃⌥ + a letter. On Windows Ctrl+Alt *is* AltGr on
 // most European layouts, so a global Ctrl+Alt+E would swallow every € typed on
@@ -15,7 +14,7 @@
 //
 //   Ctrl+Alt+Space   open the chat           Ctrl+Alt+→ / ←  next / previous pill
 //   Ctrl+Alt+A       waiting permission      Ctrl+Alt+S      mute Klay
-//   Ctrl+Alt+T       open the terminal       Ctrl+Alt+G      wardrobe
+//   Ctrl+Alt+T       open the terminal
 //   Ctrl+Alt+N       open / close the island (off by default, as on the Mac)
 //
 // ⌃⌥[ and ⌃⌥] became the arrows (brackets are AltGr characters almost
@@ -65,7 +64,6 @@ pub const ACTIONS: &[ActionDef] = &[
     action("muteToggle", "Ctrl+Alt+S", true, true),
     // Klay on the desktop is not in this version.
     action("desktopToggle", "Ctrl+Alt+D", true, false),
-    action("wardrobeToggle", "Ctrl+Alt+G", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -270,11 +268,7 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
 /// Hands an action to the island.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
-    if action == "wardrobeToggle" {
-        let _ = app.emit_to(WINDOW_LABEL, "open-wardrobe", ());
-    } else {
-        let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
-    }
+    let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
 }
 
 /// Unregisters everything Klayer Island holds.
@@ -379,9 +373,9 @@ fn typed_character(shortcut: &Shortcut) -> Option<String> {
 mod tests {
     use super::*;
 
-    const MAC_IDS: [&str; 10] = [
+    const MAC_IDS: [&str; 9] = [
         "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
-        "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
+        "nextPill", "prevPill", "muteToggle", "desktopToggle",
     ];
 
     fn never(_: &Shortcut) -> Option<String> {
@@ -542,7 +536,7 @@ mod tests {
     fn the_command_line_names_an_action() {
         let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(from_args(&args(&["klayer", "--shortcut", "openChat"])), Some("openChat"));
-        assert_eq!(from_args(&args(&["klayer", "--shortcut", "wardrobeToggle"])), Some("wardrobeToggle"));
+        assert_eq!(from_args(&args(&["klayer", "--shortcut", "muteToggle"])), Some("muteToggle"));
         assert_eq!(from_args(&args(&["klayer", "--shortcut"])), None);
         assert_eq!(from_args(&args(&["klayer", "--shortcut", "rm -rf"])), None);
         assert_eq!(from_args(&args(&["klayer", "--shortcut", "desktopToggle"])), None);

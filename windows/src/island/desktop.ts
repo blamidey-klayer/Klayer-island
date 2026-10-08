@@ -10,7 +10,6 @@ import { State } from "../core/state";
 import {
   DESKTOP_EVENTS, DesktopKlayController, alertActive, type DesktopSnapshot,
 } from "../klay/desktop-logic";
-import { SeasonCache, parseOutfit } from "../klay/wardrobe";
 
 /** Label of the desktop Klay's window (desktop.rs LABEL). */
 const WINDOW = "klay";
@@ -19,8 +18,6 @@ const WINDOW = "klay";
 export interface DesktopHost {
   /** Shows the island (compact) if it is hidden. */
   reveal(): void;
-  /** Right-click on the desktop Klay: the wardrobe, or back. */
-  wardrobeFromDesktop(): void;
   /** Three pokes on the desktop Klay. */
   dizzyFromDesktop(): void;
 }
@@ -32,7 +29,6 @@ export class DesktopLink {
   /** The pointer is dragging Klay out of the island. */
   carrying = false;
 
-  private seasons = new SeasonCache();
   private pushed = "";
   private pendingCarry: { x: number; y: number } | null = null;
   private carryFrame = false;
@@ -73,7 +69,6 @@ export class DesktopLink {
       this.onDropped(e.from, e.home),
     );
     await onEvent<null>(DESKTOP_EVENTS.home, () => void this.controller.flyHome());
-    await onEvent<null>(DESKTOP_EVENTS.wardrobe, () => this.host.wardrobeFromDesktop());
     await onEvent<null>(DESKTOP_EVENTS.dizzy, () => this.host.dizzyFromDesktop());
     // The window's page (re)loaded: it knows nothing yet.
     await onEvent<null>(DESKTOP_EVENTS.ready, () => {
@@ -157,7 +152,6 @@ export class DesktopLink {
   private push() {
     const snapshot: DesktopSnapshot = {
       state: State.effectiveState,
-      outfit: State.wardrobePreview ?? this.seasons.get(parseOutfit(State.settings.klayOutfit)),
       soundEnabled: State.settings.soundEnabled,
       soundVolume: State.settings.soundVolume,
       paused: State.paused,

@@ -16,7 +16,7 @@ import { DEFAULT_SETTINGS, State } from "../src/core/state.ts";
 
 const MAC_IDS = [
   "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
-  "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
+  "nextPill", "prevPill", "muteToggle", "desktopToggle",
 ];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
@@ -71,7 +71,7 @@ test("only the island toggle is off by default; the two not ported yet are reser
     assert.equal(d.ported, !["attachFrontWindow", "desktopToggle"].includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle", "wardrobeToggle",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle",
   ]);
 });
 
@@ -247,7 +247,6 @@ const host = {
   emote: (e) => did.push(`emote:${e}`),
   setPinned: (on) => did.push(`pin:${on}`),
   takeKeyboard: () => did.push("keyboard"),
-  wardrobeAnywhere: () => did.push("wardrobe"),
 };
 const resume = () => did.push("resume");
 // The island listens on `window`, which here is the bare global object.
@@ -268,11 +267,6 @@ beforeEach(() => {
   State.chatHistory = [];
   State.settings = { ...DEFAULT_SETTINGS };
   State.loadIntegrationTasks();
-});
-
-test("the wardrobe shortcut's own event opens the wardrobe", () => {
-  emit("open-wardrobe", null);
-  assert.deepEqual(did, ["resume", "wardrobe"]);
 });
 
 test("a global shortcut arrives as an event and opens the chat", () => {
@@ -404,7 +398,7 @@ test("mute flips the sound, saves it, and Klay reacts", () => {
 });
 
 test("actions that aren't the island's do nothing here", () => {
-  for (const id of ["wardrobeToggle", "attachFrontWindow", "desktopToggle", "nonsense"]) {
+  for (const id of ["attachFrontWindow", "desktopToggle", "nonsense"]) {
     runGlobalShortcut(host, id, resume);
   }
   assert.deepEqual(did, []);
