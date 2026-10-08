@@ -383,44 +383,35 @@ func botPosition(mode: IslandMode, view: IslandView, islandW: CGFloat, islandH: 
 
 // MARK: - Countdown bar
 
+/// The last seconds before the open island folds on its own (spec rule 6): a 2 pt line, 160 pt
+/// wide when the window starts, 0 at the fold. Drawn only from the deadline the state machine
+/// publishes (`AppState.foldDeadline`), so it never counts down to a fold that will not happen.
+/// Without a deadline there is no timeline at all: nothing ticks while the island is hidden.
 struct CountdownBar: View {
     @ObservedObject var state: AppState
     let islandW: CGFloat
-    @State private var barWidth: CGFloat = 0
-    @State private var timer: Timer? = nil
 
     var body: some View {
         GeometryReader { _ in
-            Rectangle()
-                .fill(Color.white.opacity(0.35))
-                .frame(width: barWidth, height: 2)
-                .cornerRadius(2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        }
-        .onAppear { startTimer() }
-        .onDisappear { timer?.invalidate() }
-    }
-
-    private func startTimer() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            updateBar()
+            if let deadline = state.mode == .expanded ? state.foldDeadline : nil {
+                TimelineView(.periodic(from: .now, by: 0.1)) { context in
+                    Rectangle()
+                        .fill(Color.white.opacity(0.35))
+                        .frame(width: Self.width(remaining: deadline.timeIntervalSince(context.date),
+                                                 autoClose: state.autoCloseInterval), height: 2)
+                        .cornerRadius(2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
+            }
         }
     }
 
-    private func updateBar() {
-        guard state.mode == .expanded && !state.isPinned else {
-            barWidth = 0
-            return
-        }
-        let autoClose = state.autoCloseInterval
+    /// 160 pt down to 0 over the last 10 s before the fold, or the last 60 % of Close after
+    /// when that is shorter; 0 before the window.
+    static func width(remaining: TimeInterval, autoClose: TimeInterval) -> CGFloat {
         let window = min(10.0, autoClose * 0.6)
-        let elapsed = Date.now.timeIntervalSince(state.lastActivity)
-        let remaining = autoClose - elapsed
-        if remaining < window {
-            barWidth = max(0, CGFloat(remaining / window) * 160)
-        } else {
-            barWidth = 0
-        }
+        guard window > 0, remaining < window else { return 0 }
+        return max(0, CGFloat(remaining / window) * 160)
     }
 }
 

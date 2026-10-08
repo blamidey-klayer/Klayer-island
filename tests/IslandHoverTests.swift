@@ -32,6 +32,7 @@ enum IslandHoverTests {
             ("a_compact_island_shown_by_the_app_hides_like_any_other", aCompactIslandShownByTheAppHidesLikeAnyOther),
             ("an_alert_during_the_greeting_leaves_the_greeting", anAlertDuringTheGreetingLeavesTheGreeting),
             ("a_stale_view_folds_unless_in_use", aStaleViewFoldsUnlessInUse),
+            ("the_fold_deadline_is_published_only_when_a_fold_is_due", theFoldDeadlineIsPublishedOnlyWhenAFoldIsDue),
         ]
         for (name, run) in cases {
             try await run()
@@ -446,6 +447,85 @@ enum IslandHoverTests {
         let closed = IslandStateMachine()
         closed.externalViewWentStale()
         precondition(closed.state == .hidden)
+    }
+
+    // MARK: - Countdown
+
+    /// The countdown bar draws only from the deadline the state machine publishes: set when the
+    /// island will fold on the auto-close timer (the user clicked inside, then the pointer left),
+    /// cleared when that fold is cancelled or done. Never for the short hover grace, an island the
+    /// app opened, or a request that holds the island.
+    @MainActor
+    static func theFoldDeadlineIsPublishedOnlyWhenAFoldIsDue() async throws {
+        let m = IslandStateMachine()
+        var published: [Date?] = []
+        m.onFoldDeadline = { published.append($0) }
+        m.hoverCloseDelay = 0.3
+        m.homeToPetitDelay = 3
+
+        // Hover grace: a fold, but no countdown.
+        try await openByHover(m)
+        m.mouseLeft()
+        precondition(m.foldDeadline == nil, "the 0.6 s hover grace shows no countdown")
+        m.mouseEntered()
+
+        // Clicked inside, then the pointer leaves: the real deadline, now + Close after.
+        m.userInteracted()
+        let before = Date()
+        m.mouseLeft()
+        guard let deadline = m.foldDeadline else { preconditionFailure("no deadline for an auto-close fold") }
+        precondition(abs(deadline.timeIntervalSince(before) - 3) < 0.2, "deadline is now + Close after")
+        precondition(published.last == deadline, "the deadline is published")
+
+        // The pointer comes back: the fold is cancelled, and so is the deadline.
+        m.mouseEntered()
+        precondition(m.foldDeadline == nil && published.last == .some(nil), "a cancelled fold clears the deadline")
+
+        // A new Close after delay moves the deadline of a fold already counting.
+        m.mouseLeft()
+        let first = m.foldDeadline
+        m.homeToPetitDelay = 10
+        guard let moved = m.foldDeadline, let first else { preconditionFailure("deadline lost on a delay change") }
+        precondition(moved.timeIntervalSince(first) > 6, "the deadline follows the new delay")
+
+        // The fold happens: the deadline goes with it.
+        m.homeToPetitDelay = 0.05
+        try await waitFor(.petit, m, timeout: 2)
+        precondition(m.foldDeadline == nil && published.last == .some(nil), "no deadline once folded")
+
+        // An island the app opened has no timer, so no deadline either.
+        let app = IslandStateMachine()
+        app.openedExternally()
+        app.mouseLeft()
+        precondition(app.foldDeadline == nil)
+
+        // A click outside folds at once: no deadline left behind.
+        let clicked = IslandStateMachine()
+        clicked.hoverCloseDelay = 0.3
+        try await openByHover(clicked)
+        clicked.userInteracted()
+        clicked.mouseLeft()
+        precondition(clicked.foldDeadline != nil)
+        clicked.clickedOutside()
+        precondition(clicked.foldDeadline == nil)
+
+        // A request arrives while the countdown runs: the timer fires but does not fold the held
+        // island, and the deadline is cleared all the same (no bar left at zero, no timeline).
+        let held = IslandStateMachine()
+        held.hoverCloseDelay = 0.3
+        held.homeToPetitDelay = 0.2
+        try await openByHover(held)
+        held.userInteracted()
+        held.mouseLeft()
+        precondition(held.foldDeadline != nil)
+        held.isHeldOpen = { true }
+        try await Task.sleep(for: .milliseconds(500))
+        precondition(held.state == .home, "a request holds the island")
+        precondition(held.foldDeadline == nil, "a fold that did not happen leaves no deadline")
+        // ...and a held island never starts one.
+        held.mouseEntered()
+        held.mouseLeft()
+        precondition(held.foldDeadline == nil, "a held island shows no countdown")
     }
 
     // MARK: - Helpers

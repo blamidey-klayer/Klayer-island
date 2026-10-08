@@ -29,6 +29,16 @@ final class IslandStateMachine {
     /// pointer-leave never collapse or hide the island.
     var isHeldOpen: (() -> Bool)?
 
+    /// When the open island folds on the auto-close timer (the user clicked inside, then the
+    /// pointer left), else nil: the countdown bar draws only from it. Never set for the short
+    /// hover grace; cleared when that fold is cancelled, happens, or is refused (a request holds).
+    private(set) var foldDeadline: Date? {
+        didSet { if foldDeadline != oldValue { onFoldDeadline?(foldDeadline) } }
+    }
+
+    /// Fired when `foldDeadline` changes.
+    var onFoldDeadline: ((Date?) -> Void)?
+
     /// home → petit delay (seconds) once the user clicked inside the open island,
     /// kept in sync with the auto-close preference.
     var homeToPetitDelay: TimeInterval = 15 {
@@ -293,12 +303,17 @@ final class IslandStateMachine {
     private func scheduleHomeCollapse() {
         homeCollapseWork?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self, self.state == .home, !self.pointerIsOver,
+            guard let self else { return }
+            // Fired: no fold is pending any more, whether it happens or not.
+            self.homeCollapseWork = nil
+            self.foldDeadline = nil
+            guard self.state == .home, !self.pointerIsOver,
                   self.isHeldOpen?() != true else { return }
             self.transition(to: .petit)
         }
         homeCollapseWork = item
         let delay = homeClose == .autoClose ? homeToPetitDelay : hoverCloseDelay
+        foldDeadline = homeClose == .autoClose ? Date().addingTimeInterval(delay) : nil
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
@@ -312,6 +327,7 @@ final class IslandStateMachine {
 
     private func cancelHomeCollapse() {
         homeCollapseWork?.cancel(); homeCollapseWork = nil
+        foldDeadline = nil
     }
 
     func cancelTimers() {
@@ -324,6 +340,7 @@ final class IslandStateMachine {
     private func transition(to new: State) {
         guard new != state else { return }
         let old = state
+        if new != .home { foldDeadline = nil }
         state = new
         onTransition?(old, new)
     }

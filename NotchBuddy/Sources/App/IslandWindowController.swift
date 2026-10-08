@@ -272,6 +272,11 @@ final class IslandWindowController: NSWindowController {
             NotificationCenter.default.post(name: .botGreet, object: nil)
         }
 
+        // The countdown bar draws only from the fold the state machine has really scheduled.
+        fsm.onFoldDeadline = { [weak self] deadline in
+            self?.state.foldDeadline = deadline
+        }
+
         fsm.onTransition = { [weak self] from, to in
             guard let self else { return }
             switch to {
@@ -550,7 +555,6 @@ final class IslandWindowController: NSWindowController {
         } else {
             setMode(.expanded)
         }
-        state.lastActivity = .now
     }
 
     /// Opens the island on `view` for an action that does not go through the FSM (hot key,
@@ -1167,12 +1171,6 @@ final class IslandWindowController: NSWindowController {
     func baseMode() -> IslandMode {
         guard state.isPresent else { return .hidden }
         return state.tasks.isEmpty ? .hidden : .compact
-    }
-
-    // MARK: - Activity reset (call on any user interaction in island)
-
-    func resetActivity() {
-        state.lastActivity = .now
     }
 
     // MARK: - Dizzy recovery (triggered by BotEngine.slap via .botDizzy)

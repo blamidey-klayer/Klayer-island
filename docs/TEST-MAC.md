@@ -72,7 +72,7 @@ Avant de commencer : aucune session Claude Code ouverte. Si l'île réduite est 
 - [ ] Île ouverte, tapez Échap dans l'île. Attendu : elle se ferme.
 - [ ] Île ouverte, tapez Échap dans une autre app (le terminal). Attendu : elle se ferme, sauf si une demande attend ou si elle est épinglée. À noter : macOS vous demande-t-il une autorisation (surveillance de l'entrée, accessibilité) pour ce cas ?
 - [ ] Île ouverte, épinglez-la (⌘P) puis cliquez dans une autre app. Attendu : elle reste ouverte.
-- [ ] (facultatif, 15 s d'attente) Île ouverte par le survol, cliquez dedans (sur le bouton maison de l'en-tête), puis sortez la souris. Attendu : repli après le délai « Close after » des Réglages (15 s par défaut). Dans les 10 dernières secondes, un trait de 2 pt au bas du centre se réduit. À noter : le trait correspond-il au repli ?
+- [ ] (facultatif, 15 s d'attente) Île ouverte par le survol, cliquez dedans (sur le bouton maison de l'en-tête), puis sortez la souris. Attendu : repli après le délai « Close after » des Réglages (15 s par défaut). Dans les 10 dernières secondes, un trait de 2 pt au bas du centre se réduit et l'île se replie quand il atteint zéro. Revenez sur l'île pendant le compte à rebours : le trait disparaît et l'île reste ouverte. Ouverte au survol sans clic, ou ouverte seule sur « terminé » : aucun trait.
 - [ ] Île ouverte, cliquez sur Klay. Attendu : émote « agacé ». Glissez Klay hors de l'encoche et lâchez-le sur le bureau. Attendu : Klay se pose sur le bureau. Glissez-le sur la fenêtre d'une autre app. Attendu : le chat s'ouvre avec cette fenêtre en contexte. Les boutons de l'île et le chat fonctionnent.
 - [ ] Île fermée, tapez ⌃⌥Espace. Attendu : le chat s'ouvre. Approcher l'encoche ou la survoler ne le replie pas. Un clic dans une autre app le ferme. Même règle pour ⌃⌥], ⌃⌥[ et ⌃⌥W.
 - [ ] Klay sur le bureau (⌃⌥D), approchez l'encoche. Attendu : pas de son `greet`. Ouvrez l'île, puis cliquez sur Klay du bureau. Attendu : l'île reste ouverte.
@@ -268,7 +268,7 @@ Renvoyez-moi ces éléments dans le fil où vous avez reçu ce lien :
 
 - [ ] Les réponses S1, S3 et S4, avec les notes demandées sous chaque spike.
 - [ ] Chaque point en échec avec sa capture d'écran, et ce que vous avez vu à la place.
-- [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, deux Klay pendant le glissement, trait du compte à rebours, CPU relevés.
+- [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, deux Klay pendant le glissement, CPU relevés.
 - [ ] Le nom exact de l'outil Gmail, si S3 le montre.
 - [ ] Votre contexte : version de l'app (en haut de la barre latérale des Réglages), version de macOS, modèle de Mac (avec ou sans encoche), versions de l'app Claude et de Claude Code.
 

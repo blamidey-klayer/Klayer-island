@@ -35,11 +35,14 @@ final class AppState: ObservableObject {
     // Mouse tracking
     var mousePosition: CGPoint = .zero
     var lastMouseMove: Date = .now
-    var lastActivity: Date = .now
     var isPresent: Bool = true
 
     // Pinned (alerts that stay open, never auto-close)
     var isPinned: Bool = false
+
+    /// When the open island folds on the auto-close timer, as the state machine scheduled it
+    /// (`IslandStateMachine.foldDeadline`), else nil. The countdown bar draws only from it.
+    @Published var foldDeadline: Date? = nil
 
     // Keyboard navigation — index of the selected item within the current card's list (nil = none)
     @Published var cardSelection: Int? = nil
