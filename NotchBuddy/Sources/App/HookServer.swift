@@ -600,7 +600,15 @@ final class HookServer: @unchecked Sendable {
                 // Same path as on a closed island, so the state machine holds it open.
                 NotificationCenter.default.post(name: .hookExpand, object: view)
             } else if isAlert && state.pendingApproval == nil && state.pendingQuestion == nil {
-                state.view = view
+                if view == .finished || view == .error {
+                    // The end of a session (FinishPresentation decided .open) takes the same path as
+                    // on a closed island: the state machine then waits for a real hover then leave.
+                    // Switched in place, an island opened by hovering the 220 pt home shrinks to
+                    // 160 pt under a low pointer, which "leaves" it, and it folded unseen 0.6 s later.
+                    NotificationCenter.default.post(name: .hookExpand, object: view)
+                } else {
+                    state.view = view
+                }
             }
         } else if isAlert {
             // Alerts always force-expand

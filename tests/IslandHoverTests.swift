@@ -28,6 +28,7 @@ enum IslandHoverTests {
             ("pending_request_holds_the_island", pendingRequestHoldsTheIsland),
             ("hover_on_hidden_held_island_syncs_to_home", hoverOnHiddenHeldIslandSyncsToHome),
             ("finished_stays_until_hover_then_leave", finishedStaysUntilHoverThenLeave),
+            ("a_finish_over_a_hover_opened_island_waits_for_a_new_hover", aFinishOverAHoverOpenedIslandWaitsForANewHover),
         ]
         for (name, run) in cases {
             try await run()
@@ -329,6 +330,24 @@ enum IslandHoverTests {
         precondition(m.state == .home, "folds after the 0.6 s grace period, not before")
         try await Task.sleep(for: .milliseconds(700))   // 1 s after leaving
         precondition(m.state == .petit, "state \(m.state) 1 s after hover then leave, expected petit")
+    }
+
+    @MainActor
+    static func aFinishOverAHoverOpenedIslandWaitsForANewHover() async throws {
+        // Opened by hovering the 220 pt home, pointer low on it. A session ends: HookServer opens the
+        // finished view through hookExpand (openedExternally). The view is 160 pt tall, the pointer is
+        // now below it: the pointer "leaves" without having seen the finish.
+        let m = IslandStateMachine()
+        m.hoverCloseDelay = 0.3
+        try await openByHover(m)
+        m.openedExternally()
+        m.mouseLeft()
+        try await Task.sleep(for: .milliseconds(800))   // well past the 0.3 s hover grace
+        precondition(m.state == .home, "the finish must stay open after the island shrank under the pointer")
+        // Seen, then left: it folds after the hover grace.
+        m.mouseEntered()
+        m.mouseLeft()
+        try await waitFor(.petit, m, timeout: 2)
     }
 
     // MARK: - Helpers
