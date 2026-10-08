@@ -341,7 +341,7 @@ final class AppState: ObservableObject {
         // Undeclared or declared-but-not-active: remove
         tasks.removeAll { $0.id == id }
         if focusId == id { focusId = mainPillId }
-        syncMode()
+        syncMode(revealing: false)
         syncView()
     }
 
@@ -383,12 +383,16 @@ final class AppState: ObservableObject {
         if let s = sound { SoundEngine.shared.play(s) }
     }
 
-    func syncMode() {
-        // If no tasks and not expanded/peek, go hidden
+    /// Keeps the island in step with its pills. With no task left, a compact island hides (the
+    /// window controller tells the state machine). Klay comes out only through the state machine
+    /// (spec §4): a pill that appears while the island is hidden posts a reveal, which hides him
+    /// again 60 s after the pointer is away. A pill that goes (`revealing` false) brings nothing
+    /// out. Setting `mode` to compact here left the state machine hidden and Klay out for good.
+    func syncMode(revealing: Bool = true) {
         if tasks.isEmpty && mode == .compact {
             mode = .hidden
-        } else if !tasks.isEmpty && mode == .hidden && isPresent {
-            mode = .compact
+        } else if revealing && !tasks.isEmpty && mode == .hidden && isPresent {
+            NotificationCenter.default.post(name: .hookReveal, object: nil)
         }
     }
 

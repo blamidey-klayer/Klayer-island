@@ -29,6 +29,7 @@ enum IslandHoverTests {
             ("hover_on_hidden_held_island_syncs_to_home", hoverOnHiddenHeldIslandSyncsToHome),
             ("finished_stays_until_hover_then_leave", finishedStaysUntilHoverThenLeave),
             ("a_finish_over_a_hover_opened_island_waits_for_a_new_hover", aFinishOverAHoverOpenedIslandWaitsForANewHover),
+            ("a_compact_island_shown_by_the_app_hides_like_any_other", aCompactIslandShownByTheAppHidesLikeAnyOther),
         ]
         for (name, run) in cases {
             try await run()
@@ -348,6 +349,37 @@ enum IslandHoverTests {
         m.mouseEntered()
         m.mouseLeft()
         try await waitFor(.petit, m, timeout: 2)
+    }
+
+    @MainActor
+    static func aCompactIslandShownByTheAppHidesLikeAnyOther() async throws {
+        // AppState used to turn hidden into compact on its own (a Claude app pill created or
+        // removed) while the FSM stayed hidden: Klay then stayed out for good. The window
+        // controller now syncs it: the FSM takes it as petit, with the 60 s hide timer.
+        let m = IslandStateMachine()
+        let log = Log(m)
+        m.petitToHiddenDelay = 0.05
+        m.shownExternally()
+        precondition(m.state == .petit && log.states.isEmpty, "synced without a transition (mode is already compact)")
+        try await waitFor(.hidden, m, timeout: 2)
+        precondition(log.states == [.hidden], "it hides after the delay, got \(log.states)")
+
+        // The pointer near the notch keeps it out until it goes away, as for any compact Klay.
+        let n = IslandStateMachine()
+        n.petitToHiddenDelay = 0.05
+        n.pointerNear()
+        n.hiddenExternally()
+        n.shownExternally()
+        try await Task.sleep(for: .milliseconds(300))
+        precondition(n.state == .petit, "no hiding while the pointer is near")
+        n.pointerFar()
+        try await waitFor(.hidden, n, timeout: 2)
+
+        // Only from hidden: an open island is left alone.
+        let o = IslandStateMachine()
+        o.openedExternally()
+        o.shownExternally()
+        precondition(o.state == .home)
     }
 
     // MARK: - Helpers

@@ -402,6 +402,11 @@ final class IslandWindowController: NSWindowController {
             fsm.hiddenExternally()
             pointerLeftNotchZone()
         }
+        // And the other way: a compact island the FSM thinks hidden is synced as petit, with its
+        // hide timer, so Klay never stays out behind the state machine's back (spec §4, rule 2).
+        if state.mode == .compact && fsm.state == .hidden {
+            fsm.shownExternally()
+        }
 
         // Proximity (spec §4): within 120 pt of the notch, Klay comes out and waves once
         // per approach; it never opens the island.

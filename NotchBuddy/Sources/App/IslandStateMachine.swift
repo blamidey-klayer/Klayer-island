@@ -195,6 +195,16 @@ final class IslandStateMachine {
         state = .hidden
     }
 
+    /// The compact island is on screen while the FSM has it hidden: something showed it outside
+    /// the FSM. Mirror it as petit without side effects and start the hide timer, so Klay hides
+    /// 60 s after the pointer is away instead of staying out for good (spec §4, rule 2).
+    func shownExternally() {
+        guard state == .hidden else { return }
+        cancelTimers()
+        state = .petit
+        if !pointerIsNear && !pointerIsOver { schedulePetitHide() }
+    }
+
     /// The app expanded the island externally (an alert, a finished session).
     /// Sync state to `.home` without firing `onTransition` and start no timer: the island
     /// stays open until the pointer has been on it and left, or a click lands outside.
