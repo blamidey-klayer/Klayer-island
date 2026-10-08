@@ -36,7 +36,7 @@ struct ApprovalInfo: Sendable {
     var command: String
     /// tool_input serialized to JSON with sortedKeys, "" if absent — used to match PostToolUse.
     var inputKey: String
-    /// Pill that owns this approval: "integration_claude".
+    /// Pill that owns this approval: "integration_claude", or "agent_claude-desktop" for a Claude app session.
     var pillId: String
 }
 

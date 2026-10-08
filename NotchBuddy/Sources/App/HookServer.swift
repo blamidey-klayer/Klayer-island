@@ -130,7 +130,8 @@ final class HookServer: @unchecked Sendable {
         dismissQuestionCard(note: "")
     }
 
-    /// Called by QuestionView "Reply in terminal" button.
+    /// Called by QuestionView "Reply in terminal" button (« Répondre dans Claude » for a question
+    /// from the Claude desktop app). Answers "ask": the session asks the user itself.
     @MainActor
     func sendQuestionAsk() {
         let fd = pendingQuestionFD
@@ -329,7 +330,7 @@ final class HookServer: @unchecked Sendable {
         // Only Claude Code (no klayer_agent) and the Claude desktop app ("claude-desktop") are
         // followed: a session from any other agent gets no pill.
         let rawAgent = payload["klayer_agent"] as? String ?? ""
-        guard !isUnrecognisedAgent(rawAgent) else {
+        guard HookRouting.handledInIsland(agent: rawAgent) else {
             nbLog("Ignored \(name) from agent \(rawAgent.prefix(24)) (\(projectName))")
             return
         }
@@ -340,14 +341,14 @@ final class HookServer: @unchecked Sendable {
         let isEditorHost = Self.isEditorHost(termProgram: termProgram, bundleId: bundleId)
 
         // Routing:
-        // • klayer_agent "claude-desktop" → the Claude desktop app pill (fire-and-forget, no approval card)
+        // • klayer_agent "claude-desktop" → the Claude desktop app pill (its permissions and questions get cards too)
         // • VS Code or Cursor → integration_claude
         // • a known terminal (Warp, Terminal, iTerm…) → integration_claude, host recorded on the task
         let agentId: String
         let isExternalAgent: Bool
         var hostApp: String? = nil
-        if let agent = validAgent {
-            agentId = "agent_\(agent)"
+        if validAgent != nil {
+            agentId = HookRouting.pillId(agent: rawAgent)
             isExternalAgent = true
         } else if isEditorHost {
             agentId = "integration_claude"
@@ -365,7 +366,7 @@ final class HookServer: @unchecked Sendable {
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
         if let pending = state.pendingApproval, agentId == pending.pillId {
-            let handledNote = "Handled in \(claudeHostName)."
+            let handledNote = "Handled in \(requestHostName(forPill: pending.pillId))."
             var resolved = false
             switch name {
             case "PostToolUse", "PostToolUseFailure":
@@ -586,32 +587,20 @@ final class HookServer: @unchecked Sendable {
         let rawAgent = payload["klayer_agent"] as? String ?? ""
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
-        let isEditorHost = Self.isEditorHost(termProgram: termProgram, bundleId: bundleId)
 
-        // Only Claude Code (no klayer_agent) gets an approval card. A session from the Claude
-        // desktop app, or from any other agent, answers immediately with "ask" so that tool
-        // re-asks in its own window — it does not get a notch card.
-        guard rawAgent.isEmpty else {
+        // Claude Code and the Claude desktop app get an approval card; the pill that owns it is
+        // the Claude Code pill or the Claude desktop pill. Any other request (another agent, a
+        // terminal session with cards off in Settings) answers immediately with "ask" so that
+        // tool re-asks in its own window.
+        guard let route = Self.cardRoute(agent: rawAgent, termProgram: termProgram, bundleId: bundleId) else {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
             }
             return
         }
-
-        // The workspace pill that owns the request.
-        let pillId = "integration_claude"
-        // Terminal sessions: only when turned on in Settings, else the terminal asks itself.
-        let terminalHost = isEditorHost ? nil
-            : ClaudeHost.terminal(termProgram: termProgram, bundleId: bundleId)
-        let isTerminal = terminalHost != nil && ClaudeHost.terminalCardsEnabled
-        guard isEditorHost || isTerminal else {
-            Task.detached { [weak self] in
-                self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
-                close(fd)
-            }
-            return
-        }
+        let pillId = route.pillId
+        let terminalHost = route.terminalHost
 
         let tool = payload["tool_name"] as? String ?? "Tool"
         let toolInput = payload["tool_input"] as? [String: Any] ?? [:]
@@ -664,7 +653,7 @@ final class HookServer: @unchecked Sendable {
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, self.pendingApprovalFD == fd else { return }
-            self.dismissApprovalCard(note: "Handled in \(self.claudeHostName).")
+            self.dismissApprovalCard(note: "Handled in \(self.requestHostName(forPill: pillId)).")
         }
         source.setCancelHandler { close(fd) }
         source.resume()
@@ -675,7 +664,7 @@ final class HookServer: @unchecked Sendable {
         let captured = fd
         DispatchQueue.main.asyncAfter(deadline: .now() + 115) { [weak self] in
             guard let self, self.pendingApprovalFD == captured else { return }
-            self.dismissApprovalCard(note: "Still waiting in \(self.claudeHostName).")
+            self.dismissApprovalCard(note: "Still waiting in \(self.requestHostName(forPill: pillId)).")
         }
     }
 
@@ -743,20 +732,17 @@ final class HookServer: @unchecked Sendable {
         let rawAgent    = payload["klayer_agent"] as? String ?? ""
         let termProgram = payload["term_program"]  as? String ?? ""
         let bundleId    = payload["bundle_id"]     as? String ?? ""
-        let isEditorHost = Self.isEditorHost(termProgram: termProgram, bundleId: bundleId)
-        let pillId = "integration_claude"
-        // Terminal sessions: only when turned on in Settings, else the terminal asks itself.
-        let terminalHost = isEditorHost ? nil
-            : ClaudeHost.terminal(termProgram: termProgram, bundleId: bundleId)
-        let isTerminal = terminalHost != nil && ClaudeHost.terminalCardsEnabled
-        // An agent Klayer Island does not follow never gets a card.
-        guard !isUnrecognisedAgent(rawAgent), isEditorHost || isTerminal else {
+        // Same route as a permission: Claude Code and the Claude desktop app get a card, any
+        // other request is answered "ask".
+        guard let route = Self.cardRoute(agent: rawAgent, termProgram: termProgram, bundleId: bundleId) else {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
             }
             return
         }
+        let pillId = route.pillId
+        let terminalHost = route.terminalHost
 
         // Displace any previous question waiting for an answer.
         if pendingQuestionFD >= 0 {
@@ -811,6 +797,36 @@ final class HookServer: @unchecked Sendable {
     @MainActor
     private var claudeHostName: String {
         ClaudeHost.name(for: AppState.shared.tasks.first { $0.id == "integration_claude" }?.hostApp)
+    }
+
+    /// Where the user answers a request of this pill, for the notes "Handled in …" and
+    /// "Still waiting in …": "Claude" for the Claude desktop app, the host of the Claude Code
+    /// session otherwise.
+    @MainActor
+    private func requestHostName(forPill pillId: String) -> String {
+        pillId == HookRouting.pillId(agent: "claude-desktop") ? "Claude" : claudeHostName
+    }
+
+    /// The pill that owns the pending question, so QuestionView can word its header link
+    /// (the user answers in the Claude app, not in a terminal, for the desktop pill).
+    @MainActor
+    var pendingQuestionPillId: String { questionPillId }
+
+    /// Where a permission or a question from Claude shows in the island: the pill that owns it
+    /// and the terminal hosting the session. Nil when the island does not answer it and the
+    /// caller replies "ask": an agent Klayer Island does not follow, or a terminal session while
+    /// terminal cards are off in Settings. The Claude desktop app is its own host: it skips the
+    /// editor and terminal gate and has no terminal host.
+    private static func cardRoute(agent: String, termProgram: String, bundleId: String)
+        -> (pillId: String, terminalHost: ClaudeHost?)? {
+        guard HookRouting.handledInIsland(agent: agent) else { return nil }
+        let pillId = HookRouting.pillId(agent: agent)
+        if validateAgent(agent) != nil { return (pillId: pillId, terminalHost: nil) }
+        if isEditorHost(termProgram: termProgram, bundleId: bundleId) { return (pillId: pillId, terminalHost: nil) }
+        // Terminal sessions: only when turned on in Settings, else the terminal asks itself.
+        guard let terminal = ClaudeHost.terminal(termProgram: termProgram, bundleId: bundleId),
+              ClaudeHost.terminalCardsEnabled else { return nil }
+        return (pillId: pillId, terminalHost: terminal)
     }
 
     /// Updates or transiently creates the Claude Code workspace pill task.
@@ -1387,6 +1403,10 @@ def main():
         if tool != 'AskUserQuestion':
             return  # Not an AskUserQuestion invocation — exit cleanly (no output)
         payload['klayer_kind'] = 'ask_user_question'
+        # A question from a Claude desktop app session (Code tab) carries this entrypoint: tag it
+        # like the other events so the island shows the question instead of answering "ask".
+        if not payload.get('klayer_agent') and os.environ.get('CLAUDE_CODE_ENTRYPOINT') == 'claude-desktop':
+            payload['klayer_agent'] = 'claude-desktop'
         env = os.environ
         payload.setdefault('term_program', env.get('TERM_PROGRAM', ''))
         payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))

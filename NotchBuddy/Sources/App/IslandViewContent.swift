@@ -280,6 +280,10 @@ struct QuestionView: View {
                 let curOther = qi < showOther.count ? showOther[qi] : false
                 let curOtherText = qi < otherTexts.count ? otherTexts[qi] : ""
                 let canProceed = !curSel.isEmpty || (curOther && !curOtherText.isEmpty)
+                // A question from the Claude desktop app is answered in the app, not in a terminal.
+                let replyLabel: LocalizedStringKey =
+                    HookServer.shared.pendingQuestionPillId == HookRouting.pillId(agent: "claude-desktop")
+                    ? "Répondre dans Claude" : "Reply in terminal"
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Header row: agent name + question counter + "Reply in terminal" link
@@ -291,7 +295,7 @@ struct QuestionView: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(Color(hex: "#6B7079"))
                         }
-                        Button("Reply in terminal") { HookServer.shared.sendQuestionAsk() }
+                        Button(replyLabel) { HookServer.shared.sendQuestionAsk() }
                             .buttonStyle(.plain)
                             .font(.system(size: 10))
                             .foregroundColor(Color(hex: "#6B7079"))

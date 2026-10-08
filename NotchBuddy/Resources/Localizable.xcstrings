@@ -12053,6 +12053,16 @@
           }
         }
       }
+    },
+    "Répondre dans Claude": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre dans Claude"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
