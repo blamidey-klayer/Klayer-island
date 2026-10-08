@@ -282,7 +282,7 @@ struct QuestionView: View {
                 let canProceed = !curSel.isEmpty || (curOther && !curOtherText.isEmpty)
                 // A question from the Claude desktop app is answered in the app, not in a terminal.
                 let replyLabel: LocalizedStringKey =
-                    HookServer.shared.pendingQuestionPillId == HookRouting.pillId(agent: "claude-desktop")
+                    HookServer.shared.pendingQuestionPillId == HookRouting.desktopPillId
                     ? "Répondre dans Claude" : "Reply in terminal"
 
                 VStack(alignment: .leading, spacing: 4) {

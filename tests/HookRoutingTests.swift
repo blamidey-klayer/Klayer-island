@@ -13,6 +13,11 @@ enum HookRoutingTests {
             ("an_unknown_name_is_not_handled", anUnknownNameIsNotHandled),
             ("claude_desktop_has_its_own_pill", claudeDesktopHasItsOwnPill),
             ("claude_code_uses_the_workspace_pill", claudeCodeUsesTheWorkspacePill),
+            ("desktop_pill_id_is_the_routed_one", desktopPillIdIsTheRoutedOne),
+            ("a_pill_with_nothing_waiting_may_be_removed", aPillWithNothingWaitingMayBeRemoved),
+            ("a_pill_with_its_own_approval_waiting_stays", aPillWithItsOwnApprovalWaitingStays),
+            ("a_pill_with_its_own_question_waiting_stays", aPillWithItsOwnQuestionWaitingStays),
+            ("another_pills_card_does_not_keep_it", anotherPillsCardDoesNotKeepIt),
         ]
         for (name, run) in cases {
             run()
@@ -52,5 +57,45 @@ enum HookRoutingTests {
         precondition(HookRouting.pillId(agent: "") == "integration_claude")
         // Never a pill of its own for an agent the island does not follow
         precondition(HookRouting.pillId(agent: "codex") == "integration_claude")
+    }
+
+    static func desktopPillIdIsTheRoutedOne() {
+        precondition(HookRouting.desktopPillId == HookRouting.pillId(agent: "claude-desktop"))
+        precondition(HookRouting.desktopPillId == "agent_claude-desktop",
+                     "the pill ID is a stable contract value (Keychain, preferences, hook routing)")
+    }
+
+    // All sessions of the Claude app share one pill: a Stop (5.2 s later) or a SessionEnd of one
+    // session must not remove the pill while a card of another session waits on it.
+    static func aPillWithNothingWaitingMayBeRemoved() {
+        precondition(HookRouting.mayRemovePill(HookRouting.desktopPillId,
+                                               pendingApprovalPill: nil, pendingQuestionPill: nil))
+    }
+
+    static func aPillWithItsOwnApprovalWaitingStays() {
+        precondition(!HookRouting.mayRemovePill(HookRouting.desktopPillId,
+                                                pendingApprovalPill: HookRouting.desktopPillId,
+                                                pendingQuestionPill: nil))
+    }
+
+    static func aPillWithItsOwnQuestionWaitingStays() {
+        precondition(!HookRouting.mayRemovePill(HookRouting.desktopPillId,
+                                                pendingApprovalPill: nil,
+                                                pendingQuestionPill: HookRouting.desktopPillId))
+        // Both kinds of card waiting on it, same answer
+        precondition(!HookRouting.mayRemovePill(HookRouting.desktopPillId,
+                                                pendingApprovalPill: HookRouting.desktopPillId,
+                                                pendingQuestionPill: HookRouting.desktopPillId))
+    }
+
+    static func anotherPillsCardDoesNotKeepIt() {
+        let claudeCode = HookRouting.pillId(agent: "")
+        precondition(HookRouting.mayRemovePill(HookRouting.desktopPillId,
+                                               pendingApprovalPill: claudeCode,
+                                               pendingQuestionPill: claudeCode),
+                     "a card waiting on the Claude Code pill does not hold the desktop pill")
+        precondition(!HookRouting.mayRemovePill(claudeCode,
+                                                pendingApprovalPill: claudeCode,
+                                                pendingQuestionPill: nil))
     }
 }

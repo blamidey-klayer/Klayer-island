@@ -26,13 +26,13 @@ Where the session runs decides how it is routed:
 - A known terminal (Warp, Terminal, iTerm, Ghostty, kitty, and so on): `integration_claude`, with the terminal recorded on the pill. Its questions and permission requests are asked in the terminal unless you turn on **Answer questions and permissions from terminal sessions in the notch**.
 - Anything else: ignored.
 
-Permission cards (Allow, Deny, Always) and `AskUserQuestion` cards appear for Claude Code only. If the app is not running, the hook returns at once and Claude Code asks as usual.
+Permission cards (Allow, Deny, Always) and `AskUserQuestion` cards appear for Claude Code, whether it runs in an editor, a terminal or the Claude desktop app. If the app is not running, the hook returns at once and Claude Code asks as usual.
 
 If you talk to the socket directly, send newline-terminated JSON to `~/Library/Application Support/NotchBuddy/nb.sock`.
 
 ## Claude desktop app
 
-Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`. The relay tags them `klayer_agent: claude-desktop` on its own, so nothing extra is installed beyond the Claude Code hooks. The sessions get the `agent_claude-desktop` pill. Their permission requests and questions show in the island like the Claude Code ones: the first answer wins, the island's (Allow, Deny, Always) or the Claude app's own prompt, and the island card closes when the app answers first. « Répondre dans Claude » on a question hands it back to the app. The ↗ button on the pill opens the Claude app.
+Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`. The relay tags them `klayer_agent: claude-desktop` on its own, so nothing extra is installed beyond the Claude Code hooks. The sessions get the `agent_claude-desktop` pill. Their permission requests and questions show in the island like the Claude Code ones. The island answers through the hook (Allow, Deny, Always), the Claude app keeps its own prompt, and the Claude Code documentation says the first answer applies. To check on a Mac (spike S1): that the app's prompt goes away when the island answers first, and that the island card closes when the app answers first (the card closes when the hook connection closes, as for Claude Code). « Répondre dans Claude » on a question hands it back to the app. The ↗ button on the pill opens the Claude app.
 
 ## Pill lifecycle
 

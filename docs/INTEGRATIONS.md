@@ -51,7 +51,7 @@ Vérifier dans la doc la liste exacte des événements et leurs champs.
 - `PreToolUse` général pour `AskUserQuestion` : l'app ignore l'événement (pas de mise à jour de l'état `.working`).
 - `tool_input.questions` : tableau de 1 à 4 questions, chacune avec `question` (texte), `header` (≤ 12 car.), `options` (2 à 4, chacune `label` + `description`), `multiSelect`.
 - L'app parse en un modèle Foundation (`AskQuestion`) ; si le parse échoue, nb-hook.py n'émet rien → Claude Code re-pose la question dans le terminal.
-- La vue `question` affiche une question à la fois (compteur 1/N), les options en grille fluide (`ChipFlowLayout`), un champ libre « Other… », et un lien « Reply in terminal » dans l'en-tête (envoie `ask`, aucune sortie).
+- La vue `question` affiche une question à la fois (compteur 1/N), les options en grille fluide (`ChipFlowLayout`), un champ libre « Other… », et un lien « Reply in terminal » dans l'en-tête (« Répondre dans Claude » pour une question d'une session de l'app Claude) qui envoie `ask`, sans aucune sortie.
 - Single-select : clic = réponse immédiate (pas de bouton Send). Multi-select : toggles + bouton Send/Next, désactivé tant qu'aucun choix.
 - Réponse via socket : `{"decision":"answer","answers":{"<question>":"<label>"}}`. Multi-select : valeur `[String]` (tableau, Claude Code 2.1.136+). Single-select et « Other… » : valeur `String`.
 - nb-hook.py `--ask` : si `decision == 'answer'` → émet `hookSpecificOutput` avec `hookEventName: "PreToolUse"`, `permissionDecision: "allow"` et `updatedInput: {questions, answers}` — Claude Code reçoit les réponses et continue.

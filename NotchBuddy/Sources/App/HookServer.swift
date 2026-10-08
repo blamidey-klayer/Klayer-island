@@ -469,7 +469,8 @@ final class HookServer: @unchecked Sendable {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) {
                 if isExternalAgent {
-                    AppState.shared.removeTask(id: agentId)
+                    // A card of the shared Claude app pill may have come in since the Stop.
+                    if self.mayRemovePill(agentId) { AppState.shared.removeTask(id: agentId) }
                 } else {
                     AppState.shared.updateTask(id: agentId, state: .idle)
                     self.clearPillBadge(id: agentId)
@@ -488,8 +489,12 @@ final class HookServer: @unchecked Sendable {
         case "SessionEnd":
             activeSessionId = nil
             if let idx = state.tasks.firstIndex(where: { $0.id == agentId }) { state.tasks[idx].finalLine = nil }
-            state.clearSessionDiffs(for: agentId)
-            state.removeTask(id: agentId)
+            // Another session of the Claude app shares this pill: keep it (and its diffs) while a
+            // card waits on it, it goes on its next event.
+            if mayRemovePill(agentId) {
+                state.clearSessionDiffs(for: agentId)
+                state.removeTask(id: agentId)
+            }
 
         case "SubagentStart":
             appendStep(id: agentId, step: "+ subagent")
@@ -635,7 +640,8 @@ final class HookServer: @unchecked Sendable {
         pendingApprovalFD = fd
         activeSessionId = sessionId
 
-        upsertWorkspaceTask(id: pillId, projectName: projectName, cwd: cwd, hostApp: terminalHost?.bundleId, bundleId: bundleId)
+        upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName, cwd: cwd,
+                          hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .approval)
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
                                               command: command, inputKey: inputKey, pillId: pillId)
@@ -758,7 +764,8 @@ final class HookServer: @unchecked Sendable {
         activeSessionId = sessionId
         questionPillId = pillId
 
-        upsertWorkspaceTask(id: pillId, projectName: projectName, cwd: cwd, hostApp: terminalHost?.bundleId, bundleId: bundleId)
+        upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName, cwd: cwd,
+                          hostApp: terminalHost?.bundleId, bundleId: bundleId)
         state.updateTask(id: pillId, state: .question)
         state.pendingQuestion = parsed
         state.isPinned = true
@@ -799,12 +806,30 @@ final class HookServer: @unchecked Sendable {
         ClaudeHost.name(for: AppState.shared.tasks.first { $0.id == "integration_claude" }?.hostApp)
     }
 
+    /// False while a card of this pill waits for an answer (see `HookRouting.mayRemovePill`).
+    @MainActor
+    private func mayRemovePill(_ pillId: String) -> Bool {
+        HookRouting.mayRemovePill(pillId,
+                                  pendingApprovalPill: AppState.shared.pendingApproval?.pillId,
+                                  pendingQuestionPill: pendingQuestionFD >= 0 ? questionPillId : nil)
+    }
+
+    /// Creates or updates the pill that owns a permission or question card. A request can be the
+    /// first event seen of a Claude app session (the app started mid-session): the desktop pill is
+    /// then made like the one SessionStart makes, before taking the project name the card shows.
+    @MainActor
+    private func upsertRequestPill(agent: String, pillId: String, projectName: String, cwd: String,
+                                   hostApp: String?, bundleId: String) {
+        if let desktopAgent = validateAgent(agent) { upsertExternalAgent(id: pillId, name: desktopAgent) }
+        upsertWorkspaceTask(id: pillId, projectName: projectName, cwd: cwd, hostApp: hostApp, bundleId: bundleId)
+    }
+
     /// Where the user answers a request of this pill, for the notes "Handled in …" and
     /// "Still waiting in …": "Claude" for the Claude desktop app, the host of the Claude Code
     /// session otherwise.
     @MainActor
     private func requestHostName(forPill pillId: String) -> String {
-        pillId == HookRouting.pillId(agent: "claude-desktop") ? "Claude" : claudeHostName
+        pillId == HookRouting.desktopPillId ? "Claude" : claudeHostName
     }
 
     /// The pill that owns the pending question, so QuestionView can word its header link

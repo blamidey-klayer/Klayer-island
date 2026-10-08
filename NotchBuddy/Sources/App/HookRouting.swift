@@ -18,4 +18,16 @@ enum HookRouting {
     static func pillId(agent: String) -> String {
         validateAgent(agent).map { "agent_\($0)" } ?? "integration_claude"
     }
+
+    /// The pill of the Claude desktop app: "agent_claude-desktop". All its sessions share it.
+    static let desktopPillId = pillId(agent: "claude-desktop")
+
+    /// False while a card of this pill waits for an answer. Removing the pill then resets the
+    /// focus and leaves the card without its session, which happens when a Stop (5.2 s later)
+    /// or a SessionEnd of one Claude app session reaches the pill all its sessions share. The
+    /// pill goes on its next event.
+    static func mayRemovePill(_ pillId: String, pendingApprovalPill: String?,
+                              pendingQuestionPill: String?) -> Bool {
+        pillId != pendingApprovalPill && pillId != pendingQuestionPill
+    }
 }
