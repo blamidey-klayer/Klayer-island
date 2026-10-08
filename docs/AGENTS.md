@@ -26,13 +26,13 @@ Where the session runs decides how it is routed:
 - A known terminal (Warp, Terminal, iTerm, Ghostty, kitty, and so on): `integration_claude`, with the terminal recorded on the pill. Its questions and permission requests are asked in the terminal unless you turn on **Answer questions and permissions from terminal sessions in the notch**.
 - Anything else: ignored.
 
-Permission cards (Allow, Deny, Always) and `AskUserQuestion` cards appear for Claude Code, whether it runs in an editor, a terminal or the Claude desktop app. If the app is not running, the hook returns at once and Claude Code asks as usual.
+Permission cards (Allow, Deny, Always) and `AskUserQuestion` cards appear for Claude Code in an editor and in the Claude desktop app. For a session in a terminal they appear only when **Answer questions and permissions from terminal sessions in the notch** is on; it is off by default, and the terminal then asks itself. If the app is not running, the hook returns at once and Claude Code asks as usual.
 
 If you talk to the socket directly, send newline-terminated JSON to `~/Library/Application Support/NotchBuddy/nb.sock`.
 
 ## Claude desktop app
 
-Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`. The relay tags them `klayer_agent: claude-desktop` on its own, so nothing extra is installed beyond the Claude Code hooks. The sessions get the `agent_claude-desktop` pill. Their permission requests and questions show in the island like the Claude Code ones. The island answers through the hook (Allow, Deny, Always), the Claude app keeps its own prompt, and the Claude Code documentation says the first answer applies. To check on a Mac (spike S1): that the app's prompt goes away when the island answers first, and that the island card closes when the app answers first (the card closes when the hook connection closes, as for Claude Code). « Répondre dans Claude » on a question hands it back to the app. The ↗ button on the pill opens the Claude app.
+Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`. The relay tags them `klayer_agent: claude-desktop` on its own, so nothing extra is installed beyond the Claude Code hooks. The sessions get the `agent_claude-desktop` pill. Their permission requests and questions show in the island like the Claude Code ones. The island answers through the hook (Allow, Deny, Always), the Claude app keeps its own prompt, and the Claude Code documentation says the first answer applies. To check on a Mac (spike S1): that the app's prompt goes away when the island answers first, and that the island card closes when the app answers first (the card closes when the hook connection closes, as for Claude Code). « Répondre dans Claude » on a question hands it back to the app. A click on the session's row on the home opens the Claude app.
 
 ## Pill lifecycle
 
@@ -40,11 +40,11 @@ Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUD
 |---|---|
 | `SessionStart` | Creates the pill (if absent), sets state to idle |
 | `UserPromptSubmit` | State → thinking; the prompt becomes the session's last action on the home |
-| `PreToolUse` | State → working; the tool label becomes the session's last action on the home |
-| `PostToolUse` / `PostToolUseFailure` | State → working |
+| `PreToolUse` | State → working, or searching (binoculars) for Grep, Glob, LS, WebSearch, WebFetch and a Bash search command; the tool label becomes the session's last action on the home |
+| `PostToolUse` / `PostToolUseFailure` | State → working; a search keeps the binoculars at least 1.5 s |
 | `Notification` | Rate-limit or question state if applicable |
 | `Stop` | State → finished for 5 s; active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
-| `StopFailure` | State → error |
+| `StopFailure` | State → error; the island opens on the error view of that session, as for `Stop` |
 | `SessionEnd` | Active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
 | `SubagentStart` / `SubagentStop` | Step added to the pill; the session's row is unchanged |
 
@@ -70,7 +70,7 @@ Where an earlier version wrote them (each entry runs `nb-hook` with `--agent <na
 | Antigravity | the Klayer Island entries in `~/.gemini/config/hooks.json` (`--agent antigravity`) |
 | OpenCode | the file `~/.config/opencode/plugins/klayer.js` |
 | Amp | the file `~/.config/amp/plugins/klayer.ts` |
-| Hermes Agent | the folder `~/.hermes/plugins/klayer`; and, if you had turned on approvals in the notch, the lines `transport: klayer` and `transport_fallback: builtin` under `security.approval` in `~/.hermes/config.yaml` |
+| Hermes Agent | the folder `~/.hermes/plugins/klayer`, and the `- klayer` line under `plugins.enabled` in `~/.hermes/config.yaml`; and, if you had turned on approvals in the notch, the lines `transport: klayer` and `transport_fallback: builtin` under `security.approval` in `~/.hermes/config.yaml` |
 | Muse Code | the Klayer Island entries under `hooks` in `~/.config/muse/settings.json` (`--agent muse`) |
 
 Leave every other hook of those tools alone. In a file Klayer Island shares with the tool, delete only the entries whose command contains `nb-hook`.
@@ -84,4 +84,4 @@ echo '{"hook_event_name":"UserPromptSubmit","session_id":"t1","prompt":"hello"}'
   | /bin/sh ~/Library/Application\ Support/NotchBuddy/nb-hook --agent claude-desktop
 ```
 
-A "claude-desktop" pill should appear in the island.
+A "Claude Desktop" pill should appear in the island.

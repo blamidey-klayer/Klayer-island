@@ -71,7 +71,7 @@ Avant de commencer : aucune session Claude Code ouverte. Si l'île réduite est 
 - [ ] Île ouverte, cliquez dans la fenêtre Réglages, puis sur l'icône de la barre de menus. Attendu : elle se referme.
 - [ ] Île ouverte, tapez Échap dans l'île. Attendu : elle se ferme.
 - [ ] Île ouverte, tapez Échap dans une autre app (le terminal). Attendu : elle se ferme, sauf si une demande attend ou si elle est épinglée. À noter : macOS vous demande-t-il une autorisation (surveillance de l'entrée, accessibilité) pour ce cas ?
-- [ ] Île ouverte, épinglez-la (⌘P) puis cliquez dans une autre app. Attendu : elle reste ouverte.
+- [ ] Île ouverte, épinglez-la (⌘P) puis cliquez dans une autre app. Attendu : elle reste ouverte. Sortez ensuite la souris de l'île. Attendu : elle se replie quand même 0,6 s après (⌘P ne résiste qu'aux clics ailleurs et à Échap tapé ailleurs), et l'épingle est retirée.
 - [ ] (facultatif, 15 s d'attente) Île ouverte par le survol, cliquez dedans (sur le bouton maison de l'en-tête), puis sortez la souris. Attendu : repli après le délai « Close after » des Réglages (15 s par défaut). Dans les 10 dernières secondes, un trait de 2 pt au bas du centre se réduit et l'île se replie quand il atteint zéro. Revenez sur l'île pendant le compte à rebours : le trait disparaît et l'île reste ouverte. Ouverte au survol sans clic, ou ouverte seule sur « terminé » : aucun trait.
 - [ ] Île ouverte, cliquez sur Klay. Attendu : émote « agacé ». Glissez Klay hors de l'encoche et lâchez-le sur le bureau. Attendu : Klay se pose sur le bureau. Glissez-le sur la fenêtre d'une autre app. Attendu : le chat s'ouvre avec cette fenêtre en contexte. Les boutons de l'île et le chat fonctionnent.
 - [ ] Île fermée, tapez ⌃⌥Espace. Attendu : le chat s'ouvre. Approcher l'encoche ou la survoler ne le replie pas. Un clic dans une autre app le ferme. Même règle pour ⌃⌥], ⌃⌥[ et ⌃⌥W.
@@ -205,14 +205,16 @@ Les trois spikes se font sur votre Mac, avec les vraies apps. S2 (Cowork) est ho
 - [ ] L'île s'ouvre sur la carte de permission. Cliquez Autoriser dans l'île (pas dans l'app). Regardez la fiche de permission de l'app pendant et après le clic.
 - [ ] Recommencez en répondant d'abord dans l'app. Attendu : la carte de l'île se ferme et affiche « Handled in Claude. » pendant 3 s.
 - [ ] (facultatif, 2 min) Laissez une autorisation sans réponse. Attendu : la note « Still waiting in Claude. » apparaît et la fiche de l'app reste utilisable.
+- [ ] Toujours dans l'onglet Code, déclenchez un `AskUserQuestion` (par exemple « utilise l'outil AskUserQuestion pour me demander rouge ou bleu »). Pendant que l'île affiche la question, regardez l'app Claude, sans répondre nulle part pendant 10 s.
 
-Question : quand l'île répond à une autorisation du mode Code, la fiche de l'app Claude disparaît-elle ?
+Questions : quand l'île répond à une autorisation du mode Code, la fiche de l'app Claude disparaît-elle ? Pendant que l'île affiche une question de l'app Claude, l'app l'affiche-t-elle aussi ?
 
 À noter :
 
 - la fiche disparaît tout de suite, après un délai, ou elle reste ;
 - si elle reste, ce qui arrive quand vous cliquez dessus (double exécution, erreur, rien) ;
 - le fichier est créé une seule fois ;
+- pour la question : l'app Claude l'affiche aussi (oui ou non), et si oui, ce qui se passe quand vous y répondez dans l'app ; si non, si elle apparaît dans l'app après « Répondre dans Claude », ou au bout de 2 min sans réponse ;
 - la version de l'app Claude.
 
 Si la réponse est non : la fiche reste dans l'app. L'île affichera alors la demande en lecture seule, avec « Répondre dans Claude » (`docs/superpowers/specs/2026-10-08-klayer-island-refonte-design.md`, §10). Ce mode reste à développer.

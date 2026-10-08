@@ -26,10 +26,10 @@ bash scripts/test-auto-close.sh
 
 ## Good first contributions
 
-- A new service integration (a poller + an entry in `PillCatalog.swift` in the `.service` category + a detail card). Look at `GithubPoller.swift` for the reference example.
-- A new agent: any agent already gets its own automatic pill by sending `klayer_agent` in its hook payload (see `docs/AGENTS.md`). Add an entry in `PillCatalog.swift` in the `.agent` or `.workspace` category only if you want it to be declarable in Settings → Active pills.
+Klayer Island stays centred on the Claude app: no new service integration and no new agent. GitHub and Spotify are the only integrations left (`docs/superpowers/specs/2026-10-08-klayer-island-refonte-design.md`, §1). Only Claude Code and the Claude desktop app get a pill: an event with any other `klayer_agent` is ignored, and its permission requests are answered `ask` (see `docs/AGENTS.md`). Ask the team before proposing a new one.
+
 - A new emote or sound for Klay.
-- Bug fixes — please describe how to reproduce.
+- Bug fixes: please describe how to reproduce.
 
 ## Rules of the house
 
@@ -37,7 +37,7 @@ bash scripts/test-auto-close.sh
 - Secrets go in the Keychain, never on disk or in git.
 - No telemetry, no network calls except to services the user configured.
 - Never block Claude Code: if the app doesn't answer, the hook must exit right away.
-- Never write `~/.claude/settings.json` without a backup and the user's confirmation.
+- Never write `~/.claude/settings.json` without a dated backup, a preview of what changes and the user's confirmation, and only ever touch Klayer Island's own hook entries.
 - Keep it light: 0 % CPU when the island is hidden.
 
 ## Pull requests

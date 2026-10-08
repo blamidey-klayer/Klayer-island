@@ -64,7 +64,7 @@ Icône Klayer Island dans la barre des menus → **Réglages…**
 
 | Quoi | Pourquoi | Où |
 |---|---|---|
-| Hooks Claude Code | sessions en direct et autorisations | **Install hooks** : l'app sauvegarde `~/.claude/settings.json`, fusionne ses hooks et montre le diff avant d'écrire |
+| Hooks Claude Code | sessions en direct et autorisations | **Install hooks** : l'app montre les entrées du bloc `hooks` de `~/.claude/settings.json` qui changent, puis écrit après votre confirmation, avec une sauvegarde datée. Elle ne touche qu'à ses propres entrées. **Uninstall** suit la même étape |
 | App de bureau Claude | une pastille pour les sessions de l'onglet Code | rien à installer : le relais des hooks Claude Code la reconnaît ; détail dans [docs/AGENTS.md](docs/AGENTS.md) |
 | Clé API Anthropic | chat et questions sur un fichier | Réglages → Anthropic API, rangée dans le trousseau |
 | Quotas Claude | jauge dans l'en-tête | Réglages → Agents → Plan usage → **Install relay** |
