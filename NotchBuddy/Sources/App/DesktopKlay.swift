@@ -127,6 +127,11 @@ final class DesktopKlayController {
 
     static let panelSize: CGFloat = DesktopKlayLogic.panelSize
 
+    /// True for the desktop Klay's own panel: a click there is not a click outside the island.
+    func owns(_ window: NSWindow) -> Bool {
+        window === panel
+    }
+
     // MARK: - Keyboard shortcut toggle (⌃⌥D)
 
     /// Fly Klay to the desktop if not there, or bring him back if he is.
@@ -600,7 +605,7 @@ final class DesktopKlayController {
             let origin = clampToVisibleFrame(dragOriginAtStart)
             panel?.setFrameOrigin(origin)
             persistPosition()
-            islandController?.expand(to: .prompt)
+            islandController?.expandOutsideFSM(to: .prompt)
             return
         }
         // Elsewhere: keep new position

@@ -17,16 +17,19 @@ final class IslandWindowController: NSWindowController {
     private var viewSubscription: AnyCancellable?
     private var displaySubscription: AnyCancellable?
     private var autoCloseSubscription: AnyCancellable?
-    private var openOnHoverSubscription: AnyCancellable?
+
+    // Proximity (spec §4): true between the `pointerNear()` and `pointerFar()` sent to the FSM.
+    private var pointerNearNotch = false
+
+    // Click outside (spec §4): monitors installed only while the island is open.
+    private var clickOutsideMonitors: [Any] = []
+    private var clickOutsideSubscription: AnyCancellable?
 
     // Confused recovery timer (set by handleDizzy)
     private var confusedRecoveryTimer: DispatchWorkItem?
 
     // Suppress peek sound on next reveal (e.g. spotifyReveal)
     var silentNextReveal = false
-
-    // Finished-pin timer
-    private var finishedPinTimer: DispatchWorkItem?
 
     // Bot-head hover (love emote — mirrors prototype botHover())
     private var hoverTimer: DispatchWorkItem?
@@ -37,7 +40,6 @@ final class IslandWindowController: NSWindowController {
 
     // Window attach drag (M8)
     private var attachDragStart: NSPoint? = nil
-    private var pendingIslandClick = false   // any island click → expand on mouseUp
     private var inAttachDrag = false
     private var dragGhostPanel: NSPanel? = nil
     private var dragGhostSize: CGFloat = 0
@@ -177,6 +179,34 @@ final class IslandWindowController: NSWindowController {
         ) { [weak self] _ in
             Task { @MainActor in self?.moveToTargetScreen(choice: AppState.shared.islandDisplay) }
         }
+
+        // Another app took over, the session switched away or the screens went to sleep:
+        // the pointer no longer counts as near the notch (see pointerLeftNotchZone).
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.pointerLeftNotchZone() }
+        }
+        for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.pointerLeftNotchZone() }
+            }
+        }
+
+        // A click outside the open island closes it: watch clicks only while it is open.
+        clickOutsideSubscription = state.$mode
+            .map { $0 == .expanded }
+            .removeDuplicates()
+            .sink { [weak self] open in
+                self?.watchClicksOutside(open)
+            }
+    }
+
+    deinit {
+        // The window controller is released on the main thread, like every NSWindowController.
+        MainActor.assumeIsolated { watchClicksOutside(false) }
     }
 
     // MARK: - Screen choice
@@ -191,6 +221,7 @@ final class IslandWindowController: NSWindowController {
     private func relocate(to screen: NSScreen) {
         guard let panel = window as? IslandPanel else { return }
         let geometry = Self.screenGeometry(for: screen)
+        let oldZone = (frame: panel.frame, width: notchW, height: notchH)
         notchW = geometry.width
         notchH = geometry.height
         hasNotch = geometry.hasNotch
@@ -205,6 +236,11 @@ final class IslandWindowController: NSWindowController {
         let size = panel.frame.size
         panel.setFrame(NSRect(x: sf.midX - size.width/2, y: sf.maxY - size.height,
                               width: size.width, height: size.height), display: true)
+        // The notch zone moved (other screen, other notch or bar): the next tick measures the
+        // pointer afresh, and a pointer near the new notch counts as a new approach.
+        if panel.frame != oldZone.frame || notchW != oldZone.width || notchH != oldZone.height {
+            pointerLeftNotchZone()
+        }
         // notchWidth/hasNotch are not @Published: tell the views to resize the island.
         NotificationCenter.default.post(name: .islandScreenChanged, object: nil)
         state.objectWillChange.send()
@@ -228,8 +264,12 @@ final class IslandWindowController: NSWindowController {
         autoCloseSubscription = state.$autoCloseInterval.sink { [weak self] delay in
             self?.fsm.homeToPetitDelay = delay
         }
-        openOnHoverSubscription = state.$openOnHover.sink { [weak self] on in
-            self?.fsm.openOnHover = on
+
+        // Each approach of the notch makes Klay wave (spec §4): BotEngine.greet() plays `greet`.
+        // No wave while Klay lives on the desktop: the notch Klay is not drawn then.
+        fsm.onGreet = { [weak self] in
+            guard let self, !self.state.klayOnDesktop else { return }
+            NotificationCenter.default.post(name: .botGreet, object: nil)
         }
 
         fsm.onTransition = { [weak self] from, to in
@@ -343,7 +383,20 @@ final class IslandWindowController: NSWindowController {
         }
 
         // AppState can hide the island by itself (last task ended): keep the FSM in step.
-        if state.mode == .hidden && fsm.state == .petit { fsm.hiddenExternally() }
+        if state.mode == .hidden && fsm.state == .petit {
+            fsm.hiddenExternally()
+            pointerLeftNotchZone()
+        }
+
+        // Proximity (spec §4): within 120 pt of the notch, Klay comes out and waves once
+        // per approach; it never opens the island.
+        let nearNotch = Self.notchZone(panelSize: pf.size, nw: notchW, nh: notchH).contains(local)
+        if nearNotch && !pointerNearNotch {
+            pointerNearNotch = true
+            fsm.pointerNear()
+        } else if !nearNotch && pointerNearNotch {
+            pointerLeftNotchZone()
+        }
 
         // Feed FSM hover enter/leave
         // Update the hit test before feeding the FSM: its transitions read wasInIsland
@@ -384,6 +437,30 @@ final class IslandWindowController: NSWindowController {
         }
 
         adjustPollRate(mouse: mouse, panelFrame: pf)
+    }
+
+    // MARK: - Proximity
+
+    /// How close to the notch the pointer brings Klay out (spec §4).
+    private static let nearNotchRadius: CGFloat = 120
+
+    /// The area within `nearNotchRadius` of the resting notch (or bar), in panel coordinates.
+    /// It stops at the top edge of the screen, so a display arranged above it does not count;
+    /// one extra point keeps the topmost row, which `CGRect.contains` would leave out.
+    private static func notchZone(panelSize: CGSize, nw: CGFloat, nh: CGFloat) -> CGRect {
+        let r = nearNotchRadius
+        return CGRect(x: (panelSize.width - nw) / 2 - r, y: panelSize.height - nh - r,
+                      width: nw + 2 * r, height: nh + r + 1)
+    }
+
+    /// The pointer no longer counts as near the notch for a reason `pollFrame` cannot see as
+    /// a move (the island moved or was hidden by the app, another app or session took over).
+    /// The FSM hears `pointerFar()` right away, so a compact Klay can hide and the next
+    /// approach, measured afresh on the next tick, greets again.
+    private func pointerLeftNotchZone() {
+        guard pointerNearNotch else { return }
+        pointerNearNotch = false
+        fsm.pointerFar()
     }
 
     private var lastMouse: CGPoint = .zero
@@ -456,15 +533,74 @@ final class IslandWindowController: NSWindowController {
         state.lastActivity = .now
     }
 
+    /// Opens the island on `view` for an action that does not go through the FSM (hot key,
+    /// keyboard shortcut, Klay dropped on a window). A closed island is synced as opened by
+    /// the app, so proximity and hover do not fold it; an island already open counts as used
+    /// (like a click inside), so it folds with the normal auto-close delay.
+    func expandOutsideFSM(to view: IslandView) {
+        if fsm.state == .home && state.mode == .expanded {
+            fsm.userInteracted()
+        } else {
+            fsm.openedExternally()
+        }
+        expand(to: view)
+    }
+
     func collapse(allowPendingApproval: Bool = false) {
         let keepsApprovalPending = allowPendingApproval && state.pendingApproval != nil
         guard fsm.isHeldOpen?() != true || keepsApprovalPending else { return }
         if !keepsApprovalPending { state.isPinned = false }
-        finishedPinTimer?.cancel()
         // Keep the FSM in step with what is on screen (home/klayer → petit now).
         fsm.collapse()
         setMode(.compact)
         window?.resignKey()
+    }
+
+    // MARK: - Click outside and Escape (spec §4)
+    // While the island is open, a click anywhere else closes it: in another app (global
+    // monitor) or in one of our other windows such as Settings (local monitor). A click on
+    // the island panel or on the desktop Klay is not outside. The monitors exist only while
+    // the island is open, so a hidden or compact island watches no click at all.
+
+    private func watchClicksOutside(_ on: Bool) {
+        if !on {
+            clickOutsideMonitors.forEach { NSEvent.removeMonitor($0) }
+            clickOutsideMonitors.removeAll()
+            return
+        }
+        guard clickOutsideMonitors.isEmpty else { return }
+        // Clicks delivered to other apps.
+        let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.closeFromOutside() }
+        }
+        // Clicks in our own windows (Settings…), filtered by window.
+        let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            MainActor.assumeIsolated {
+                if self.isClickOutside(in: event.window) { self.closeFromOutside() }
+            }
+            return event
+        }
+        clickOutsideMonitors = [global, local].compactMap { $0 }
+    }
+
+    /// A click in one of our own windows is outside unless it lands on the island panel or
+    /// on the desktop Klay. A click with no window is left alone.
+    private func isClickOutside(in clickWindow: NSWindow?) -> Bool {
+        guard let clickWindow, clickWindow !== window else { return false }
+        return !DesktopKlayController.shared.owns(clickWindow)
+    }
+
+    /// A click outside the open island, or Escape: the island closes, or folds to compact while
+    /// a permission is pending (Klay keeps its badge, hovering reopens it). A pinned island
+    /// stays open (⌘P, or a question card, which would go back to the terminal if it left the
+    /// screen), the rule Escape already followed.
+    private func closeFromOutside() {
+        guard state.mode == .expanded, !state.isPinned || state.pendingApproval != nil else { return }
+        // An island the app opened without telling the FSM: sync it first.
+        if fsm.state == .hidden || fsm.state == .petit { fsm.openedExternally() }
+        fsm.clickedOutside()
+        if state.mode != .expanded { window?.resignKey() }
     }
 
     // MARK: - Global hot keys (Carbon)
@@ -488,7 +624,7 @@ final class IslandWindowController: NSWindowController {
 
         case .openChat:
             islandPanel.makeKey()
-            expand(to: .prompt)
+            expandOutsideFSM(to: .prompt)
 
         case .goToAlert:
             if state.pendingApproval != nil {
@@ -497,7 +633,7 @@ final class IslandWindowController: NSWindowController {
                 expand(to: .approval)
             } else if state.pendingQuestion != nil {
                 islandPanel.makeKey()
-                expand(to: .question)
+                expandOutsideFSM(to: .question)
             } else {
                 NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.annoyed)
                 SoundEngine.shared.play("error")
@@ -581,13 +717,11 @@ final class IslandWindowController: NSWindowController {
         if cmd, let n = digitCodes[event.keyCode] {
             switchToPill(number: n); return true
         }
-        // ⎋ Escape — focused views (.onExitCommand) have first crack; fall back to collapse
+        // ⎋ Escape — focused views (.onExitCommand) have first crack; otherwise it closes the
+        // island like a click outside (spec §4).
         if event.keyCode == 53 && raw.isEmpty {
             let consumed = NSApp.sendAction(Selector(("cancelOperation:")), to: nil, from: nil)
-            let canCollapse = !state.isPinned || state.pendingApproval != nil
-            if !consumed && state.mode == .expanded && canCollapse {
-                collapse(allowPendingApproval: true)
-            }
+            if !consumed { closeFromOutside() }
             return true
         }
         return false
@@ -601,14 +735,14 @@ final class IslandWindowController: NSWindowController {
         let cur = ids.firstIndex(of: state.focusId ?? "") ?? 0
         state.setFocus(ids[(cur + delta + ids.count) % ids.count])
         state.cardSelection = nil
-        expand(to: .overview)
+        expandOutsideFSM(to: .overview)
     }
 
     private func switchToPill(number: Int) {
         guard number >= 1, number <= state.tasks.count else { return }
         state.setFocus(state.tasks[number - 1].id)
         state.cardSelection = nil
-        expand(to: .overview)
+        expandOutsideFSM(to: .overview)
     }
 
     private func navigateCard(by delta: Int) {
@@ -648,7 +782,7 @@ final class IslandWindowController: NSWindowController {
         SoundEngine.shared.play("approve")
         NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
         islandPanel.makeKey()
-        expand(to: .prompt)
+        expandOutsideFSM(to: .prompt)
     }
 
     // MARK: - Keyboard (Escape closes)
@@ -658,11 +792,10 @@ final class IslandWindowController: NSWindowController {
             Task { @MainActor in
                 guard let self = self else { return }
                 if event.keyCode == 53 { // Escape
-                    // Escape typed in another app (Claude Code's own interrupt, an editor…)
-                    // never folds a pending approval away: only Escape in the notch does.
-                    if self.state.mode == .expanded && !self.state.isPinned {
-                        self.collapse()
-                    }
+                    // Closes the island like a click outside. Escape typed in another app
+                    // (Claude Code's own interrupt, an editor…) never folds a pending
+                    // approval away: only Escape in the notch does.
+                    if !self.state.isPinned { self.closeFromOutside() }
                 }
             }
         }
@@ -705,8 +838,9 @@ final class IslandWindowController: NSWindowController {
             guard let self else { return event }
             MainActor.assumeIsolated {
                 guard self.wasInIsland else { return }
+                // A click inside the open island: once the pointer leaves, it folds after the
+                // normal auto-close delay. A click never opens a closed or compact island.
                 self.fsm.userInteracted()
-                self.pendingIslandClick = true
                 self.hoverTimer?.cancel()
                 self.botHoverTimer?.cancel()
                 self.botHovering = false
@@ -752,7 +886,7 @@ final class IslandWindowController: NSWindowController {
                     self.state.promptContext = ctx
                     SoundEngine.shared.play("approve")
                     NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
-                    self.expand(to: .prompt)
+                    self.expandOutsideFSM(to: .prompt)
                 } else if !inNotchZone {
                     // Drop outside notch zone → install Klay on the desktop.
                     // Prevent hideDragGhost from closing the ghost panel so we can promote it.
@@ -766,24 +900,14 @@ final class IslandWindowController: NSWindowController {
                 }
             }
         }
+        // The island never opens on a click (spec §4): a mouseUp only ends a drag of Klay.
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
             guard let self else { return event }
             MainActor.assumeIsolated {
-                let hadPendingClick = self.pendingIslandClick
-                let wasDragging     = self.inAttachDrag
-                self.pendingIslandClick = false
-                if wasDragging {
+                if self.inAttachDrag {
                     finishDrag()
                 } else {
                     self.attachDragStart = nil
-                    if hadPendingClick && self.state.mode != .expanded {
-                        if self.fsm.state == .home {
-                            // FSM already thinks it's open (e.g. the view folded it): just reopen.
-                            self.expand(to: self.defaultView())
-                        } else {
-                            self.fsm.click()   // FSM petit/hidden→home; onTransition calls expand(to:)
-                        }
-                    }
                 }
             }
             return event
@@ -1014,21 +1138,6 @@ final class IslandWindowController: NSWindowController {
 
     func resetActivity() {
         state.lastActivity = .now
-    }
-
-    // MARK: - Finished task pin (5.2s)
-
-    func pinForFinished(taskId: String) {
-        state.isPinned = true
-        finishedPinTimer?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.state.removeTask(id: taskId)
-            self.state.isPinned = false
-            self.collapse()
-        }
-        finishedPinTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.2, execute: item)
     }
 
     // MARK: - Dizzy recovery (triggered by BotEngine.slap via .botDizzy)

@@ -21,7 +21,7 @@ final class IslandStateMachine {
     /// Fired on every transition: (from, to)
     var onTransition: ((State, State) -> Void)?
 
-    /// Fired when the pointer approaching the notch brings Klay out (hidden → petit),
+    /// Fired when the pointer approaches the notch while the island is hidden or compact,
     /// once per approach: not again until `pointerFar()` has been called.
     var onGreet: (() -> Void)?
 
@@ -79,8 +79,8 @@ final class IslandStateMachine {
     }
 
     /// The pointer came near the notch: Klay comes out (hidden → petit) and greets, once per
-    /// approach. The island never opens from here, only resting on the notch opens it.
-    /// While the pointer stays near, the compact island does not hide.
+    /// approach, also when Klay is already out. The island never opens from here, only resting
+    /// on the notch opens it. While the pointer stays near, the compact island does not hide.
     func pointerNear() {
         let newApproach = !pointerIsNear
         pointerIsNear = true
@@ -94,6 +94,7 @@ final class IslandStateMachine {
             if state == .petit { onGreet?() }
         case .petit:
             cancelPetitHide()
+            if newApproach { onGreet?() }
         case .home, .klayer:
             break
         }
@@ -158,12 +159,22 @@ final class IslandStateMachine {
         }
     }
 
-    /// A click landed outside the open island: it closes, or folds to petit when a request
-    /// is pending (Klay keeps its badge and hovering reopens it).
+    /// A click landed outside the open island (or Escape): it closes, or folds to petit when
+    /// a request is pending (Klay keeps its badge and hovering reopens it). A request that
+    /// arrived during the launch greeting folds the same way; otherwise the greeting plays
+    /// to its end. Nothing happens to a hidden or compact island.
     func clickedOutside() {
-        guard state == .home else { return }
-        cancelTimers()
-        transition(to: isHeldOpen?() == true ? .petit : .hidden)
+        switch state {
+        case .home:
+            cancelTimers()
+            transition(to: isHeldOpen?() == true ? .petit : .hidden)
+        case .klayer:
+            guard isHeldOpen?() == true else { return }
+            cancelTimers()
+            transition(to: .petit)
+        case .hidden, .petit:
+            break
+        }
     }
 
     /// The user clicked inside the open island: once the pointer leaves, it folds after the

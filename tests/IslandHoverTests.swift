@@ -12,6 +12,8 @@ enum IslandHoverTests {
             ("near_then_far_greets_once_and_never_opens", nearThenFarGreetsOnceAndNeverOpens),
             ("a_new_approach_greets_again", aNewApproachGreetsAgain),
             ("near_keeps_petit_on_screen", nearKeepsPetitOnScreen),
+            ("approaching_a_compact_klay_greets_once_per_approach", approachingACompactKlayGreetsOncePerApproach),
+            ("near_does_nothing_on_a_hidden_held_island", nearDoesNothingOnAHiddenHeldIsland),
             ("hover_opens_after_250ms", hoverOpensAfter250ms),
             ("leaving_before_250ms_cancels_opening", leavingBefore250msCancelsOpening),
             ("a_cancelled_opening_never_fires_later", aCancelledOpeningNeverFiresLater),
@@ -20,6 +22,8 @@ enum IslandHoverTests {
             ("click_inside_uses_the_normal_auto_close", clickInsideUsesTheNormalAutoClose),
             ("click_outside_closes", clickOutsideCloses),
             ("click_outside_with_pending_request_folds_to_petit", clickOutsideWithPendingRequestFoldsToPetit),
+            ("click_outside_does_nothing_unless_open", clickOutsideDoesNothingUnlessOpen),
+            ("click_outside_folds_a_held_greeting", clickOutsideFoldsAHeldGreeting),
             ("pending_request_holds_the_island", pendingRequestHoldsTheIsland),
             ("hover_on_hidden_held_island_syncs_to_home", hoverOnHiddenHeldIslandSyncsToHome),
             ("finished_stays_until_hover_then_leave", finishedStaysUntilHoverThenLeave),
@@ -77,6 +81,42 @@ enum IslandHoverTests {
         m.pointerFar()
         try await waitFor(.hidden, m, timeout: 2)
         precondition(!log.states.contains(.home))
+    }
+
+    @MainActor
+    static func approachingACompactKlayGreetsOncePerApproach() async throws {
+        // Klay is already out (a work event revealed it): each approach waves again.
+        let m = IslandStateMachine()
+        let log = Log(m)
+        m.reveal()
+        precondition(m.state == .petit && log.greets == 0, "a work event peeks without a greeting")
+        m.pointerNear()
+        precondition(m.state == .petit && log.greets == 1, "approaching a compact Klay must greet")
+        m.pointerNear()
+        precondition(log.greets == 1, "same approach must not greet twice")
+        m.pointerFar()
+        m.pointerNear()
+        precondition(m.state == .petit && log.greets == 2, "a new approach greets again")
+        try await openByHover(m)
+        m.pointerFar()
+        m.pointerNear()                                  // a new approach while the island is open
+        precondition(m.state == .home && log.greets == 2, "no greeting while the island is open")
+        let g = IslandStateMachine()
+        let glog = Log(g)
+        g.launch()
+        g.pointerNear()
+        precondition(g.state == .klayer && glog.greets == 0, "no greeting during the launch greeting")
+    }
+
+    @MainActor
+    static func nearDoesNothingOnAHiddenHeldIsland() async throws {
+        // Hidden but held: the app expanded the island for a request without telling the
+        // FSM, so an approach must not fold it to compact nor greet over it.
+        let m = IslandStateMachine()
+        let log = Log(m)
+        m.isHeldOpen = { true }
+        m.pointerNear()
+        precondition(m.state == .hidden && log.states.isEmpty && log.greets == 0)
     }
 
     // MARK: - Hover opens
@@ -183,6 +223,39 @@ enum IslandHoverTests {
         precondition(m.state == .petit)
         try await Task.sleep(for: .milliseconds(400))
         precondition(m.state == .home, "hovering a held petit reopens it")
+    }
+
+    @MainActor
+    static func clickOutsideDoesNothingUnlessOpen() async throws {
+        // The click monitor only runs while the island is open, but a stray call must not
+        // move a hidden or compact island, nor cut the launch greeting short.
+        let m = IslandStateMachine()
+        let log = Log(m)
+        m.clickedOutside()
+        precondition(m.state == .hidden && log.states.isEmpty, "a hidden island must stay hidden")
+        m.reveal()
+        m.clickedOutside()
+        precondition(m.state == .petit && log.states == [.petit], "a compact island must stay compact")
+        let g = IslandStateMachine()
+        let glog = Log(g)
+        g.launch()
+        g.clickedOutside()
+        precondition(g.state == .klayer && glog.states == [.klayer], "the launch greeting plays to its end")
+    }
+
+    @MainActor
+    static func clickOutsideFoldsAHeldGreeting() async throws {
+        // A request arrived during the launch greeting: a click outside folds it like any
+        // open island holding a request, and hovering reopens it.
+        let m = IslandStateMachine()
+        m.isHeldOpen = { true }
+        m.launch()
+        m.openedExternally()                             // the request shows its card, the FSM stays .klayer
+        precondition(m.state == .klayer)
+        m.clickedOutside()
+        precondition(m.state == .petit, "state \(m.state) after a click outside a held greeting, expected petit")
+        m.mouseEntered()
+        try await waitFor(.home, m, timeout: 2)
     }
 
     // MARK: - Held and external openings
