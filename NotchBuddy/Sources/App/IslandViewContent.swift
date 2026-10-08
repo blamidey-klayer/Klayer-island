@@ -85,7 +85,9 @@ struct OverviewView: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
-                    .frame(height: Self.legacyCardHeight)
+                    // Top-leading in the band, as they sat in their 98 pt card: the content and the ↗
+                    // button keep their place (↗ 8 pt below the band's top, 10 pt from the right)
+                    .frame(height: Self.legacyCardHeight, alignment: .topLeading)
                     .frame(maxHeight: .infinity)
                 }
 
@@ -94,7 +96,7 @@ struct OverviewView: View {
                 if state.showingPlanDetail {
                     CardBackground(wash: nil)
                     ClaudePlanCardView(usage: state.claudePlanUsage)
-                        .frame(height: Self.legacyCardHeight)
+                        .frame(height: Self.legacyCardHeight, alignment: .topLeading)
                         .frame(maxHeight: .infinity)
                         .transition(.opacity)
                 }
