@@ -16,6 +16,9 @@ enum ChoiceHistoryTests {
             ("empty_or_wrong_shape_file_is_empty", emptyOrWrongShapeFileIsEmpty),
             ("file_with_more_than_20_records_loads_the_20_newest", fileWithMoreThan20RecordsLoadsThe20Newest),
             ("long_prompt_is_capped_at_300_characters", longPromptIsCapped),
+            ("long_answer_is_capped_at_300_characters", longAnswerIsCapped),
+            ("obvious_secrets_are_masked_before_recording", obviousSecretsAreMaskedBeforeRecording),
+            ("ordinary_text_is_not_masked", ordinaryTextIsNotMasked),
             ("ask_records_nothing", askRecordsNothing),
             ("labels_for_each_decision", labelsForEachDecision),
             ("multi_select_is_flattened_in_question_order", multiSelectIsFlattenedInQuestionOrder),
@@ -151,6 +154,65 @@ enum ChoiceHistoryTests {
             precondition(capped.hasPrefix("export API_TOKEN=secret && "), "the start of the prompt is kept")
             precondition(!(try! String(contentsOf: file, encoding: .utf8)).contains(token),
                          "the whole prompt is not written to the file")
+        }
+    }
+
+    static func longAnswerIsCapped() {
+        withTempDir { dir in
+            let file = dir.appendingPathComponent("choices.json")
+            let history = ChoiceHistory(fileURL: file)
+            // The free « Other… » answer of a question has no limit of its own.
+            let typed = "voici tout le contexte " + String(repeating: "y", count: 1000)
+            history.record(ChoiceRecord(date: choice(1).date, session: "Projet", kind: .question,
+                                        prompt: "Quelle couleur ?", answer: typed))
+            let kept = ChoiceHistory(fileURL: file).records[0].answer
+            precondition(kept.count == 300 && kept.hasSuffix("…"), "a long answer is cut to 300 characters, got \(kept.count)")
+            precondition(kept.hasPrefix("voici tout le contexte "))
+        }
+    }
+
+    static func obviousSecretsAreMaskedBeforeRecording() {
+        withTempDir { dir in
+            let file = dir.appendingPathComponent("choices.json")
+            let history = ChoiceHistory(fileURL: file)
+            let secrets = [
+                "Bearer abcDEF123456.ghi-jkl_mno",
+                "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx",
+                "sk-proj-AbCdEfGhIjKlMnOpQrSt",
+                "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+                "gho_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+                "github_pat_11ABCDEFG0123456789_abcdefghijklmnop",
+                "xoxb-1234567890-0987654321-AbCdEfGhIjKl",
+                "xoxp-1234567890-abcdefABCDEF",
+            ]
+            let command = "curl -H \"Authorization: Bearer abcDEF123456.ghi-jkl_mno\" https://api.example.com && "
+                + "export A=sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx B=sk-proj-AbCdEfGhIjKlMnOpQrSt "
+                + "C=ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 D=gho_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 "
+                + "E=github_pat_11ABCDEFG0123456789_abcdefghijklmnop F=xoxb-1234567890-0987654321-AbCdEfGhIjKl"
+            history.record(ChoiceRecord(date: choice(1).date, session: "Projet", kind: .permission,
+                                        prompt: command, answer: "Autorisé"))
+            history.record(ChoiceRecord(date: choice(2).date, session: "Projet", kind: .question,
+                                        prompt: "Quel jeton ?", answer: "xoxp-1234567890-abcdefABCDEF"))
+            let written = try! String(contentsOf: file, encoding: .utf8)
+            for secret in secrets {
+                precondition(!written.contains(secret), "\(secret) was written to choices.json")
+            }
+            let reopened = ChoiceHistory(fileURL: file)
+            let prompt = reopened.records[1].prompt
+            precondition(prompt.contains("Authorization: Bearer •••") && prompt.contains("https://api.example.com"),
+                         "the token goes, the command stays readable: \(prompt)")
+            for masked in ["A=sk-•••", "B=sk-•••", "C=ghp_•••", "D=gho_•••", "E=github_pat_•••", "F=xoxb-•••"] {
+                precondition(prompt.contains(masked), "\(masked) missing in \(prompt)")
+            }
+            precondition(reopened.records[0].answer == "xoxp-•••", "the answer is masked too")
+            precondition(ChoiceHistory.masked("bearer   abc.def") == "bearer •••", "Bearer in any case")
+        }
+    }
+
+    static func ordinaryTextIsNotMasked() {
+        for text in ["npm test", "git checkout -b task-force", "rm -rf ./desk-lamp", "pip install sk-learn",
+                     "echo xox", "Bearer", "ghp_short", "Write · essai.txt", "Option A, Option B"] {
+            precondition(ChoiceHistory.masked(text) == text, "ordinary text was masked: \(text)")
         }
     }
 

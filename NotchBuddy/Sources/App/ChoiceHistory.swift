@@ -104,6 +104,30 @@ final class ChoiceHistory {
     /// Longest stored prompt, ellipsis included: a long heredoc or a command carrying a token
     /// is not kept whole.
     static let promptLimit = 300
+    /// Longest stored answer, ellipsis included: the free « Other… » text has no limit of its own.
+    static let answerLimit = 300
+
+    /// Obvious secrets a command or a typed answer may carry: an HTTP bearer token, Anthropic and
+    /// OpenAI keys (sk-…), GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_) and Slack
+    /// tokens (xoxb-…). Each keeps its prefix so the record still reads, the rest becomes « ••• ».
+    private static let secretPatterns: [(pattern: String, template: String)] = [
+        (#"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"#, "$1 •••"),
+        (#"\b(sk-)[A-Za-z0-9_-]{16,}"#, "$1•••"),
+        (#"\b(github_pat_)[A-Za-z0-9_]{20,}"#, "$1•••"),
+        (#"\b(gh[pousr]_)[A-Za-z0-9]{20,}"#, "$1•••"),
+        (#"\b(xox[a-z]-)[A-Za-z0-9-]{8,}"#, "$1•••"),
+    ]
+
+    /// `text` with the obvious secrets above masked. Anything else is left as it is.
+    static func masked(_ text: String) -> String {
+        secretPatterns.reduce(text) { result, secret in
+            result.replacingOccurrences(of: secret.pattern, with: secret.template, options: .regularExpression)
+        }
+    }
+
+    private static func capped(_ text: String, to limit: Int) -> String {
+        text.count > limit ? String(text.prefix(limit - 1)) + "…" : text
+    }
 
     private let fileURL: URL
     /// Newest first, at most `limit`.
@@ -114,15 +138,13 @@ final class ChoiceHistory {
         self.records = Self.load(from: fileURL)
     }
 
-    /// Adds `r` as the newest choice (its prompt cut to `promptLimit` characters with "…"),
-    /// drops what exceeds the limit and rewrites the file.
+    /// Adds `r` as the newest choice, its prompt and answer with obvious secrets masked
+    /// (`masked`) then cut to `promptLimit` and `answerLimit` characters with "…", drops what
+    /// exceeds the limit and rewrites the file.
     func record(_ r: ChoiceRecord) {
-        var kept = r
-        if r.prompt.count > Self.promptLimit {
-            kept = ChoiceRecord(date: r.date, session: r.session, kind: r.kind,
-                                prompt: String(r.prompt.prefix(Self.promptLimit - 1)) + "…",
-                                answer: r.answer)
-        }
+        let kept = ChoiceRecord(date: r.date, session: r.session, kind: r.kind,
+                                prompt: Self.capped(Self.masked(r.prompt), to: Self.promptLimit),
+                                answer: Self.capped(Self.masked(r.answer), to: Self.answerLimit))
         records.insert(kept, at: 0)
         if records.count > Self.limit { records.removeLast(records.count - Self.limit) }
         save()
