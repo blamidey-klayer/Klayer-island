@@ -41,7 +41,7 @@ final class ChatSession: ObservableObject {
     }
 
     private var token = ChatTurnToken()
-    private var process: ChatProcess?
+    private var process: ClaudeProcess?
     private var parser = ClaudeStreamParser()
     private var turn: Turn?
     /// The window or file already sent to the live process, so it goes once.
@@ -100,8 +100,9 @@ final class ChatSession: ObservableObject {
     }
 
     /// The `claude` binary: the usual install folders first, then once for the app's life a
-    /// login shell (`command -v claude`, 3 s at most, off the main thread).
-    private func locateBinary() async -> String? {
+    /// login shell (`command -v claude`, 3 s at most, off the main thread). The Gmail draft
+    /// (GmailDraftJob) finds Claude Code here too.
+    func locateBinary() async -> String? {
         let files = FileManager.default
         if let path = binaryPath, files.isExecutableFile(atPath: path) { return path }
         binaryPath = ClaudeCLI.locate(home: NSHomeDirectory(), isExecutable: { files.isExecutableFile(atPath: $0) })
@@ -127,7 +128,8 @@ final class ChatSession: ObservableObject {
                                          isExecutable: { FileManager.default.isExecutableFile(atPath: $0) })
     }
 
-    nonisolated private static func environment(for binary: String) -> [String: String] {
+    /// The environment of a `claude` process of the island (chat or draft).
+    nonisolated static func environment(for binary: String) -> [String: String] {
         ClaudeCLI.environment(from: ProcessInfo.processInfo.environment, binary: binary)
     }
 
@@ -273,7 +275,7 @@ final class ChatSession: ObservableObject {
         }
 
         let generation = token.generation
-        let started = ChatProcess()
+        let started = ClaudeProcess()
         do {
             try started.start(
                 binary: binary,
@@ -451,13 +453,19 @@ final class ChatSession: ObservableObject {
 
     /// Claude Code is not there, or would not start: the chat shows the install message.
     private func cannotLaunch() {
-        binaryPath = nil
-        knownAvailability = .missingCLI
+        claudeCodeIsMissing()
         guard let current = turn else { return }
         turn = nil
         isAnswering = false
         removeBubbleIfEmpty(current)
         current.state.stateOverride = nil
+    }
+
+    /// Claude Code was not found, or would not start (here or for the Gmail draft): the chat and
+    /// the email card show the install message until a later check finds it.
+    func claudeCodeIsMissing() {
+        binaryPath = nil
+        knownAvailability = .missingCLI
     }
 
     /// The dropped file cannot go to Claude: a note says why, Claude is not started, and the
@@ -472,11 +480,12 @@ final class ChatSession: ObservableObject {
     }
 }
 
-// MARK: - The chat process
+// MARK: - A `claude` process
 
-/// The long-lived `claude` process of the chat and its three pipes. Its callbacks run on
-/// background queues: they only touch what is immutable here, or `errorTail` behind `lock`.
-private final class ChatProcess: @unchecked Sendable {
+/// A `claude` process of the island and its three pipes: the long-lived one of the chat, or the
+/// short one of a Gmail draft (GmailDraftJob). Its callbacks run on background queues: they only
+/// touch what is immutable here, or `errorTail` behind `lock`.
+final class ClaudeProcess: @unchecked Sendable {
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
@@ -486,6 +495,8 @@ private final class ChatProcess: @unchecked Sendable {
     private let writer = DispatchQueue(label: "ai.klayer.island.chat.stdin")
     private let lock = NSLock()
     private var errorTail = Data()
+    /// Only read and written on `writer`: stdin is closed once.
+    private var inputClosed = false
 
     /// Starts the process. `onOutput` gets each read of stdout, `onOutputEnd` its end, `onExit`
     /// the exit: all on background queues.
@@ -536,8 +547,24 @@ private final class ChatProcess: @unchecked Sendable {
     func write(_ line: String) {
         let data = Data(line.utf8)
         writer.async { [self] in
+            guard !inputClosed else { return }
             try? input.fileHandleForWriting.write(contentsOf: data)
         }
+    }
+
+    /// Closes stdin after what was written before (one serial queue): a `claude -p` that reads
+    /// its request as text starts once its input ends.
+    func closeInput() {
+        writer.async { [self] in
+            closeInputNow()
+        }
+    }
+
+    /// On `writer` only.
+    private func closeInputNow() {
+        guard !inputClosed else { return }
+        inputClosed = true
+        try? input.fileHandleForWriting.close()
     }
 
     /// Closes stdin (Claude Code ends with its input) and stops the process if it still runs.
@@ -545,7 +572,7 @@ private final class ChatProcess: @unchecked Sendable {
     /// SIGKILL fallback to a background queue the quitting app would not run.
     func stop(atQuit: Bool) {
         writer.async { [self] in
-            try? input.fileHandleForWriting.close()
+            closeInputNow()
         }
         RunningProcess(process).terminate(waitingUpTo: atQuit ? 0.5 : nil)
     }
@@ -607,7 +634,7 @@ enum ShortRun {
 }
 
 /// A process another queue may stop.
-private final class RunningProcess: @unchecked Sendable {
+final class RunningProcess: @unchecked Sendable {
     private let process: Process
     init(_ process: Process) { self.process = process }
 
