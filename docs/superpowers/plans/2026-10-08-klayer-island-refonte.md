@@ -48,17 +48,17 @@
 - [ ] **Step 4:** Mettre à jour la doc : plus aucune mention de Windows, Linux, Tauri, `klayer-hook.exe`, AppImage. Run `grep -rniE "windows|linux|tauri|appimage" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=tools .` ; attendu : seules des occurrences hors sujet (par exemple « window » de fenêtre) ; les relire.
 - [ ] **Step 5:** Commit `chore: Mac only, keep Klay preview bench in tools/`.
 
-### Task 2: Retirer les intégrations de services et Apple Music
+### Task 2: Retirer les intégrations de services (sauf GitHub) et Apple Music
 
 **Files:**
-- Delete: `NotchBuddy/Sources/App/{StripePoller,N8nPoller,ResendPoller,CalcomPoller,NotionPoller,VercelPoller,GithubPoller,GitHubPulse,GitHubActivity,MusicController,NowPlayingViews}.swift`, `tests/{GitHubActivityTests,GitHubPulseTests}.swift`, `scripts/{test-github-activity,test-github-pulse}.sh`
-- Modify: `NotchBuddy/Sources/App/AppDelegate.swift:189-195` (démarrage des pollers), `AppState.swift:283-349` et `:403`, `:561`, `SettingsView.swift:1114-1215`, `:1681`, `:1709`, `IslandViewContent.swift` (cartes Stripe :3050, Resend :2348, Cal.com :3139-3430, Notion :3433, n8n :3479, Vercel :2179-2332, GitHub :2432-3046, Music :3902-4100), `IslandWindowController.swift:690` (`.musicReveal`), `ClaudeService.swift:64-74` (clés), `KlayerIslandKit/PillCatalog.swift` (entrées `integration_*` sauf `integration_claude`), `KlayerIslandKit/IslandTypes.swift:69` (`AgentSource.n8n`), `.github/workflows/build.yml` (étapes GitHub).
+- Delete: `NotchBuddy/Sources/App/{StripePoller,N8nPoller,ResendPoller,CalcomPoller,NotionPoller,VercelPoller,MusicController,NowPlayingViews}.swift`
+- Modify: `NotchBuddy/Sources/App/AppDelegate.swift:189-195` (démarrage des pollers), `AppState.swift:283-349` et `:403`, `:561`, `SettingsView.swift:1114-1215`, `:1681`, `:1709`, `IslandViewContent.swift` (cartes Stripe :3050, Resend :2348, Cal.com :3139-3430, Notion :3433, n8n :3479, Vercel :2179-2332, Music :3902-4100 ; la carte GitHub :2432-3046 reste), `IslandWindowController.swift:690` (`.musicReveal`), `ClaudeService.swift:64-74` (clés), `KlayerIslandKit/PillCatalog.swift` (entrées `integration_*` sauf `integration_claude` et GitHub), `KlayerIslandKit/IslandTypes.swift:69` (`AgentSource.n8n` renommé `AgentSource.integration`).
 
 **Interfaces:**
-- Produces: `PillCatalog` ne contient plus que `integration_claude`, `agent_claude-desktop`, la pastille Spotify et les éventuels agents retirés en Task 3. `AgentSource` sans le cas `.n8n` ; les pastilles qui l'utilisaient disparaissent.
+- Produces: `PillCatalog` ne contient plus que `integration_claude`, `agent_claude-desktop`, la pastille GitHub (ID inchangé), la pastille Spotify et les agents retirés en Task 3. `AgentSource.n8n` devient `AgentSource.integration`, utilisé par GitHub et Spotify seulement.
 
-- [ ] **Step 1:** Supprimer les fichiers et toutes leurs références ; Spotify et la danse de Klay (`BotCanvasView.swift:55-63`, `DesktopKlay.swift:45-48`) restent intactes.
-- [ ] **Step 2:** Run `grep -rnE "Stripe|N8n|n8n|Resend|Calcom|Cal\.com|Notion|Vercel|GitHub|Github|MusicController|NowPlaying|musicReveal|AppleMusic" NotchBuddy tests scripts .github` ; attendu : aucune ligne.
+- [ ] **Step 1:** Supprimer les fichiers et toutes leurs références ; GitHub (poller, carte, alertes CI, `handleGitHubEvents`, tests `test-github-*.sh`) reste intact, tout comme Spotify et la danse de Klay (`BotCanvasView.swift:55-63`, `DesktopKlay.swift:45-48`) restent intactes.
+- [ ] **Step 2:** Run `grep -rnE "Stripe|N8n|n8n|Resend|Calcom|Cal\.com|Notion|Vercel|MusicController|NowPlaying|musicReveal|AppleMusic" NotchBuddy tests scripts .github` ; attendu : aucune ligne. Run `bash scripts/test-github-pulse.sh && bash scripts/test-github-activity.sh` ; attendu : succès.
 - [ ] **Step 3:** Run les tests purs locaux restants (`for s in scripts/test-*.sh; do bash $s || echo FAIL $s; done` avec le `swiftc` local) ; attendu : aucun `FAIL` hors scripts qui importent AppKit (à relancer en CI).
 - [ ] **Step 4:** Commit, push, lancer la CI ; attendu : `build` en `success`.
 
@@ -205,7 +205,7 @@
 
 **Interfaces:**
 - Consumes: `ChoiceHistory.latest(5)` (Task 9), tâches de `AppState`.
-- Produces: `ConversationsView` (une ligne par tâche : mini-Klay couleur de l'état, titre, état en clair, dernière action ; clic → `NSWorkspace.shared.open(URL(string: "claude://")!)`), `ChoiceHistoryView` (5 lignes grises 55 % d'opacité : heure `HH:mm`, session, prompt tronqué à 1 ligne, réponse) ; la carte de demande en attente passe au-dessus des deux.
+- Produces: la carte GitHub existante sous les deux listes, inchangée ; `ConversationsView` (une ligne par tâche : mini-Klay couleur de l'état, titre, état en clair, dernière action ; clic → `NSWorkspace.shared.open(URL(string: "claude://")!)`), `ChoiceHistoryView` (5 lignes grises 55 % d'opacité : heure `HH:mm`, session, prompt tronqué à 1 ligne, réponse) ; la carte de demande en attente passe au-dessus des deux.
 
 - [ ] **Step 1:** Construire les deux vues et la nouvelle overview ; retirer pastilles d'éditeurs, boutons terminal et éditeur, cartes de diff, réglages Active pills.
 - [ ] **Step 2:** Run `grep -rnE "VS ?Code|vscode|Cursor|DiffCardView|AgentPillsView|jumpToTerminal|TerminalTarget" NotchBuddy/Sources` ; attendu : seules les détections encore utiles au routage des hooks (relire chaque ligne).

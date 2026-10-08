@@ -11,7 +11,7 @@ Critères de succès :
 - Aucune demande de Claude (autorisation, question) ne reste sans réponse faute d'avoir été vue.
 - Une fin de session se voit sans aller chercher l'app Claude.
 - Une question rapide obtient une réponse dans l'île, sans connexion à configurer.
-- L'app ne montre plus rien qui relève du développement (éditeurs, diff, services tiers).
+- L'app ne montre plus rien qui relève du développement (éditeurs, diff, services tiers), à l'exception de GitHub.
 
 ## 2. Périmètre
 
@@ -62,7 +62,9 @@ Les 4 pastilles de couleur (grille de mini-Klay) disparaissent, ainsi que les mi
 2. **Derniers choix demandés par Claude**, en gris : les 5 dernières autorisations et questions, avec la réponse donnée et l'heure. Historique local, 20 entrées au plus, jamais envoyé ailleurs.
 3. **Demande en cours** quand il y en a une : la carte Allow, Deny, Always ou les choix de la question, au-dessus de tout.
 
-Retirés : pastilles d'éditeurs (VS Code, Cursor…), boutons terminal et éditeur, cartes de diff, compteurs +N −M, carte GitHub, récap hebdomadaire (statistiques de code).
+Retirés : pastilles d'éditeurs (VS Code, Cursor…), boutons terminal et éditeur, cartes de diff, compteurs +N −M, récap hebdomadaire (statistiques de code).
+
+**GitHub** reste : sa pastille et sa carte (pull requests, revues demandées, CI) s'affichent sous les conversations, comme aujourd'hui.
 
 ## 7. Chat rapide
 
@@ -84,7 +86,7 @@ Retirés : Gemini, OpenAI, Ollama, LM Studio, sélecteur de modèle, clés API, 
 
 | Retiré | Fichiers principaux |
 |---|---|
-| Stripe, n8n, Resend, Cal.com, Notion, Vercel, GitHub | `*Poller.swift`, `GitHubPulse.swift`, `GitHubActivity.swift`, cartes dans `IslandViewContent.swift`, section Integrations de `SettingsView.swift`, `AppState`, `DemoEngine` |
+| Stripe, n8n, Resend, Cal.com, Notion, Vercel | `*Poller.swift` sauf `GithubPoller.swift`, cartes dans `IslandViewContent.swift`, section Integrations de `SettingsView.swift`, `AppState`, `DemoEngine` |
 | Apple Music | `MusicController.swift`, `NowPlayingViews.swift`, `MusicPill`, `.musicReveal` |
 | Chats non Claude | `IslandTypes.swift` (fournisseurs), `LocalChat.swift`, `ModelPickerView` |
 | Agents non Claude | entrées de `PillCatalog.swift`, branches de `HookServer.swift`, scripts de plugins OpenCode, Amp, Hermes |
@@ -92,9 +94,9 @@ Retirés : Gemini, OpenAI, Ollama, LM Studio, sélecteur de modèle, clés API, 
 | Windows et Linux | `windows/`, `linux/`, workflows |
 | Mode démo, récap hebdomadaire | `DemoEngine.swift`, `RecapStore.swift`, `WeeklyRecapView.swift` |
 
-**Gardés** : Spotify (pastille et danse de Klay), Klay sur le bureau, raccourcis clavier, jauge de forfait Claude.
+**Gardés** : GitHub (pull requests, revues, CI), Spotify (pastille et danse de Klay), Klay sur le bureau, raccourcis clavier, jauge de forfait Claude.
 
-Point dur : `AgentSource.n8n` sert de source à toutes les pastilles de services et d'IA ; il disparaît avec elles.
+Point dur : `AgentSource.n8n` sert de source à toutes les pastilles de services et d'IA, GitHub compris : il est renommé `AgentSource.integration` et ne sert plus qu'à GitHub et Spotify.
 
 ## 10. Spikes avant implémentation
 
