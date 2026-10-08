@@ -160,11 +160,26 @@ struct BotCanvasView: View {
     }
 }
 
+/// False inside a view of the open island that is not on screen: `IslandContentView` keeps every
+/// view in the tree (opacity 0), and what animates there stops. True everywhere else.
+private struct IslandViewActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var islandViewActive: Bool {
+        get { self[IslandViewActiveKey.self] }
+        set { self[IslandViewActiveKey.self] = newValue }
+    }
+}
+
 /// Mini bot canvas (for agent pills/column)
 struct MiniBotCanvasView: View {
     let task: AgentTask
     var isDancing: Bool = false
     @StateObject private var engine: BotEngine
+    /// Paused behind an approval, a question or the chat: the home's mini Klays stop drawing.
+    @Environment(\.islandViewActive) private var viewActive
 
     init(task: AgentTask, isDancing: Bool = false) {
         self.task = task
@@ -178,7 +193,7 @@ struct MiniBotCanvasView: View {
     }
 
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(paused: !viewActive)) { timeline in
             Canvas { context, size in
                 // dt from the engine's own clock, as in BotCanvasView.
                 _ = timeline.date

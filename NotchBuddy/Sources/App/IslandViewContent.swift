@@ -729,7 +729,8 @@ struct UploadView: View {
             // (4 pt of room each side for the bob), 6 pt gap, ~16 pt of text = ~86 pt, so
             // about 6 pt of margin above and below inside the dashed border.
             VStack(spacing: 6) {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                // Paused while another view is on screen: every view stays in the tree (opacity 0).
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: state.view != .upload)) { tl in
                     Canvas { ctx, size in
                         KlayPaint.drawDropInvite(ctx, center: CGPoint(x: size.width / 2, y: size.height / 2),
                                                  height: 56, time: tl.date.timeIntervalSinceReferenceDate)
@@ -780,9 +781,10 @@ struct UploadingView: View {
     private let barTop: CGFloat   = 58
 
     var body: some View {
-        // TimelineView fires at display refresh rate — progress derived from elapsed wall time,
-        // not from @Published uploadProgress (which only flips to 1.0 at completion).
-        TimelineView(.animation) { tl in
+        // TimelineView fires at display refresh rate: progress derived from elapsed wall time,
+        // not from @Published uploadProgress (which only flips to 1.0 at completion). Paused while
+        // another view is on screen: every view stays in the tree (opacity 0).
+        TimelineView(.animation(paused: state.view != .uploading)) { tl in
             let elapsed: Double = {
                 guard let start = state.uploadStartTime else { return 0 }
                 return tl.date.timeIntervalSince(start)

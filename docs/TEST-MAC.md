@@ -190,7 +190,7 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 
 - [ ] Île cachée, souris loin, aucune session ouverte, aucun événement pendant 5 min (par exemple pendant une pause). Ouvrez ensuite le Moniteur d'activité, colonne % CPU de « KlayerIsland ». Attendu : 0 %.
 - [ ] Île réduite. Attendu : moins de 3 % de CPU et moins de 100 Mo de mémoire (critères de `docs/SPEC.md`, §12).
-- [ ] Île ouverte sur la maison avec trois sessions. À noter : le CPU, trois mini Klays de plus qu'avant.
+- [ ] Île ouverte sur la maison avec trois sessions. À noter : le CPU, trois mini Klays de plus qu'avant. Puis, avec les mêmes sessions, une carte d'autorisation à l'écran. À noter : le CPU, normalement plus bas, car les mini Klays de la maison s'arrêtent derrière la carte.
 - [ ] Klay sur le bureau, éveillé puis endormi. À noter : le CPU. Il est affiché à la fréquence de l'écran éveillé (c'était 30 images par seconde avant) et à 10 images par seconde endormi.
 - [ ] Onglet Déposer ouvert. Attendu : charge faible (30 images par seconde).
 
