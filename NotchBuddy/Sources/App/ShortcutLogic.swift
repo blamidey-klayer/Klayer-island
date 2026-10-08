@@ -219,7 +219,6 @@ enum ShortcutLogic {
         ("⌘1 – ⌘9",    String(localized: "shortcut.island.by-number")),
         ("⌘↓ / ⌘↑",    String(localized: "shortcut.island.nav-items")),
         ("⌘O",          String(localized: "shortcut.island.open")),
-        ("⌘E",          String(localized: "shortcut.island.diff")),
         ("⌘↩",          String(localized: "shortcut.island.send")),
         ("⌘K",          String(localized: "shortcut.island.new-convo")),
         ("⌘,",          String(localized: "shortcut.island.settings")),

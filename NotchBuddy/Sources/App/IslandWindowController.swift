@@ -704,11 +704,6 @@ final class IslandWindowController: NSWindowController {
         if cmd && event.keyCode == 126 { navigateCard(by: -1); return true }
         // ⌘O — open selected card item
         if cmd && event.keyCode == 31  { openCardSelection(); return true }
-        // ⌘E — toggle diff
-        if cmd && event.keyCode == 14 && state.view == .overview {
-            NotificationCenter.default.post(name: .islandToggleDiff, object: nil)
-            return true
-        }
         // ⌘↩ — send chat message
         if cmd && event.keyCode == 36 && state.view == .prompt {
             NotificationCenter.default.post(name: .islandSendMessage, object: nil)
@@ -1332,7 +1327,6 @@ extension Notification.Name {
     static let islandCollapse      = Notification.Name("notchBuddy.islandCollapse")
     static let islandSendMessage   = Notification.Name("notchBuddy.islandSendMessage")
     static let islandNewConversation = Notification.Name("notchBuddy.islandNewConversation")
-    static let islandToggleDiff           = Notification.Name("notchBuddy.islandToggleDiff")
     static let islandActivateCardSelection = Notification.Name("notchBuddy.islandActivateCardSelection")
     static let openFullSettings    = Notification.Name("notchBuddy.openFullSettings")
     static let hookReveal       = Notification.Name("notchBuddy.hookReveal")

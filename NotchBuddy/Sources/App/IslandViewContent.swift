@@ -495,7 +495,7 @@ struct FinishedView: View {
                         return session.lastAction.isEmpty ? String(localized: "Session finished") : session.lastAction
                     }
                     if let fl = state.focusTask?.finalLine { return fl }
-                    if let s = state.focusTask?.steps.last(where: { !$0.isDiffStep }) { return s }
+                    if let s = state.focusTask?.steps.last { return s }
                     return String(localized: "Session finished")
                 }())
                     .font(.system(size: 15, weight: .semibold))

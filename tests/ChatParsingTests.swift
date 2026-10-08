@@ -71,6 +71,62 @@ enum ChatParsingTests {
     // MARK: - Finish
 
     private static func finish() -> Never {
+        // ── ChatMarkdown.toOneLine ──────────────────────────────────────────────
+        print("ChatMarkdown.toOneLine")
+        do {
+            // multi-line joined with space
+            checkTrue("multi-line joined",
+                ChatMarkdown.toOneLine("line one\nline two\nline three") == "line one line two line three")
+
+            // bold stripped
+            checkTrue("bold stripped",
+                ChatMarkdown.toOneLine("**hello** world") == "hello world")
+
+            // heading stripped
+            checkTrue("heading stripped",
+                ChatMarkdown.toOneLine("## My Title\nsome text") == "My Title some text")
+
+            // empty input → empty
+            checkTrue("empty → empty", ChatMarkdown.toOneLine("").isEmpty)
+
+            // truncation
+            let long = ChatMarkdown.toOneLine(String(repeating: "x ", count: 200), maxChars: 10)
+            checkTrue("truncated to maxChars", long.count <= 10)
+
+            // stop at blank line
+            checkTrue("blank line → first para only",
+                ChatMarkdown.toOneLine("First para.\n\nSecond para.") == "First para.")
+
+            // stop at --- separator
+            checkTrue("--- separator → first para only",
+                ChatMarkdown.toOneLine("Done. Single commit 450a657 on github-pulse.\n\n---\n\nFiles touched (7)…")
+                    == "Done. Single commit 450a657 on github-pulse.")
+
+            // stop at *** separator
+            checkTrue("*** separator → first para only",
+                ChatMarkdown.toOneLine("Summary line.\n***\nMore details.") == "Summary line.")
+
+            // stop at table row (|)
+            checkTrue("table row → first para only",
+                ChatMarkdown.toOneLine("Result:\n| Col1 | Col2 |\n|---|---|\n| A | B |") == "Result:")
+
+            // strip leading bullet -
+            checkTrue("strip bullet -",
+                ChatMarkdown.toOneLine("- item one\n- item two") == "item one item two")
+
+            // strip leading bullet *
+            checkTrue("strip bullet *",
+                ChatMarkdown.toOneLine("* first\n* second") == "first second")
+
+            // strip ordered list
+            checkTrue("strip ordered list",
+                ChatMarkdown.toOneLine("1. step one\n2. step two") == "step one step two")
+
+            // first paragraph empty → fall through to next
+            checkTrue("empty first para → next",
+                ChatMarkdown.toOneLine("\n\nActual content.") == "Actual content.")
+        }
+
         if failures == 0 {
             print("\nAll tests passed.")
             exit(0)

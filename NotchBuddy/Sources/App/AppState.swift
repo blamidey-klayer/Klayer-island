@@ -228,46 +228,6 @@ final class AppState: ObservableObject {
         if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
     }
 
-    // Per-pill flat list of FileDiffs, in order of reception.
-    // Not @Published — steps[] changes already trigger redraws.
-    var sessionDiffs: [String: [FileDiff]] = [:]
-    private var sessionDiffTimers: [String: DispatchWorkItem] = [:]
-    // Monotonically increasing — never reset, not even in clearSessionDiffs.
-    private var nextDiffId: Int = 0
-
-    @discardableResult
-    func appendSessionDiff(_ diff: FileDiff, for pillId: String) -> Int {
-        var d = diff
-        d.id = nextDiffId
-        nextDiffId += 1
-        if sessionDiffs[pillId] == nil { sessionDiffs[pillId] = [] }
-        sessionDiffs[pillId]!.append(d)
-        // Keep at most 50 diffs per pill; drop oldest first
-        while sessionDiffs[pillId]!.count > 50 {
-            sessionDiffs[pillId]!.removeFirst()
-        }
-        resetSessionDiffTimer(for: pillId)
-        return d.id
-    }
-
-    func clearSessionDiffs(for pillId: String) {
-        sessionDiffTimers[pillId]?.cancel()
-        sessionDiffTimers.removeValue(forKey: pillId)
-        sessionDiffs.removeValue(forKey: pillId)
-        // nextDiffId intentionally NOT reset — ids remain unique across sessions
-    }
-
-    private func resetSessionDiffTimer(for pillId: String) {
-        sessionDiffTimers[pillId]?.cancel()
-        // The closure is MainActor-isolated (AppState is @MainActor): it must run on the main
-        // queue. Scheduled on a global queue, Swift 6's isolation check traps and the app quits.
-        let work = DispatchWorkItem { [weak self] in
-            self?.clearSessionDiffs(for: pillId)
-        }
-        sessionDiffTimers[pillId] = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3600, execute: work)
-    }
-
     // Claude plan gauge (from statusline hook)
     @Published var claudePlanUsage: PlanUsage? = nil {
         didSet {
