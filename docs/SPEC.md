@@ -157,7 +157,7 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
 - **Corps** : le glyphe Klayer (`glyph.ts`, généré depuis le SVG du design system), blanc sur l'île sombre, jamais redessiné ni déformé. Il occupe 62 % de la largeur du canvas. Écrasements, inclinaisons, sauts et vrilles s'appliquent au personnage entier.
 - **Halo** : dégradé radial de la couleur de l'état derrière les rayons, rayon 380 unités, opacité 0,55 × teinte au centre. Au repos : teal-light Klayer `#3E7280`, teinte 0,35.
 - **Couleurs d'état** : variantes éclaircies des couleurs de la marque Klayer, pour rester lisibles sur l'île noire (les valeurs exactes de la charte sont trop sombres sur du noir). Le halo de Klay, son badge, le halo de l'île derrière lui et le voile des cartes d'alerte (§5) prennent la couleur de l'état (tableau ci-dessous, `C` dans `engine.ts`, `StateColor` dans `BotEngine.swift`). Les marques du badge (points, « ! », « ? ») sont teal-deep `#071B20` sur un fond clair (luminance relative au-dessus de 0,2, là où blanc et teal-deep contrastent autant), blanches sinon : tous les états qui ont un badge sont clairs, avec un contraste d'au moins 4,6:1.
-- **Yeux** : deux yeux ronds blancs (rayon 52, écart ±56, liseré teal-deep `#071B20` de 9) posés sur le moyeu. La forme d'œil (pilule, arc content, fente, spirale, cœur, étoile…) se dessine dans chaque œil en teal-deep. Le regard décale l'œil (×0,4) et la pupille (×0,8) jusqu'à ±14 unités en x et ±12 en y.
+- **Yeux** : deux yeux ronds blancs (rayon 52, écart ±56, liseré teal-deep `#071B20` de 9) posés sur le moyeu. La forme d'œil (pilule, arc content, fente, spirale, cœur, étoile…) se dessine dans chaque œil en teal-deep, découpée au bord intérieur du liseré. Le regard (`klayGaze`, `KlayMotion.gaze`, lacet et tangage de −1 à 1, tangage positif vers le haut) décale les blancs de lacet × 48 et tangage × 30, et les pupilles de lacet × 40 et tangage × 32 en plus, bornées dans une ellipse de 26 × 18 pour rester dans le blanc. En tournant, l'œil de ce côté se rétrécit jusqu'à 16 % et l'écart des yeux se resserre jusqu'à 8 % ; les joues suivent les yeux (× 0,8). Les figures scénarisées (accueil, envoi, zone de dépôt) gardent l'ancien décalage (×0,4 et ×0,8 jusqu'à ±14 et ±12).
 - **Bras** : nouilles blanches de 26 unités, liseré teal-deep de 7, mains rondes (rayon 26), devant le glyphe pour rester lisibles sur les rayons, sur toutes les surfaces (île, bureau, salut, envoi, zone de dépôt). Épaules à (±82, 50), couvertes d'un disque blanc. La pose des mains dépend de l'état (`limbTargets`) : repos (±168, 150), tape au clavier en `working`, main au menton en `thinking`, les deux mains sur les côtés des jumelles à (±146, −52) en `searching`, qui suivent leur balayage, bras levés en `approval`, grattage de tête en `question`, bras ballants en `error`, `ratelimit` et `sleeping`, V en `finished`, moulinets en `dizzy`. Salut : main droite levée, va-et-vient à 13 rad/s. Zone de dépôt : bras ouverts, mains à (±200, −40) (`armsOpenTargets`).
 - **Jumelles** (`searching`, Klay principal seulement : ni mini-Klay ni zone de dépôt), vues un peu d'en haut pour que la longueur des fûts se voie, de 272 de large sur 177 de haut (`BINO`, `KlayPaint.Bino`) :
   - deux fûts teal-deep `#071B20` d'axe x = ±84 : en haut un tube d'oculaire étroit (48 de large, de −142 à −94, rayon d'angle 10) barré d'une bague brume `#ECEDE7` de 8 à y = −128 ; dessous un tube d'objectif plus large (104 de large, de −104 à 0, rayon d'angle 18) terminé par une ellipse de 104 × 44 centrée en y = 0, tournée vers nous ;
@@ -165,11 +165,25 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
   - au centre, une charnière teal-deep de 20 de large (de −138 à −36), un pont de 124 × 18 entre les oculaires (de −124 à −106) et une molette de mise au point de 46 × 26 (rayon 9) centrée en y = −142, barrée de brume ;
   - balayage : décalage x = lacet × 45 et rotation de lacet × 0,13 rad autour de (0, −60), soit ±27 unités et ±0,08 rad pendant la recherche ; les mains tiennent les côtés des tubes d'objectif en (±146, −52) et suivent le même mouvement ;
   - ordre de dessin : jambes, glyphe, jumelles, bras, joues ; les yeux ne sont pas dessinés pendant ce temps. Les jumelles restent quand les membres sont masqués (île compacte).
-- **Jambes** : deux jambes blanches derrière le glyphe, hanches à (±17, 104), pieds ovales (32 × 15) à (±36, 212). Piétinement en `working`.
+- **Jambes** : deux jambes blanches derrière le glyphe, hanches à (±17, 104), pieds ovales (32 × 15) à (±36, 212). Piétinement en `working`, tapotement du pied au repos (voir Mouvement).
 - **Membres masqués** en dessous de 30 px de largeur de glyphe (île compacte).
 - **Boîte aux lettres** (dépôt de fichier) : le glyphe rétrécit et s'efface, une boîte blanche à dégradé brume `#ECEDE7` apparaît avec une fente sombre et les mêmes yeux.
 - **Mini-Klay** (pastilles d'agents et de services) : glyphe blanc et yeux sur un disque de la couleur de la pastille, sans membres.
 - Regard : suit la souris avec retard. Clignement aléatoire toutes les 2,2 à 5,4 s, double clignement 22 % du temps.
+
+### Mouvement
+
+Constantes partagées par le banc (`motion.ts`, `MOTION`) et le Mac (`KlayMotion.swift`), testées par `scripts/test-klay-motion.sh`. Tableau de parité avec le moteur d'origine : `docs/klay-animation-parity.md`. Tout dépend du temps et de `dt` (secondes), jamais du nombre d'images : les ressorts sont intégrés par tranches de 1/240 s au plus, et `dt` vient de l'horloge du moteur (`CACurrentMediaTime`, plafonné à 0,05 s).
+
+- **Regard** : la cible vient du pointeur, tanh(dx/260) et tanh(dy/200) depuis Klay, passée par la courbe sign(l)·|l|^0,75 puis × 0,62 (lacet) et × 0,5 (tangage). Le regard la rejoint en ressort amorti (réponse 0,2 s, amortissement 0,6).
+- **Penché** : toute la figure se tourne vers le regard, plus lentement que les yeux (ressort, réponse 0,6 s, amortissement 0,5). Côté lacet : rotation de 0,06 rad autour des semelles et décalage de 16 unités. Côté tangage : regarder en haut le soulève de 10 unités et l'étire de 2 % depuis les semelles, regarder en bas fait l'inverse. Le glyphe n'est jamais déformé, seule la figure entière bouge.
+- **Mains et pieds** : ressorts amortis vers la pose de l'état (mains : réponse 0,22 s, amortissement 0,45 ; pieds : 0,14 s, 0,6). Quand le corps bouge (sauts, secousse, danse, penché, inclinaison), les membres gardent une part de leur place (inertie 0,85 pour les mains, 0,4 pour les pieds) : ils traînent, dépassent puis se posent. Impulsions : écrasement (mains 420 unités/s vers le bas), claque (mains 900 vers le haut et 500 d'un côté, pieds 300), survol (mains 350 vers le haut).
+- **Survol** (l'île met `tgEs` à 1,08 quand le pointeur est sur Klay, le bureau aussi) : sursaut (sy 1,07 et sx 0,96 en 110 ms, retour en 280 ms avec rebond), montée de 8 unités vers le pointeur, gain du regard × 2,4.
+- **Respiration éveillée** du Klay principal : sy ± 1,2 % à 1,9 rad/s (le sommeil garde ± 3,5 % à 1,8 rad/s).
+- **Pointeur immobile** depuis 3,5 à 6 s (`idle`, `working`, `finished`, hors survol) : Klay regarde autour, un coup d'œil toutes les 0,6 à 1,6 s, 30 % vers le pointeur ; le moindre mouvement du pointeur le ramène.
+- **Occupations au repos** (`idle` seulement, sans survol, émote, salut, danse ni boîte aux lettres) : toutes les 5 à 12 s, un tapotement du pied (3,3 Hz pendant 0,9 s, pointe levée de 20 unités). Pointeur immobile depuis 25 s : un étirement ou un bâillement en alternance, puis un toutes les 35 à 70 s. Étirement : 1,8 s, mains à (±130, −215), corps étiré de 6 % (sx 0,97), yeux fermés de 0,35 à 1,35 s. Bâillement : l'émote Bâille.
+- **Danse** (Spotify) : 112 BPM, saut de 0,2 R, balancement de 0,1 rad et décalage de 0,08 R autour des semelles, écrasement à chaque atterrissage ; montée 0,3 s, descente 0,5 s ; yeux contents en `idle` et `finished`.
+- **Cadence** : l'île dessine Klay à la fréquence d'affichage et s'arrête quand elle est cachée ; Klay sur le bureau aussi, 10 images/s endormi, en pause écran éteint ou verrouillé.
 
 ### États (`STATES`)
 
@@ -178,11 +192,11 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
 | `idle` | Au repos | `#3E7280` (teal-light) | 0,35 | pilule | aucun | |
 | `working` | Travaille | `#4FA3B5` (teal éclairci) | 0,72 | pilule | pilule « ••• » animée | |
 | `thinking` | Réfléchit | `#7FB8C4` (teal éclairci) | 0,72 | pilule | « ••• » | regarde en haut à droite |
-| `searching` | Cherche | `#A8D0D8` (teal éclairci) | 0,72 | cachés par les jumelles | « ••• » | tient des jumelles à deux mains, qui balaient de gauche à droite |
+| `searching` | Cherche | `#A8D0D8` (teal éclairci) | 0,72 | cachés par les jumelles | « ••• » | tient des jumelles à deux mains, qui balaient de gauche à droite (lacet sin(2,6 t) × 0,6), un peu au-dessus de l'horizon (tangage +0,06) ; le corps suit le balayage |
 | `approval` | Attend ton feu vert | `#D69A3A` (etat-tension éclairci) | 0,78 | grands | « ! » | petits sauts en boucle |
 | `question` | Pose une question | `#E2B866` (etat-tension éclairci) | 0,75 | pilule | « ? » | tête penchée 0,12 rad, se gratte la tête |
 | `error` | Erreur | `#D0663F` (brique éclaircie) | 0,78 | plats | point brique | secousse horizontale à l'entrée |
-| `finished` | Terminé | `#6FA35E` (etat-tenu éclairci) | 0,5 | contents (arc) | point vert | saut + vrille de 700 ms + étincelles |
+| `finished` | Terminé | `#6FA35E` (etat-tenu éclairci) | 0,5 | contents (arc) | point vert | saut + vrille de 700 ms + écrasement à l'atterrissage + étincelles |
 | `ratelimit` | Limite atteinte | `#B0761C` (etat-tension) | 0,72 | fatigués | point ocre | gouttes de sueur |
 | `sleeping` | Dort | `#C9CAC3` (filet) | 0,25 | fermés | aucun | respiration, « z » qui montent |
 | `dizzy` | Sonné | `#E08A6A` (brique éclaircie) | 0,7 | spirales | aucun | double roulade 1,3 s |
@@ -205,7 +219,7 @@ Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `sleeping` 
 
 ## 8. Interactions avec le bonhomme
 
-- **Survol** (expanded) : clignement, yeux ×1,08, son `hover`. Immobile 1,9 s → Amour.
+- **Survol** (expanded) : clignement, yeux ×1,08, son `hover` ; Klay sursaute, lève les mains et se penche vers le pointeur (§7, Mouvement). Immobile 1,9 s → Amour.
 - **Clic** en compact ou hidden → rien, l'île ne s'ouvre jamais au clic (§3), sauf le bouton Granola de l'île réduite, qui ouvre Granola. **Clic** en expanded → claque : écrasement (70/130/170 ms), Agacé 800 ms, halo violet, sons `slap` + `annoyed`.
 - **3 clics en moins de 1,7 s** → état `dizzy` pendant 3,3 s, vue `confused`, son `dizzy`, puis retour à la vue et à l'état d'avant.
 - **Glisser** le bonhomme (> 7 pt) : un bonhomme flottant Ø 54 suit le curseur (Surpris + `pop`), celui du notch disparaît. Lâché sur une fenêtre d'une autre app → **attache** (voir INTEGRATIONS §4). Lâché ailleurs → revient dans le notch en 420 ms en rétrécissant.
@@ -299,6 +313,7 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 | Clic simple | Slap (`engine.slap()`) — différé de `NSEvent.doubleClickInterval` |
 | Double-clic | Annule le slap en attente ; vol vers la notch (`flyHome()`), island réapparaît |
 | Clic droit | Émote Amour |
+| Survol du corps | Clignement, yeux ×1,08, sursaut, se penche vers le pointeur (§7, Mouvement) |
 | Glisser → zone notch | Vol vers la notch (`flyHome()`) |
 | Glisser → fenêtre (GitHub) | Attache le contexte, Klay revient à sa position initiale, island ouvre `.prompt` |
 | Glisser → ailleurs | Repositionne le panneau (borné au `visibleFrame`) |
@@ -307,7 +322,7 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 
 - Respiration, clignements, suivi des yeux depuis la position du panneau (pas depuis l'island).
 - Danse : mêmes règles que le mode compact (Spotify en lecture + pastille active + état autorisé).
-- 30 fps actif, 10 fps au repos (`TimelineView` adapte `minimumInterval` selon `isSleeping`).
+- Fréquence d'affichage éveillé, 10 fps endormi (`TimelineView` adapte `minimumInterval` selon `isSleeping`).
 
 ### Absences de la notch
 

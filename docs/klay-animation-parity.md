@@ -1,0 +1,57 @@
+# Animation de Klay : parité avec le moteur d'origine
+
+Tâche 8c. Chaque comportement animé du moteur d'origine (Coucou, personnage Mochi : `BotEngine.swift`, `BotCanvasView.swift`, `windows/src/mochi/engine.ts`, au commit `a7bd575`) en face de son équivalent chez Klay. Seuls les mouvements sont repris (durées, ressorts, courbes, déclencheurs, code MIT) ; le dessin reste celui de Klay : glyphe Klayer jamais redessiné ni recoloré, yeux, bras, jambes et jumelles de Klay.
+
+Statut : **présent** (rien à faire), **à renforcer** (existait mais trop faible ou faux), **absent** (n'existait pas chez Klay). La dernière colonne dit ce qui a été fait, à l'identique dans les deux moteurs : le banc `tools/klay-preview/src/engine.ts` et `motion.ts`, le Mac `BotEngine.swift` et `KlayMotion.swift`.
+
+Convention commune : tangage positif = Klay regarde vers le haut, lacet positif = vers la droite. Unités : unités du glyphe (797 × 512), secondes.
+
+## Tableau
+
+| # | Comportement | Moteur d'origine (Mochi) | Klay avant | Statut | Fait |
+|---|---|---|---|---|---|
+| 1 | Respiration | En sommeil, sy et sx à 1,8 rad/s (amplitude 0,035, 0,07 pour un mini). Mini éveillé : pulsation à 2,2 rad/s. | Identique. | présent | Conservé. Ajout d'une respiration légère éveillée pour le Klay principal : amplitude 0,012 à 1,9 rad/s. |
+| 2 | Clignement simple | Aléatoire toutes les 2,2 à 5,4 s, fermeture 70 ms, ouverture 130 ms. Aussi au changement d'état, au survol, pendant le salut. | Identique. | présent | Inchangé. |
+| 3 | Double clignement | 22 % des clignements, le second 230 ms après. | Identique. | présent | Inchangé. |
+| 4 | Regard qui suit le pointeur avec retard | Cible tanh(dx/260) et tanh(dy/200), lacet × 0,62, tangage × 0,5, lissage exponentiel (constante 0,17 s). Les yeux glissent sur une tête en 3D jusqu'à 0,54 R : environ un quart de la largeur du corps. | Même cible, mais l'œil se décalait de 5,6 unités et la pupille de 11 au plus : moins de 1 % de la largeur du glyphe, invisible dans l'île. | à renforcer | Regard en ressort amorti (réponse 0,2 s, amortissement 0,6 : l'œil part vite, dépasse un peu, se pose). Blancs décalés de lacet × 48 et tangage × 30, pupilles de lacet × 40 et tangage × 32 en plus, bornées dans une ellipse de 26 × 18 pour rester dans le blanc (pupille découpée au bord intérieur du liseré). Regard tout à droite (lacet 0,62) : la pupille se déplace de 55 unités ; tout en haut (tangage 0,5) : de 31 ; en diagonale, elle reste dans son ellipse. Courbe de réponse sign(l)·\|l\|^0,75 : les petits mouvements près de Klay se voient. |
+| 5 | Rotation de tête et perspective | Yeux projetés sur la tête : écart × cos, œil écrasé du côté de la rotation, yeux cachés au bord, joues qui suivent. | Yeux plats, aucune perspective. | absent | L'œil du côté où Klay tourne se rétrécit jusqu'à 16 %, l'écart des yeux se resserre jusqu'à 8 %, les joues suivent les yeux (× 0,8). |
+| 6 | Corps qui pivote et se penche vers le pointeur | La tête tourne, le corps reste. | Rien. | absent | Penché en ressort plus lent que les yeux (réponse 0,6 s, amortissement 0,5) : les yeux mènent, le corps suit et dépasse un peu. Côté lacet : rotation de 0,06 rad autour des semelles et décalage de 16 unités. Côté tangage : regarder en haut le soulève de 10 unités et l'étire de 2 % depuis les semelles, regarder en bas fait l'inverse. Transformation uniforme de toute la figure, glyphe intact. |
+| 7 | Réaction au survol | Clignement, yeux × 1,08, son `hover` ; pointeur immobile 1,9 s : émote Amour. | Identique dans l'île ; rien sur le bureau. | à renforcer | Au survol (le moteur lit `tgEs` au-dessus de 1, signal déjà envoyé par l'île) : sursaut (sy 1,07 en 110 ms puis retour en 280 ms avec rebond, sx 0,96), mains lancées vers le haut, montée de 8 unités vers le pointeur, gain du regard × 2,4 : Klay se penche et regarde le curseur posé sur lui. Klay sur le bureau reçoit aussi le survol (clignement et yeux × 1,08). |
+| 8 | Écrasement et étirement | Claque, atterrissage de roulade, Fier, avalage, salut, sauts des minis, bâillement. | Présent sur Mac ; au banc, ni écrasement à l'atterrissage d'une roulade ni sur Fier. | présent | Banc aligné sur le Mac (dérive, voir plus bas). |
+| 9 | Ressorts des parties souples | Chapeau et pompon en ressort (raideur 60, amortissement 9) entraînés par la vitesse du lacet, des sauts et des roulades ; impulsions sur claque, écrasement et salut. | Mains et pieds lissés exponentiellement (constante 0,09 s), sans inertie : quand le corps bougeait, les membres restaient collés. | absent | Mains et pieds en ressorts amortis intégrés avec dt. Mains : réponse 0,22 s, amortissement 0,45, inertie 0,85. Pieds : 0,14 s, 0,6, 0,4. Le mouvement du corps (sauts, secousse, danse, penché, inclinaison) est retiré des membres selon leur inertie : ils traînent, dépassent puis se posent. Impulsions : écrasement (mains 420 unités/s vers le bas), claque (mains 900 vers le haut et 500 d'un côté, pieds 300 vers le haut), survol (mains 350 vers le haut). |
+| 10 | Roulades | Terminé : 1 tour en 950 ms. Sonné : 2 tours en 1,3 s. Écrasement à l'atterrissage. | Terminé : saut et 1 tour en 700 ms ; sonné identique ; pas d'écrasement au banc. | présent | Écrasement à l'atterrissage ajouté au banc (dérive). |
+| 11 | Émotes | Amour, Surpris, Fier, Clin d'œil, Bâille, Content, Agacé. | Identiques. | présent | Inchangées ; Fier écrase aussi au banc. |
+| 12 | Particules | Cœurs, étoiles, étincelles, gouttes, « z » ; « z » et gouttes ambiants toutes les 1,3 s. | Identiques au banc ; sur Mac, elles vieillissaient 3 à 6 fois trop vite (ligne 28). | présent | Vrai dt sur Mac : même vitesse qu'au banc. |
+| 13 | Salut (coucou) | Main qui s'agite à 13 rad/s, balancement du corps, yeux contents, deux clignements, écrasement, son. | Identique, main droite de Klay. | présent | La main suit son ressort : léger dépassement en montant et en redescendant. |
+| 14 | Accueil au lancement | Séquence scénarisée. | `GreetingCanvasView`, à la fréquence d'affichage. | présent | Inchangé. |
+| 15 | Danse sur la musique | 112 BPM : saut de 0,2 R, balancement de 0,1 rad, écrasement à chaque atterrissage, yeux contents au repos et en terminé ; montée 0,3 s, descente 0,5 s. | Présente sur Mac, absente du banc. | présent | Portée au banc à l'identique (`danceMotion`, `KlayMotion.dance`, partagés avec le Mac). Les membres suivent les sauts avec inertie. |
+| 16 | Ennui et bâillement | Émote Bâille (yeux fatigués puis fermés, étirement, « z ») sans déclencheur dans l'île ; Mochi sur le bureau s'endort après 120 s sans agent. | Identique. | à renforcer | Au repos, pointeur immobile depuis 25 s : un étirement ou un bâillement, en alternance, puis un toutes les 35 à 70 s. |
+| 17 | Petites occupations au repos | Aucune pour le personnage principal. | Rien. | absent | Tape du pied toutes les 5 à 12 s au repos (3,3 Hz pendant 0,9 s, pointe levée de 20 unités, fondu au début et à la fin). Pointeur immobile depuis 3,5 à 6 s : Klay regarde autour (coups d'œil de 0,6 à 1,6 s, 30 % de retours vers le pointeur) au repos, au travail et en terminé ; le moindre mouvement du pointeur le ramène. Étirement en 1,8 s : mains à (±130, −215), corps étiré de 6 %, yeux fermés de 0,35 à 1,35 s. |
+| 18 | Mini-personnages qui regardent ailleurs | Regard au hasard toutes les 0,5 à 2 s ; comportements périodiques selon l'émote (Content : saut ; Agacé : secoue la tête ; Clin d'œil ; Amour : cœurs). | Identique, avec une dérive de signe au banc. | présent | Dérive corrigée ; les yeux des minis profitent du nouveau regard (ligne 4). |
+| 19 | Claque, agacé, sonné | Écrasement, yeux en fente 800 ms, sons ; 3 claques en 1,7 s : sonné ; impulsion des parties souples. | Présent sans impulsion. | à renforcer | Impulsions des mains et des pieds (ligne 9) : les mains volent puis retombent. |
+| 20 | Avalage de fichier | Fente en ressort (ω 2π/0,25, ζ 0,6), mâchage 800 ms, écrasement, yeux en coupe puis contents, transformation en 550 et 650 ms. | Identique. | présent | Inchangé. |
+| 21 | Badge | Sort en 90 ms, entre en 280 ms avec rebond, points animés. | Identique. | présent | Inchangé. |
+| 22 | Couleur d'état | Fondu de couleur (0,002^dt). | Identique. | présent | Inchangé. |
+| 23 | Sauts en attente | `approval` : \|sin 5,2 t\| × 0,07. | Identique. | présent | Les mains suivent les sauts avec inertie. |
+| 24 | Secousse d'erreur | ox ±0,08 en 280 ms. | Identique. | présent | Les mains suivent la secousse avec inertie. |
+| 25 | Balayage en recherche | Lacet sin(2,6 t) × 0,6, tangage −0,06 (léger regard vers le bas). | Jumelles ; le Mac regardait légèrement en bas, le banc légèrement en haut. | présent | Les deux regardent légèrement en haut (tangage +0,06, comportement du banc). Le corps suit le balayage (penché). |
+| 26 | Tête penchée, regard fixe | `question` penche la tête ; `thinking` regarde en haut à droite. | Identique (0,12 rad). | présent | Le corps se penche aussi vers le regard fixe. |
+| 27 | Glisser le personnage | Fantôme qui grandit en ressort (0,28 s, 0,55). | `GhostBotView`, identique. | présent | Inchangé. |
+| 28 | Cadence et dt | TimelineView à la fréquence d'affichage, mais dt calculé entre deux horloges (date depuis 2001 contre temps depuis le démarrage), donc toujours plafonné à 0,05 s : tout ce qui dépend de dt allait 3 fois trop vite à 60 Hz et 6 fois à 120 Hz. | Même défaut ; Klay sur le bureau limité à 30 images/s. | à renforcer | dt pris sur l'horloge du moteur (`KlayMotion.frameDelta`, plafonné à 0,05 s). Bureau à la fréquence d'affichage éveillé, 10 images/s endormi, en pause écran éteint ou verrouillé. Île en pause quand elle est cachée (0 % de CPU). |
+
+## Dérives corrigées entre le banc et le Mac
+
+1. **Tangage du balayage** (`searching`) : le Mac visait −0,06 avec « positif vers le haut », donc légèrement vers le bas ; le banc visait l'inverse. Les deux visent maintenant +0,06 : légèrement vers le haut.
+2. **Convention du tangage** : le banc dessinait « positif vers le bas », le Mac « positif vers le haut ». Le banc suit maintenant le Mac partout (`thinking` regarde en (0,55 ; 0,55), `sleeping` à −0,14), ce qui a aussi corrigé le regard au hasard des minis : le banc regardait surtout en haut, le Mac surtout en bas comme l'origine.
+3. **Écrasement à l'atterrissage d'une roulade** : présent sur Mac, absent du banc. Ajouté au banc.
+4. **Écrasement de l'émote Fier** : présent sur Mac, absent du banc. Ajouté au banc.
+5. **Danse** : présente sur Mac (`applyDance`, yeux contents), absente du banc. Portée au banc, les deux lisent les mêmes formules.
+6. **Membres des minis** : le banc calculait les membres des minis (jamais dessinés), le Mac non. Les deux les ignorent.
+
+## Constantes
+
+Toutes dans `tools/klay-preview/src/motion.ts` (`MOTION`, `GAZE`) et `NotchBuddy/Sources/KlayerIslandKit/KlayMotion.swift` (`KlayMotion`, `KlayMotion.Eyes`), avec les mêmes valeurs. `scripts/test-klay-motion.sh` vérifie les ressorts (convergence, dépassement, indépendance à la fréquence d'images de 30 à 144 Hz, stabilité sur une image de 0,05 s), le regard (directions, pupille dans le blanc, amplitude minimale), la courbe du pointeur, le tapotement, l'étirement, la danse et dt.
+
+## Vérification au banc
+
+`npx vite --port 1430` dans `tools/klay-preview`, puis `?live=360` : un seul Klay, grand, qui suit la vraie souris. Captures Playwright de la tâche 8c : balayage gauche-droite en 1,2 s, survol, 10 s de repos, repos long (tapotements, étirement).
