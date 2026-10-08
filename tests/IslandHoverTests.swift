@@ -30,6 +30,7 @@ enum IslandHoverTests {
             ("finished_stays_until_hover_then_leave", finishedStaysUntilHoverThenLeave),
             ("a_finish_over_a_hover_opened_island_waits_for_a_new_hover", aFinishOverAHoverOpenedIslandWaitsForANewHover),
             ("a_compact_island_shown_by_the_app_hides_like_any_other", aCompactIslandShownByTheAppHidesLikeAnyOther),
+            ("an_alert_during_the_greeting_leaves_the_greeting", anAlertDuringTheGreetingLeavesTheGreeting),
         ]
         for (name, run) in cases {
             try await run()
@@ -253,8 +254,8 @@ enum IslandHoverTests {
         let m = IslandStateMachine()
         m.isHeldOpen = { true }
         m.launch()
-        m.openedExternally()                             // the request shows its card, the FSM stays .klayer
-        precondition(m.state == .klayer)
+        m.openedExternally()                             // the request shows its card in place of the greeting
+        precondition(m.state == .home, "state \(m.state): the card replaced the greeting, the FSM follows")
         m.clickedOutside()
         precondition(m.state == .petit, "state \(m.state) after a click outside a held greeting, expected petit")
         m.mouseEntered()
@@ -380,6 +381,31 @@ enum IslandHoverTests {
         o.openedExternally()
         o.shownExternally()
         precondition(o.state == .home)
+    }
+
+    @MainActor
+    static func anAlertDuringTheGreetingLeavesTheGreeting() async throws {
+        // A session finishes (or fails) in the first 4.6 s after launch: its view replaces the
+        // greeting. The FSM used to stay in .klayer, so neither a click elsewhere nor Escape
+        // closed it. It now follows the view: an island opened by the app.
+        let m = IslandStateMachine()
+        let log = Log(m)
+        m.greetHoverCollapseDelay = 0.05
+        m.launch()
+        m.mouseEntered()                                 // a greeting collapse timer is running
+        m.mouseLeft()
+        m.launch()
+        m.mouseEntered()
+        m.openedExternally()
+        precondition(m.state == .home, "state \(m.state) after an alert during the greeting, expected home")
+        m.mouseLeft()
+        try await Task.sleep(for: .milliseconds(300))
+        precondition(m.state == .home, "the greeting's timers are gone and the view waits for a hover")
+        m.greetComplete()                                // the greeting canvas left: its end changes nothing
+        precondition(m.state == .home)
+        m.clickedOutside()
+        precondition(m.state == .hidden, "a click elsewhere closes it, got \(m.state)")
+        precondition(log.states.last == .hidden)
     }
 
     // MARK: - Helpers

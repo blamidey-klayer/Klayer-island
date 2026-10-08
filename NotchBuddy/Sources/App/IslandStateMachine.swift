@@ -208,9 +208,10 @@ final class IslandStateMachine {
     /// The app expanded the island externally (an alert, a finished session).
     /// Sync state to `.home` without firing `onTransition` and start no timer: the island
     /// stays open until the pointer has been on it and left, or a click lands outside.
+    /// Also during the launch greeting: the view replaces the greeting, so its timers go and the
+    /// island follows the same rule (the greeting canvas still posts its end when it leaves).
     func openedExternally() {
         cancelTimers()
-        guard state != .klayer else { return }
         homeClose = .untilHovered
         state = .home
     }

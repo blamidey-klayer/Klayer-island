@@ -538,6 +538,9 @@ struct GreetingCanvasView: View {
         .onDisappear {
             doneWork?.cancel(); doneWork = nil
             SoundEngine.shared.fadeOut("greeting", duration: 0.2)
+            // Left before its end (an alert took its place, or it was interrupted): its end is still
+            // posted, so the desktop Klay's launch flight happens and nothing waits for it.
+            if !greetFired { fireGreetComplete() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .greetingHover)) { _ in
             if tc >= GT.autoLeave { tc = .infinity }
