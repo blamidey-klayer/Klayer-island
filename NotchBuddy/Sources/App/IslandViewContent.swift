@@ -878,7 +878,10 @@ struct ChooseView: View {
                 Text("What do you want to do with it?").font(.system(size: 12.5)).foregroundColor(Color(hex: "#9398A1"))
                 HStack(spacing: 8) {
                     PrimaryButton("Ask a question") { state.view = .prompt }
-                    SecondaryButton("Send by email") { state.view = .mail }
+                    SecondaryButton("Préparer un email") {
+                        GmailDraftFlow.shared.startOver()
+                        state.view = .mail
+                    }
                 }
             }
             .padding(.leading, 98)
@@ -887,108 +890,197 @@ struct ChooseView: View {
     }
 }
 
-// MARK: - Mail
+// MARK: - Mail (a Gmail draft, never sent from the island)
 
+/// « Préparer un email »: the user says what to write, Klay creates a draft in their Gmail through
+/// the Gmail connector of their Claude account (GmailDraftJob). Nothing is sent from here: the
+/// card opens the draft in Gmail, where the user attaches the file and sends it.
 struct MailView: View {
     @ObservedObject var state: AppState
-    @State private var to: String = ""
-    @State private var subject: String = ""
-    @State private var bodyText: String = ""
-    @State private var statusMsg: String = ""
+    @ObservedObject private var flow = GmailDraftFlow.shared
+    /// Claude Code missing or not logged in: the same notice as the chat.
+    @ObservedObject private var chat = ChatSession.shared
 
     var body: some View {
         ZStack(alignment: .leading) {
-            CardBackground(wash: nil)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text("New email").font(.system(size: 12, weight: .semibold))
-                    if let name = state.droppedFile?.name {
-                        Text(String(format: String(localized: "mail.with %@"), name))
-                            .font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
-                            .lineLimit(1).truncationMode(.middle)
-                    }
-                }
+            CardBackground(wash: wash)
+            content
+                .padding(.leading, 92)
+                .padding(.trailing, 18)
+                .padding(.vertical, 8)
+        }
+        .onAppear {
+            if state.view == .mail { checkClaude() }
+        }
+        // Every view stays in the tree: the check runs when the card comes on screen.
+        .onChange(of: state.view) { _, view in
+            if view == .mail { checkClaude() }
+        }
+    }
 
-                MailField(label: "To", placeholder: "address@example.com", text: $to)
-                MailField(label: "Subject", placeholder: state.droppedFile?.name ?? "Subject", text: $subject)
+    private var wash: CardBackground<EmptyView>.Wash? {
+        switch flow.phase {
+        case .done(.ready):  return .finished
+        case .done(.failed): return .error
+        default:             return nil
+        }
+    }
 
-                // Body: TextEditor scrolls internally when text overflows
-                TextEditor(text: $bodyText)
+    @ViewBuilder
+    private var content: some View {
+        switch flow.phase {
+        case .editing:
+            if let notice = unavailableNotice {
+                unavailableCard(notice)
+            } else {
+                form
+            }
+        case .working:
+            Text("Préparation du brouillon…")
+                .font(.system(size: 14, weight: .semibold))
+        case .done(let outcome):
+            result(outcome)
+        }
+    }
+
+    // MARK: Form
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MailField(label: "À", placeholder: "adresse@exemple.fr", text: $flow.to)
+            if let problem = DraftRecipients.problem(in: flow.to) {
+                Text(verbatim: problem)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "#FF8D97"))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            MailField(label: "Objet", placeholder: "Facultatif", text: $flow.subject)
+
+            // What the email should say: TextEditor scrolls internally when text overflows
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $flow.intent)
                     .scrollContentBackground(.hidden)
                     .font(.system(size: 12.5))
                     .foregroundColor(Color(hex: "#F5F6F8"))
-                    .frame(height: 44)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                if !statusMsg.isEmpty {
-                    Text(statusMsg).font(.system(size: 11)).foregroundColor(Color(hex: "#FF8D97"))
-                }
-
-                HStack(spacing: 8) {
-                    PrimaryButton("Send") { sendMail() }
-                    SecondaryButton("Cancel") { state.view = .choose }
+                if flow.intent.isEmpty {
+                    Text("Ce que tu veux dire")
+                        .font(.system(size: 12.5))
+                        .foregroundColor(Color(hex: "#80858E"))
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
                 }
             }
-            .padding(.leading, 92)
-            .padding(.trailing, 18)
-            .padding(.vertical, 8)
+            .frame(height: 44)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            HStack(spacing: 8) {
+                PrimaryButton("Préparer le brouillon") { flow.prepare(state: state) }
+                    .disabled(!flow.canPrepare)
+                    .opacity(flow.canPrepare ? 1 : 0.4)
+                SecondaryButton("Annuler") { state.view = .choose }
+                if let name = state.droppedFile?.name {
+                    Text(String(format: String(localized: "mail.with %@"), name))
+                        .font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
         }
-        .onAppear { subject = state.droppedFile?.name ?? "" }
     }
 
-    private func sendMail() {
-        guard !to.isEmpty else { statusMsg = String(localized: "Missing recipient."); return }
-        let subj = subject.isEmpty ? (state.droppedFile?.name ?? "File") : subject
-        sendViaAppleMail(to: to, subject: subj)
+    // MARK: Claude Code missing or not logged in
+
+    /// The chat's words, from the last check.
+    private var unavailableNotice: LocalizedStringKey? {
+        switch chat.knownAvailability {
+        case .missingCLI?:  return "Claude Code n'est pas installé sur ce Mac."
+        case .notLoggedIn?: return "Connecte Claude Code : ouvre un terminal, lance claude puis /login."
+        default:            return nil
+        }
     }
 
-    private func sendViaAppleMail(to: String, subject: String) {
-        func asEscape(_ s: String) -> String {
-            s.replacingOccurrences(of: "\\", with: "\\\\")
-             .replacingOccurrences(of: "\"", with: "\\\"")
+    private func unavailableCard(_ notice: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(notice)
+                .font(.system(size: 12.5))
+                .foregroundColor(Color(hex: "#9398A1"))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                if chat.knownAvailability == .missingCLI {
+                    SecondaryButton("Installer Claude Code") {
+                        NSWorkspace.shared.open(ClaudeCLI.installURL)
+                    }
+                }
+                SecondaryButton("Annuler") { state.view = .choose }
+            }
         }
-
-        let bodyLines = bodyText.isEmpty ? [""] : bodyText.components(separatedBy: "\n")
-        let bodyExpr = bodyLines.map { "\"\(asEscape($0))\"" }.joined(separator: " & linefeed & ")
-            + " & return & return"
-
-        let attachBlock: String
-        if let url = state.droppedFile?.url,
-           FileManager.default.fileExists(atPath: url.path) {
-            let escapedPath = asEscape(url.path)
-            attachBlock = "make new attachment with properties {file name:(POSIX file \"\(escapedPath)\")} at after the last paragraph of content"
-        } else {
-            attachBlock = ""
-        }
-
-        let script = """
-        tell application "Mail"
-            set m to make new outgoing message with properties {subject:"\(asEscape(subject))", visible:false}
-            set content of m to \(bodyExpr)
-            tell m
-                make new to recipient at end of to recipients with properties {address:"\(asEscape(to))"}
-                \(attachBlock)
-            end tell
-            delay 1
-            send m
-        end tell
-        """
-        var err: NSDictionary?
-        NSAppleScript(source: script)?.executeAndReturnError(&err)
-        if err == nil { onSuccess(recipient: to) }
-        else { statusMsg = "Mail error: \(err?["NSAppleScriptErrorMessage"] as? String ?? "unknown")" }
     }
 
-    private func onSuccess(recipient: String) {
-        SoundEngine.shared.play("send")
-        NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.wink)
-        state.noteMessage = "Email sent to \(recipient)."
-        state.view = .note
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+    private func checkClaude() {
+        Task { _ = await ChatSession.shared.availability() }
+    }
+
+    // MARK: Result
+
+    @ViewBuilder
+    private func result(_ outcome: GmailDraftOutcome) -> some View {
+        switch outcome {
+        case .ready(let draft, let preview):
+            readyCard(draft, preview: preview)
+        case .gmailMissing:
+            retryCard(Text("Gmail n'est pas connecté à ton compte Claude. Ajoute le connecteur Gmail sur claude.ai, puis réessaie."))
+        case .failed(let message):
+            retryCard(Text(verbatim: message))
+        }
+    }
+
+    private func readyCard(_ draft: GmailDraft, preview: GmailDraftPreview?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Brouillon prêt dans Gmail")
+                .font(.system(size: 14, weight: .semibold))
+            if let preview {
+                if !preview.subject.isEmpty {
+                    Text(verbatim: preview.subject)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                ForEach(Array(preview.firstLines().enumerated()), id: \.offset) { _, line in
+                    Text(verbatim: line)
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "#9398A1"))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+            }
+            if flow.file != nil {
+                Text("Glisse le fichier dans le brouillon pour le joindre.")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Color(hex: "#8E939C"))
+            }
+            HStack(spacing: 8) {
+                PrimaryButton("Ouvrir dans Gmail") {
+                    // GmailDraft.parse only keeps https://mail.google.com links.
+                    NSWorkspace.shared.open(draft.viewURL)
+                }
+                if let file = flow.file {
+                    SecondaryButton("Montrer le fichier") {
+                        NSWorkspace.shared.activateFileViewerSelecting([file])
+                    }
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func retryCard(_ message: Text) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            message
+                .font(.system(size: 13, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
+            SecondaryButton("Réessayer") { flow.edit() }
         }
     }
 }

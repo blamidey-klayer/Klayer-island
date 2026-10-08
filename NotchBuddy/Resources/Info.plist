@@ -38,7 +38,7 @@
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Pour lire le titre de la fenêtre active et l'attacher comme contexte.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Pour sauter au terminal, envoyer des mails et piloter Spotify.</string>
+	<string>Pour sauter au terminal, lire l'adresse de la page ouverte et piloter Spotify.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>

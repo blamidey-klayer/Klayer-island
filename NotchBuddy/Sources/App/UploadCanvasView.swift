@@ -67,8 +67,9 @@ struct UploadCanvasView: View {
             .frame(width: 168, height: 26)
             .position(x: 114 + 84, y: 113 + 13)   // center = (198, 126)
 
-            // Secondary: "Send by email"
+            // Secondary: "Préparer un email" (a Gmail draft, never sent from the island)
             Button {
+                GmailDraftFlow.shared.startOver()
                 withAnimation(.easeInOut(duration: 0.22)) { state.view = .mail }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                     UploadSequenceEngine.shared.deactivate()
@@ -297,7 +298,7 @@ struct UploadCanvasView: View {
         // Secondary button (dim fill)
         cCtx.fill(roundedRect(CGRect(x:290,y:113,width:120,height:26), r:13),
                   with: .color(Color.white.opacity(0.09)))
-        let btn2 = Text("Send by email")
+        let btn2 = Text("Préparer un email")
             .font(.system(size:12.5, weight:.medium))
             .foregroundColor(Color(hex:"#F1F2F4"))
         cCtx.draw(btn2, at: CGPoint(x:350, y:126), anchor: .center)
