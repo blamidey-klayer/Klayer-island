@@ -31,6 +31,9 @@ jobs:
       - name: Desktop Klay and gaze tests
         run: bash scripts/test-desktop-klay.sh
 
+      - name: Klay motion tests
+        run: bash scripts/test-klay-motion.sh
+
       - name: Test auto-close timing
         run: bash scripts/test-auto-close.sh
 

@@ -12,6 +12,11 @@ import { Ease, lerp, type EaseFn } from "./anim";
 import { Sound } from "./sound";
 import type { BotEmoteName, BotStateName } from "./types";
 import { GLYPH_W, glyphPath } from "./glyph";
+import {
+  MOTION, danceMotion, footTapLift, klayGaze, pointerCurve, rand, rotateAbout, spring2Step, springStep,
+  stretchAmount,
+  type Gaze, type P, type Spring, type Spring2,
+} from "./motion";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,6 +58,7 @@ interface BotStateCfg {
   breathes: boolean;
   zz: boolean;
   sweat: boolean;
+  /** Fixed look direction (yaw, pitch); pitch > 0 looks up. */
   look: readonly [number, number] | null;
   tilt: number;
 }
@@ -62,9 +68,6 @@ interface Particle {
   x: number; y: number; vx: number; vy: number;
   age: number; life: number; rot: number; size: number;
 }
-
-/** A point in Klay's own frame: glyph units, origin on the hub, y down. */
-interface P { x: number; y: number }
 
 // ── Geometry (glyph units: the glyph is 797 × 512) ───────────────────────────
 
@@ -133,6 +136,8 @@ export const KLAY_FIGURE = {
 } as const;
 /** Fraction of the canvas width the glyph spans. */
 const GLYPH_SPAN = 0.62;
+/** Glyph units in one R (R = 0.3 × canvas width; ox, oy and the dance are in R). */
+const UNITS_PER_R = (0.3 * GLYPH_W) / GLYPH_SPAN;
 /** Below this glyph width (px) the limbs would be sub-pixel noise: they are left out. */
 const LIMBS_MIN_PX = 30;
 
@@ -175,7 +180,7 @@ const base = {
 export const BOT_STATES: Record<BotStateName, BotStateCfg> = {
   idle: { ...base, color: C.idle, tint: 0.35, eye: "pill", badge: null },
   working: { ...base, color: C.working, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.working } },
-  thinking: { ...base, color: C.thinking, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.thinking }, look: [0.55, -0.55] },
+  thinking: { ...base, color: C.thinking, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.thinking }, look: [0.55, 0.55] },
   searching: { ...base, color: C.searching, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.searching }, scans: true },
   approval: { ...base, color: C.approval, tint: 0.78, eye: "wide", badge: { kind: "bang", color: C.approval }, bounces: true },
   question: { ...base, color: C.question, tint: 0.75, eye: "pill", badge: { kind: "question", color: C.question }, tilt: 0.12 },
@@ -517,14 +522,14 @@ export function drawKlayDrop(
   x.restore();
 }
 
-/** Pink cheeks under the eyes, `b` 0…1. In Klay's frame. */
-export function drawKlayBlush(x: CanvasRenderingContext2D, b: number) {
+/** Pink cheeks under the eyes, `b` 0…1, shifted by `dx` with the eyes. In Klay's frame. */
+export function drawKlayBlush(x: CanvasRenderingContext2D, b: number, dx = 0) {
   if (b <= 0.01) return;
   x.save();
   x.fillStyle = `rgba(255,120,150,${0.55 * b})`;
   for (const sd of [-1, 1]) {
     x.beginPath();
-    x.ellipse(sd * 74, 44, 20, 11, 0, 0, Math.PI * 2);
+    x.ellipse(sd * 74 + dx, 44, 20, 11, 0, 0, Math.PI * 2);
     x.fill();
   }
   x.restore();
@@ -536,7 +541,7 @@ shape: EyeShape;
 open: number;
 /** Eye scale (surprised = bigger). */
 es: number;
-/** Where Klay looks, −1…1 each way. */
+/** Where Klay looks, −1…1 each way, y down (drop zone; the engine uses drawKlayEyesGaze). */
 yaw: number;
 pitch: number;
 ink: string;
@@ -572,6 +577,44 @@ const { shape, ink } = e;
     x.translate(lookX * 0.8 * mult, lookY * 0.8 * mult);
     x.fillStyle = ink;
     drawEyeShape(x, shape, ew, eh, sd, e.open);
+    x.restore();
+  }
+  x.restore();
+}
+
+/**
+ * The engine's eyes, in Klay's frame around (cxu, cyu), placed by a gaze (klayGaze):
+ * the whites shift and the eye on the side Klay turns to narrows, the pupils move
+ * further inside and never leave the white. Mirror of KlayPaint.drawEyes(gaze:) on the Mac.
+ */
+export function drawKlayEyesGaze(
+  x: CanvasRenderingContext2D, e: Omit<EyeLook, "yaw" | "pitch">, g: Gaze,
+  mult: number, cxu: number, cyu: number,
+) {
+  const ew = EYE_W * e.es * mult;
+  const eh = EYE_H * e.es * mult;
+  const er = EYE_R * e.es * mult;
+  const dx = EYE_DX * mult * g.spacing;
+  x.save();
+  for (const sd of [-1, 1]) {
+    x.save();
+    x.translate(cxu + sd * dx + g.eyeX * mult, cyu + EYE_DY * mult + g.eyeY * mult);
+    x.scale(sd < 0 ? g.squeezeL : g.squeezeR, 1);
+    x.beginPath();
+    x.arc(0, 0, er, 0, Math.PI * 2);
+    x.fillStyle = "#FFFFFF";
+    x.fill();
+    x.lineWidth = EYE_RIM * mult;
+    x.strokeStyle = e.ink;
+    x.stroke();
+    // The pupil stays inside the white, inside the rim.
+    x.beginPath();
+    x.arc(0, 0, Math.max(0, er - (EYE_RIM * mult) / 2), 0, Math.PI * 2);
+    x.clip();
+    x.translate(g.pupilX * mult, g.pupilY * mult);
+    x.fillStyle = e.ink;
+    x.strokeStyle = e.ink;
+    drawEyeShape(x, e.shape, ew, eh, sd, e.open);
     x.restore();
   }
   x.restore();
@@ -727,14 +770,42 @@ export class BotEngine {
   private locks = new Set<PropKey>();
   private particles: Particle[] = [];
 
-  // Limbs, in Klay's frame (glyph units), eased towards limbTargets().
-  private lh: P = { x: -HAND_REST.x, y: HAND_REST.y };
-  private rh: P = { x: HAND_REST.x, y: HAND_REST.y };
-  private lf: P = { x: -FOOT_REST.x, y: FOOT_REST.y };
-  private rf: P = { x: FOOT_REST.x, y: FOOT_REST.y };
+  // Limbs, in Klay's frame (glyph units): damped springs pulled towards limbTargets().
+  private lh: Spring2 = { x: -HAND_REST.x, y: HAND_REST.y, vx: 0, vy: 0 };
+  private rh: Spring2 = { x: HAND_REST.x, y: HAND_REST.y, vx: 0, vy: 0 };
+  private lf: Spring2 = { x: -FOOT_REST.x, y: FOOT_REST.y, vx: 0, vy: 0 };
+  private rf: Spring2 = { x: FOOT_REST.x, y: FOOT_REST.y, vx: 0, vy: 0 };
+  /** The body's place last frame, so its motion can be taken out of the limbs (inertia). */
+  private bodyPrev: { x: number; y: number; lean: number; tilt: number } | null = null;
 
+  // Gaze springs (yaw, pitch) and the lean of the whole figure (x from yaw, y from pitch).
+  private yawVel = 0;
+  private pitchVel = 0;
+  private lean: Spring2 = { x: 0, y: 0, vx: 0, vy: 0 };
+  /** Hover: the island sets tgEs above 1 while the pointer is on Klay. */
+  private hovered = false;
+  /** 0…1, eased: how far Klay has lifted towards a pointer on him. */
+  private hoverLift = 0;
+
+  /** Where the pointer is, −1…1 each way (tanh of the distance); lookY > 0 is above Klay. */
   lookX = 0;
   lookY = 0;
+  private lastLookX = 0;
+  private lastLookY = 0;
+  private pointerStillSince = now();
+  private stillLook = rand(MOTION.idle.stillLook);
+  /** While the pointer is still: where Klay glances (null = back at the pointer). */
+  private glance: { x: number; y: number } | null = null;
+  private glanceNext = 0;
+  /** Idle fidgets: a foot tap or a stretch under way, the next fidget, the next stretch or yawn. */
+  private fidget: { kind: "tap" | "stretch"; start: number; side: number } | null = null;
+  private nextFidget = now() + rand(MOTION.idle.fidget);
+  private nextLong = 0;
+  private longYawn = true;
+
+  // Dancing (music playing): the level fades in over 0.3 s and out over 0.5 s.
+  isDancing = false;
+  dancingLevel = 0;
 
   lastTime = now();
   private t0 = now() - Math.random() * 5;
@@ -813,6 +884,9 @@ export class BotEngine {
   squash() {
     this.anim("sy", [[0.8, 70, Ease.out], [1.1, 130, Ease.out], [1, 170, Ease.inOut]]);
     this.anim("sx", [[1.14, 70, Ease.out], [0.95, 130, Ease.out], [1, 170, Ease.inOut]]);
+    // The hands carry on down as the body squashes.
+    this.lh.vy += MOTION.kick.squash;
+    this.rh.vy += MOTION.kick.squash;
   }
 
   /** Mailbox swallow — opens the slot, chews, then closes. */
@@ -836,6 +910,14 @@ export class BotEngine {
     this.slapTimes.push(t);
     Sound.play("slap");
     this.squash();
+    // The slap flings the hands up and to one side, the feet a little.
+    const side = Math.random() < 0.5 ? -1 : 1;
+    for (const h of [this.lh, this.rh]) {
+      h.vy -= MOTION.kick.slapUp;
+      h.vx += side * MOTION.kick.slapSide;
+    }
+    this.lf.vy -= MOTION.kick.slapFeet;
+    this.rf.vy -= MOTION.kick.slapFeet;
     if (this.slapTimes.length >= 3) {
       this.slapTimes = [];
       this.onDizzy?.();
@@ -846,9 +928,25 @@ export class BotEngine {
     }
   }
 
+  /** Spins the whole character `turns` times (finished, dizzy), then lands with a squash. */
   doRoll(durationMs: number, turns: number) {
     this.roll = 0;
-    this.anim("roll", [[Math.PI * 2 * turns, durationMs, Ease.inOut]], () => { this.roll = 0; });
+    this.anim("roll", [[Math.PI * 2 * turns, durationMs, Ease.inOut]], () => {
+      this.roll = 0;
+      this.squash();
+    });
+  }
+
+  setDancing(dancing: boolean) {
+    this.isDancing = dancing;
+  }
+
+  /** The perk-up as the pointer arrives on Klay: a little stretch, hands up. */
+  private perk() {
+    this.anim("sy", [[1.07, 110, Ease.out], [1, 280, Ease.back]]);
+    this.anim("sx", [[0.96, 110, Ease.out], [1, 280, Ease.back]]);
+    this.lh.vy -= MOTION.kick.perk;
+    this.rh.vy -= MOTION.kick.perk;
   }
 
   /** The hello wave when the island peeks out. */
@@ -927,6 +1025,7 @@ export class BotEngine {
         this.anim("es", [[1.25, 120, Ease.out], [1, 500, Ease.inOut]]);
         break;
       case "proud":
+        this.squash();
         this.emit("star", 5);
         this.anim("tilt", [
           [-0.14, 220, Ease.out], [-0.14, (duration - 0.5) * 1000, Ease.lin], [0, 280, Ease.inOut],
@@ -984,26 +1083,12 @@ export class BotEngine {
     this.morph = 0;
   }
 
-  /** True while anything is still moving — lets the island stop its RAF loop. */
+  /**
+   * True while anything is still moving, which is always now: the main Klay breathes,
+   * glances and fidgets in every state, a mini Klay pulses and wanders.
+   */
   get busy(): boolean {
-    return (
-      this.tweens.size > 0 ||
-      this.particles.length > 0 ||
-      this.cfg.bounces || this.cfg.scans || this.cfg.breathes || this.cfg.zz || this.cfg.sweat ||
-      this.isMini ||
-      // Klay's limbs keep moving in every state but idle and sleeping.
-      (this.state !== "idle" && this.state !== "sleeping") ||
-      Math.abs(this.tgYaw - this.yaw) > 0.002 ||
-      Math.abs(this.tgPitch - this.pitch) > 0.002 ||
-      Math.abs(this.tgTilt - this.tilt) > 0.002 ||
-      Math.abs(this.tgSy - this.sy) > 0.002 ||
-      Math.abs(this.tgSx - this.sx) > 0.002 ||
-      Math.abs(this.tgEs - this.es) > 0.002 ||
-      this.slotH > 0.001 || Math.abs(this.slotHVel) > 0.001 ||
-      Math.abs(this.col[0] - this.colT[0]) > 0.003 ||
-      Math.abs(this.col[1] - this.colT[1]) > 0.003 ||
-      Math.abs(this.col[2] - this.colT[2]) > 0.003
-    );
+    return true;
   }
 
   // ── Tweens ──────────────────────────────────────────────────────────────────
@@ -1038,18 +1123,40 @@ export class BotEngine {
     }
 
     const t = n - this.t0;
-    let ty = this.lookX * 0.62;
-    let tp = this.lookY * 0.5;
+    const kGen = 1 - Math.pow(0.0008, dt);
+
+    // Hover: the island raises tgEs above 1 while the pointer is on Klay.
+    const hovered = !this.isMini && this.tgEs > 1.001;
+    if (hovered && !this.hovered) this.perk();
+    this.hovered = hovered;
+    this.hoverLift += ((hovered ? 1 : 0) - this.hoverLift) * kGen;
+
+    // How long the pointer has been still.
+    if (Math.abs(this.lookX - this.lastLookX) + Math.abs(this.lookY - this.lastLookY) > 0.002) {
+      this.pointerStillSince = n;
+      this.stillLook = rand(MOTION.idle.stillLook);
+      this.glance = null;
+      this.glanceNext = 0;
+    }
+    this.lastLookX = this.lookX;
+    this.lastLookY = this.lookY;
+    const still = n - this.pointerStillSince;
+
+    // Where Klay looks: the pointer, through the response curve (closer still when on him).
+    const gain = hovered ? MOTION.hover.gain : 1;
+    let ty = Math.max(-1, Math.min(1, pointerCurve(this.lookX) * gain)) * MOTION.yawRange;
+    let tp = Math.max(-1, Math.min(1, pointerCurve(this.lookY) * gain)) * MOTION.pitchRange;
 
     if (this.cfg.look) {
       ty = ty * 0.35 + this.cfg.look[0] * 0.55;
       tp = tp * 0.3 + this.cfg.look[1] * 0.5;
     }
     if (this.cfg.scans) {
+      // The binoculars sweep left and right, a little above the horizon.
       ty = Math.sin(t * 2.6) * 0.6;
-      tp = -0.06;
+      tp = 0.06;
     }
-    if (this.state === "sleeping") { ty = 0; tp = 0.14; }
+    if (this.state === "sleeping") { ty = 0; tp = -0.14; }
     if (this.state === "dizzy") { ty = Math.sin(t * 9) * 0.25; }
 
     // Mini Klays never follow the mouse — they wander.
@@ -1065,6 +1172,26 @@ export class BotEngine {
       tp = this.miniLookTarget.y * 0.5;
     }
 
+    // The main Klay, pointer still for a while: he looks around, now and then back at it.
+    const glances = !this.isMini && !hovered && !this.cfg.look && !this.cfg.scans &&
+      (this.state === "idle" || this.state === "working" || this.state === "finished");
+    if (glances && still > this.stillLook) {
+      if (n >= this.glanceNext) {
+        const I = MOTION.idle;
+        this.glance = Math.random() < I.back ? null : {
+          x: (Math.random() * 2 - 1) * I.glanceX,
+          y: I.glanceDown + Math.random() * (I.glanceUp - I.glanceDown),
+        };
+        this.glanceNext = n + rand(I.glance);
+      }
+      if (this.glance) {
+        ty = this.glance.x * MOTION.yawRange;
+        tp = this.glance.y * MOTION.pitchRange;
+      }
+    } else {
+      this.glance = null;
+    }
+
     this.tgYaw = ty;
     this.tgPitch = tp;
     this.tgTilt = this.cfg.tilt;
@@ -1076,7 +1203,6 @@ export class BotEngine {
     }
 
     const bounce = this.cfg.bounces ? -Math.abs(Math.sin(t * 5.2)) * 0.07 : 0;
-    const kGen = 1 - Math.pow(0.0008, dt);
     if (!this.locks.has("oy")) this.oy += (bounce - this.oy) * kGen;
 
     if (this.cfg.breathes) {
@@ -1087,31 +1213,58 @@ export class BotEngine {
       this.tgSy = 1 + Math.sin(t * 2.2) * 0.04;
       this.tgSx = 1 - Math.sin(t * 2.2) * 0.02;
     } else {
-      this.tgSy = 1;
-      this.tgSx = 1;
+      // Awake, the main Klay breathes too, lightly.
+      const B = MOTION.breath;
+      this.tgSy = 1 + Math.sin(t * B.speed) * B.amp;
+      this.tgSx = 1 - Math.sin(t * B.speed) * B.amp * 0.5;
     }
 
     if (this.isMini && n > this.miniNextBehavior) this.doMiniBehaviorLoop();
 
-    const kLook = 1 - Math.pow(0.0025, dt);
-    if (!this.locks.has("yaw")) this.yaw += (this.tgYaw - this.yaw) * kLook;
-    if (!this.locks.has("pitch")) this.pitch += (this.tgPitch - this.pitch) * kLook;
+    // The gaze springs to its target: the eyes dart, overshoot a touch and settle.
+    const G = MOTION.gaze;
+    if (!this.locks.has("yaw")) {
+      const sp: Spring = { v: this.yaw, vel: this.yawVel };
+      springStep(sp, this.tgYaw, dt, G.response, G.damping);
+      this.yaw = sp.v;
+      this.yawVel = sp.vel;
+    } else {
+      this.yawVel = 0;
+    }
+    if (!this.locks.has("pitch")) {
+      const sp: Spring = { v: this.pitch, vel: this.pitchVel };
+      springStep(sp, this.tgPitch, dt, G.response, G.damping);
+      this.pitch = sp.v;
+      this.pitchVel = sp.vel;
+    } else {
+      this.pitchVel = 0;
+    }
     if (!this.locks.has("tilt")) this.tilt += (this.tgTilt - this.tilt) * kGen;
     if (!this.locks.has("sy")) this.sy += (this.tgSy - this.sy) * kGen;
     if (!this.locks.has("sx")) this.sx += (this.tgSx - this.sx) * kGen;
     if (!this.locks.has("es")) this.es += (this.tgEs - this.es) * kGen;
 
+    // The whole figure leans towards where Klay looks, after the eyes.
+    if (!this.isMini) {
+      const L = MOTION.lean;
+      const target = {
+        x: Math.max(-1, Math.min(1, this.tgYaw / MOTION.yawRange)),
+        y: Math.max(-1, Math.min(1, this.tgPitch / MOTION.pitchRange)),
+      };
+      spring2Step(this.lean, target, dt, L.response, L.damping);
+    }
+
     this.col = mix3(this.col, this.colT, 1 - Math.pow(0.002, dt));
 
-    // Limbs follow their targets with a quick, springy ease.
-    const lt = limbTargets(this.state, t, waving ? this.hands : 0, this.yaw);
-    const kLimb = 1 - Math.pow(0.00002, dt);
-    for (const key of ["lh", "rh", "lf", "rf"] as const) {
-      this[key] = {
-        x: this[key].x + (lt[key].x - this[key].x) * kLimb,
-        y: this[key].y + (lt[key].y - this[key].y) * kLimb,
-      };
-    }
+    // Dance level: fade in 0.3 s, out 0.5 s.
+    const danceTarget = this.isDancing ? 1 : 0;
+    if (this.dancingLevel < danceTarget) this.dancingLevel = Math.min(danceTarget, this.dancingLevel + dt / 0.3);
+    else if (this.dancingLevel > danceTarget) this.dancingLevel = Math.max(danceTarget, this.dancingLevel - dt / 0.5);
+
+    this.updateFidget(n, still);
+
+    // Limbs: springs pulled towards the pose, carried by the body's motion.
+    if (!this.isMini) this.updateLimbs(n, t, dt, waving);
 
     if (n > this.nextBlink) {
       if (this.state !== "sleeping" && this.state !== "dizzy") {
@@ -1143,6 +1296,96 @@ export class BotEngine {
     this.slotH = Math.max(0, this.slotH + this.slotHVel * dt);
 
     this.lastTime = n;
+  }
+
+  /**
+   * Idle fidgets of the main Klay: a foot tap every few seconds, and when the pointer has
+   * been still a long while, a stretch or a yawn in turn. Only while idle and calm.
+   */
+  private updateFidget(n: number, still: number) {
+    if (this.fidget) {
+      const dur = this.fidget.kind === "tap" ? MOTION.tap.dur : MOTION.stretch.dur;
+      if (n - this.fidget.start >= dur || this.state !== "idle" || this.hovered) this.fidget = null;
+      return;
+    }
+    const calm = !this.isMini && this.state === "idle" && !this.hovered && this.dancingLevel < 0.01 &&
+      n >= this.waveUntil && this.morph < 0.01 && !this.eyeOverride && !this.locks.has("sy");
+    if (!calm) {
+      this.nextFidget = Math.max(this.nextFidget, n + 2);
+      return;
+    }
+    if (n < this.nextFidget) return;
+    const I = MOTION.idle;
+    this.nextFidget = n + rand(I.fidget);
+    if (still > I.longAfter && n >= this.nextLong) {
+      this.nextLong = n + rand(I.longEvery);
+      this.longYawn = !this.longYawn;
+      if (this.longYawn) {
+        this.triggerEmote("yawn", 2.2);
+        return;
+      }
+      this.fidget = { kind: "stretch", start: n, side: 1 };
+      const S = MOTION.stretch;
+      const up = S.up * 1000;
+      const hold = (S.hold - S.up) * 1000;
+      const down = (S.dur - S.hold) * 1000;
+      this.anim("sy", [[1.06, up, Ease.inOut], [1.06, hold, Ease.lin], [1, down, Ease.back]]);
+      this.anim("sx", [[0.97, up, Ease.inOut], [0.97, hold, Ease.lin], [1, down, Ease.back]]);
+      return;
+    }
+    this.fidget = { kind: "tap", start: n, side: Math.random() < 0.5 ? -1 : 1 };
+  }
+
+  /** Where the body is, for the limbs' inertia: glyph units and radians. */
+  private bodyPose(n: number) {
+    const L = MOTION.lean;
+    let x = this.ox * UNITS_PER_R + this.lean.x * L.shift;
+    let y = this.oy * UNITS_PER_R - (this.lean.y * L.rise + this.hoverLift * MOTION.hover.rise);
+    if (this.dancingLevel > 0.001) {
+      const d = danceMotion(n, this.dancingLevel);
+      x += d.dx * UNITS_PER_R;
+      y += d.dy * UNITS_PER_R;
+    }
+    return { x, y, lean: this.lean.x * L.tilt, tilt: this.tilt };
+  }
+
+  private updateLimbs(n: number, t: number, dt: number, waving: boolean) {
+    const lt = limbTargets(this.state, t, waving ? this.hands : 0, this.yaw);
+    if (this.fidget) {
+      const ft = n - this.fidget.start;
+      if (this.fidget.kind === "tap") {
+        const foot = this.fidget.side < 0 ? lt.lf : lt.rf;
+        foot.y -= footTapLift(ft);
+      } else {
+        const k = stretchAmount(ft);
+        const H = MOTION.stretch.hands;
+        lt.lh = { x: lerp(lt.lh.x, -H.x, k), y: lerp(lt.lh.y, H.y, k) };
+        lt.rh = { x: lerp(lt.rh.x, H.x, k), y: lerp(lt.rh.y, H.y, k) };
+      }
+    }
+
+    // The body's motion since last frame, seen from Klay's frame: a limb keeps `inertia`
+    // of its place in the world, then its spring brings it back (lag, overshoot, settle).
+    const B = this.bodyPose(n);
+    const prev = this.bodyPrev ?? B;
+    this.bodyPrev = B;
+    const cl = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+    const dx = cl(B.x - prev.x, MOTION.maxStep);
+    const dy = cl(B.y - prev.y, MOTION.maxStep);
+    const dLean = cl(B.lean - prev.lean, MOTION.maxTurn);
+    const dTilt = cl(B.tilt - prev.tilt, MOTION.maxTurn);
+    const limbs = [
+      [this.lh, lt.lh, MOTION.hand], [this.rh, lt.rh, MOTION.hand],
+      [this.lf, lt.lf, MOTION.foot], [this.rf, lt.rf, MOTION.foot],
+    ] as const;
+    for (const [sp, target, cfg] of limbs) {
+      const k = cfg.inertia;
+      sp.x -= dx * k;
+      sp.y -= dy * k;
+      rotateAbout(sp, 0, BOTTOM, -dLean * k);
+      rotateAbout(sp, 0, 0, -dTilt * k);
+      spring2Step(sp, target, dt, cfg.response, cfg.damping);
+    }
   }
 
   private doMiniBehaviorLoop() {
@@ -1190,6 +1433,8 @@ export class BotEngine {
     const cx = W / 2 + this.ox * R;
     const cy = H / 2 + this.particleOverhang / 2 + this.oy * R;
 
+    x.save();
+    this.applyDance(x, W, H);
     if (this.isMini) this.drawMini(x, R, cx, cy);
     else this.drawMain(x, W, R, cx, cy);
 
@@ -1197,6 +1442,25 @@ export class BotEngine {
       this.drawBadge(x, this.badge, R, cx, cy);
     }
     this.drawParticles(x, R, cx, cy);
+    x.restore();
+  }
+
+  /**
+   * The dance bounce and sway around Klay's soles (the bottom of a mini's disc), applied
+   * to everything drawn after it. Mirror of BotEngine.applyDance on the Mac.
+   */
+  applyDance(x: CanvasRenderingContext2D, W: number, H: number) {
+    if (this.dancingLevel <= 0.001) return;
+    const R = W * 0.3;
+    const s = (W * GLYPH_SPAN) / GLYPH_W;
+    const footOffset = this.isMini ? R : (BOTTOM - CENTER_Y) * s;
+    const px = W / 2 + this.ox * R;
+    const py = H / 2 + this.particleOverhang / 2 + this.oy * R + footOffset;
+    const d = danceMotion(now(), this.dancingLevel);
+    x.translate(px + d.dx * R, py + d.dy * R);
+    x.rotate(d.rot);
+    x.scale(d.sx, d.sy);
+    x.translate(-px, -py);
   }
 
   private drawMain(x: CanvasRenderingContext2D, W: number, R: number, cx: number, cy: number) {
@@ -1220,6 +1484,15 @@ export class BotEngine {
 
     x.save();
     x.translate(ox, oy);
+    // Lean: the whole figure turns towards where Klay looks, about the soles; looking up
+    // lifts and stretches him a little, and he rises towards a pointer on him.
+    const L = MOTION.lean;
+    const soles = BOTTOM * s;
+    x.translate(this.lean.x * L.shift * s, -(this.lean.y * L.rise + this.hoverLift * MOTION.hover.rise) * s);
+    x.translate(0, soles);
+    x.rotate(this.lean.x * L.tilt);
+    x.scale(1, 1 + this.lean.y * L.stretch);
+    x.translate(0, -soles);
     if (Math.abs(this.roll) > 0.001) {
       // Spins turn the whole of Klay around the middle of its height.
       x.translate(0, CENTER_Y * s);
@@ -1241,7 +1514,7 @@ export class BotEngine {
       drawKlayGlyph(x);
       if (binoculars) drawKlayBinoculars(x, this.yaw);
       if (limbs) drawKlayArms(x, this.lh, this.rh);
-      drawKlayBlush(x, this.blush * (1 - m));
+      drawKlayBlush(x, this.blush * (1 - m), klayGaze(this.yaw, this.pitch).eyeX * 0.8);
       if (!binoculars) this.drawEyes(x, 1, 0, 0);
       x.restore();
     }
@@ -1278,6 +1551,15 @@ export class BotEngine {
   /** Eye shape now: the state's, an emote's, or the mailbox's while it eats. */
   private eyeShape(): EyeShape {
     let shape: EyeShape = this.eyeOverride ?? this.cfg.eye;
+    // Dance: happy eyes in the calm states.
+    if (this.isDancing && this.dancingLevel > 0.15 && !this.isMini && (this.state === "idle" || this.state === "finished")) {
+      shape = "happy";
+    }
+    // Stretching: eyes shut in the middle of it.
+    if (this.fidget?.kind === "stretch" && !this.eyeOverride) {
+      const ft = now() - this.fidget.start;
+      if (ft > MOTION.stretch.eyesFrom && ft < MOTION.stretch.eyesTo) shape = "closed";
+    }
     if (this.morph > 0.5) {
       if (this.isChewing) shape = "happy";
       else if (this.slotHTarget > 0.05 || this.slotH > 0.1) shape = "cup";
@@ -1286,10 +1568,9 @@ export class BotEngine {
   }
 
   private drawEyes(x: CanvasRenderingContext2D, mult: number, cxu: number, cyu: number) {
-    drawKlayEyes(x, {
-      shape: this.eyeShape(), open: this.open, es: this.es, yaw: this.yaw, pitch: this.pitch,
-      ink: this.isMini ? MINI_INK : INK,
-    }, mult, cxu, cyu);
+    drawKlayEyesGaze(x, {
+      shape: this.eyeShape(), open: this.open, es: this.es, ink: this.isMini ? MINI_INK : INK,
+    }, klayGaze(this.yaw, this.pitch), mult, cxu, cyu);
   }
 
   /**

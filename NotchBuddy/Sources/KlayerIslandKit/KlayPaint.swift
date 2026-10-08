@@ -128,14 +128,6 @@ enum KlayPaint {
             lf: CGPoint(x: -KlayPaint.footRest.x, y: KlayPaint.footRest.y),
             rf: KlayPaint.footRest)
 
-        /// Moves every point a fraction `k` of the way towards `target`.
-        func eased(towards target: Limbs, _ k: CGFloat) -> Limbs {
-            func e(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
-                CGPoint(x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k)
-            }
-            return Limbs(lh: e(lh, target.lh), rh: e(rh, target.rh),
-                         lf: e(lf, target.lf), rf: e(rf, target.rf))
-        }
     }
 
     /// Where the hands and feet want to be for a state, at time `t` (seconds).
@@ -371,11 +363,11 @@ enum KlayPaint {
         drawEyes(c, shape: .wide, mult: 1, look: look, open: eyeOpen, time: t)
     }
 
-    /// Pink cheeks under the eyes, `amount` 0…1.
-    static func drawBlush(_ ctx: GraphicsContext, amount b: CGFloat) {
+    /// Pink cheeks under the eyes, `amount` 0…1, shifted by `dx` with the eyes.
+    static func drawBlush(_ ctx: GraphicsContext, amount b: CGFloat, dx: CGFloat = 0) {
         guard b > 0.01 else { return }
         for sd: CGFloat in [-1, 1] {
-            let rect = CGRect(x: sd * 74 - 20, y: 44 - 11, width: 40, height: 22)
+            let rect = CGRect(x: sd * 74 + dx - 20, y: 44 - 11, width: 40, height: 22)
             ctx.fill(Path(ellipseIn: rect), with: .color(blushColor.opacity(Double(0.55 * b))))
         }
     }
@@ -411,7 +403,8 @@ enum KlayPaint {
 
     // MARK: - Eyes
 
-    /// Both eyes, in Klay's frame around `center`. `look` is the gaze offset in glyph
+    /// Both eyes, in Klay's frame around `center`, for the scripted figures (launch greeting,
+    /// upload, drop zone; the engine uses drawEyes(gaze:)). `look` is the gaze offset in glyph
     /// units (x within ±14, y within ±12, y down): the eye follows it by 40 %, the pupil
     /// by 80 %. `mult` scales the eyes (minis and the mailbox use their own size).
     static func drawEyes(_ ctx: GraphicsContext, shape: EyeShape, mult: CGFloat,
@@ -430,6 +423,33 @@ enum KlayPaint {
             c.fill(eye, with: .color(body))
             c.stroke(eye, with: .color(ink), style: rimStyle)
             c.translateBy(x: look.x * 0.8 * mult, y: look.y * 0.8 * mult)
+            drawEyeShape(&c, shape: shape, w: ew, h: eh, sd: sd, open: open, time: time)
+        }
+    }
+
+    /// The engine's eyes, in Klay's frame around `center`, placed by a gaze (KlayMotion.gaze):
+    /// the whites shift and the eye on the side Klay turns to narrows, the pupils move further
+    /// inside and never leave the white (clipped inside the rim). Port of drawKlayEyesGaze in
+    /// tools/klay-preview/src/engine.ts.
+    static func drawEyes(_ ctx: GraphicsContext, shape: EyeShape, mult: CGFloat,
+                         center: CGPoint = .zero, gaze g: KlayGaze,
+                         scale es: CGFloat = 1, open: CGFloat = 1, time: CGFloat) {
+        let ew = eyeW * es * mult
+        let eh = eyeH * es * mult
+        let er = eyeR * es * mult
+        let dx = eyeDX * mult * g.spacing
+        let rimStyle = StrokeStyle(lineWidth: eyeRim * mult)
+        for sd: CGFloat in [-1, 1] {
+            var c = ctx
+            c.translateBy(x: center.x + sd * dx + g.eye.x * mult,
+                          y: center.y + eyeDY * mult + g.eye.y * mult)
+            c.scaleBy(x: g.squeeze(side: sd), y: 1)
+            let eye = Path(ellipseIn: CGRect(x: -er, y: -er, width: er * 2, height: er * 2))
+            c.fill(eye, with: .color(body))
+            c.stroke(eye, with: .color(ink), style: rimStyle)
+            // The pupil stays inside the white, inside the rim.
+            c.clip(to: circle(.zero, max(0, er - eyeRim * mult / 2)))
+            c.translateBy(x: g.pupil.x * mult, y: g.pupil.y * mult)
             drawEyeShape(&c, shape: shape, w: ew, h: eh, sd: sd, open: open, time: time)
         }
     }

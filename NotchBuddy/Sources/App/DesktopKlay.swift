@@ -8,7 +8,7 @@ import Combine
 /// coupling to SwiftUI @State.
 @MainActor
 final class DesktopBotViewState: ObservableObject {
-    /// Drop to 10 fps when sleeping (saves energy).
+    /// Display rate while awake; 10 fps when sleeping (saves energy).
     @Published var isSleeping: Bool = false
     /// Pause entirely (screen sleep / lock).
     @Published var paused: Bool = false
@@ -27,13 +27,16 @@ struct DesktopBotView: View {
     @ObservedObject var viewState: DesktopBotViewState
 
     var body: some View {
+        // Awake, one frame per display refresh so the springs and the gaze stay fluid; asleep,
+        // 10 fps; paused while the screen sleeps or is locked.
         TimelineView(.animation(
-            minimumInterval: viewState.isSleeping ? 1.0 / 10.0 : 1.0 / 30.0,
+            minimumInterval: viewState.isSleeping ? 1.0 / 10.0 : nil,
             paused: viewState.paused
         )) { timeline in
             Canvas { ctx, size in
-                let now = timeline.date.timeIntervalSinceReferenceDate
-                let dt  = min(0.05, now - engine.lastTime)
+                // dt from the engine's own clock, as in BotCanvasView.
+                _ = timeline.date
+                let dt = KlayMotion.frameDelta(now: CACurrentMediaTime(), last: engine.lastTime)
 
                 // Eye tracking based on the panel's own screen position
                 engine.lookX = tanh((appState.mousePosition.x - viewState.lookOrigin.x) / 260)
@@ -106,6 +109,10 @@ final class DesktopKlayController {
     private var lastAgentActive: Date = .distantPast
     private var isSleeping = false
 
+    // Pointer on Klay (hover): he perks up, widens his eyes and leans towards it, as on the
+    // island (IslandWindowController.botHoverIn / botHoverOut).
+    private var hoveringBody = false
+
     // Screen sleep / lock
     private var screenSleeping = false
 
@@ -165,6 +172,7 @@ final class DesktopKlayController {
         let eng = BotEngine()
         eng.setState(AppState.shared.effectiveState, force: true)
         self.engine = eng
+        hoveringBody = false
 
         let vs = DesktopBotViewState()
         vs.lookOrigin = lookOriginFor(panel: p)
@@ -248,6 +256,7 @@ final class DesktopKlayController {
         let eng = BotEngine()
         eng.setState(AppState.shared.effectiveState, force: true)
         self.engine = eng
+        hoveringBody = false
 
         let vs = DesktopBotViewState()
         vs.lookOrigin = lookOriginFor(panel: p)
@@ -493,6 +502,14 @@ final class DesktopKlayController {
         let needsMouse = overBody || isDragging
         if p.ignoresMouseEvents == needsMouse {
             p.ignoresMouseEvents = !needsMouse
+        }
+
+        // Hover: a blink and eyes ×1.08 as the pointer arrives; the engine reads tgEs above 1
+        // as "pointer on me" (perk-up, lean, closer gaze).
+        if overBody != hoveringBody {
+            hoveringBody = overBody
+            if overBody { engine?.blink() }
+            engine?.tgEs = overBody ? 1.08 : 1
         }
 
         // Update eye-tracking origin every frame

@@ -1,4 +1,5 @@
 import SwiftUI
+import QuartzCore
 
 /// SwiftUI wrapper: TimelineView drives a Canvas that calls BotEngine.draw().
 /// Uses a shared engine per-task; the main bot uses AppState's shared engine.
@@ -13,11 +14,14 @@ struct BotCanvasView: View {
     @StateObject private var engine = BotEngine()
 
     var body: some View {
+        // One frame per display refresh while the island shows, none while it is hidden.
         TimelineView(.animation(paused: state.mode == .hidden)) { timeline in
             Canvas { context, size in
-                let now = timeline.date.timeIntervalSinceReferenceDate
-                let dtRaw = min(0.05, now - engine.lastTime)
-                let dt = dtRaw
+                // dt comes from the engine's own clock (CACurrentMediaTime, as in update):
+                // timeline.date counts from 2001 and the engine from boot, so mixing the two
+                // pinned dt at its 0.05 s cap whatever the frame rate.
+                _ = timeline.date
+                let dt = KlayMotion.frameDelta(now: CACurrentMediaTime(), last: engine.lastTime)
                 engine.lookX = lookX(state: state, size: size)
                 engine.lookY = lookY(state: state, size: size)
                 engine.particleOverhang = particleOverhang
@@ -176,8 +180,9 @@ struct MiniBotCanvasView: View {
     var body: some View {
         TimelineView(.animation) { timeline in
             Canvas { context, size in
-                let now = timeline.date.timeIntervalSinceReferenceDate
-                let dt = min(0.05, now - engine.lastTime)
+                // dt from the engine's own clock, as in BotCanvasView.
+                _ = timeline.date
+                let dt = KlayMotion.frameDelta(now: CACurrentMediaTime(), last: engine.lastTime)
                 engine.setDancing(isDancing)
                 engine.update(dt: dt)
                 var ctx = context

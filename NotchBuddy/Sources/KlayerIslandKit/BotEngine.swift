@@ -5,7 +5,8 @@ import SwiftUI
 
 // Klay — the Klayer Island character. The state machine, tweens and particles keep
 // the engine's original timings (MIT code from Coucou); the drawing is Klay's own
-// (KlayPaint, KlayGlyph), ported from tools/klay-preview/src/engine.ts.
+// (KlayPaint, KlayGlyph), and the springs, gaze, lean and idle fidgets come from
+// KlayMotion, all ported from tools/klay-preview/src/engine.ts and motion.ts.
 
 // MARK: - Easing functions (same as prototype: E.out, E.inOut, E.back, E.lin)
 
@@ -60,7 +61,7 @@ struct BotStateCfg {
     let breathes: Bool
     let zz: Bool
     let sweat: Bool
-    let look: CGPoint?     // fixed look direction (positive y looks up)
+    let look: CGPoint?     // fixed look direction (yaw, pitch); pitch > 0 looks up
     let tilt: CGFloat
     let sound: String?
 }
@@ -231,8 +232,52 @@ final class BotEngine: ObservableObject {
     var es:     CGFloat = 1          // eye scale
     var badgeS: CGFloat = 0          // badge scale
 
-    /// Hands and feet in Klay's frame, eased towards KlayPaint.limbTargets every frame.
+    /// Hands and feet in Klay's frame: damped springs pulled towards KlayPaint.limbTargets
+    /// every frame, carried by the body's motion (KlayMotion.hand, KlayMotion.foot).
     var limbs: KlayPaint.Limbs = .rest
+    private var springLH = KlaySpring2(KlayPaint.Limbs.rest.lh)
+    private var springRH = KlaySpring2(KlayPaint.Limbs.rest.rh)
+    private var springLF = KlaySpring2(KlayPaint.Limbs.rest.lf)
+    private var springRF = KlaySpring2(KlayPaint.Limbs.rest.rf)
+    /// The body's place last frame, so its motion can be taken out of the limbs (inertia).
+    private var bodyPrev: BodyPose? = nil
+
+    // Gaze springs (yaw, pitch) and the lean of the whole figure (x from yaw, y from pitch).
+    private var yawVel: CGFloat = 0
+    private var pitchVel: CGFloat = 0
+    private var lean = KlaySpring2(.zero)
+    /// Hover: the island sets tgEs above 1 while the pointer is on Klay.
+    private var hovered = false
+    /// 0…1, eased: how far Klay has lifted towards a pointer on him.
+    private var hoverLift: CGFloat = 0
+
+    // Pointer stillness, glances and idle fidgets.
+    private var lastLookX: CGFloat = 0
+    private var lastLookY: CGFloat = 0
+    private var pointerStillSince: Double = CACurrentMediaTime()
+    private var stillLook: Double = Double.random(in: KlayMotion.Idle.stillLook)
+    /// While the pointer is still: where Klay glances (nil = back at the pointer).
+    private var glance: CGPoint? = nil
+    private var glanceNext: Double = 0
+    /// A foot tap or a stretch under way, the next fidget, the next stretch or yawn.
+    private var fidget: Fidget? = nil
+    private var nextFidget: Double = CACurrentMediaTime() + Double.random(in: KlayMotion.Idle.fidget)
+    private var nextLong: Double = 0
+    private var longYawn = true
+
+    private struct Fidget {
+        enum Kind { case tap, stretch }
+        let kind: Kind
+        let start: Double
+        let side: CGFloat
+    }
+
+    private struct BodyPose {
+        var x: CGFloat, y: CGFloat, lean: CGFloat, tilt: CGFloat
+    }
+
+    /// Glyph units in one R (R = 0.3 × canvas width; ox, oy and the dance are in R).
+    private static let unitsPerR = 0.3 * KlayGlyph.width / KlayPaint.glyphSpan
 
     // Targets
     var tgYaw:    CGFloat = 0
@@ -278,7 +323,7 @@ final class BotEngine: ObservableObject {
     // Particles
     var particles: [Particle] = []
 
-    // Look target
+    /// Where the pointer is, −1…1 each way (tanh of the distance); lookY > 0 is above Klay.
     var lookX: CGFloat = 0
     var lookY: CGFloat = 0
 
@@ -383,6 +428,9 @@ final class BotEngine: ObservableObject {
             TweenKey(target: 0.95, duration: 130, ease: Ease.out),
             TweenKey(target: 1,    duration: 170, ease: Ease.inOut),
         ])
+        // The hands carry on down as the body squashes.
+        springLH.y.velocity += KlayMotion.Kick.squash
+        springRH.y.velocity += KlayMotion.Kick.squash
     }
 
     // MARK: - Gulp (mailbox swallow)
@@ -420,6 +468,14 @@ final class BotEngine: ObservableObject {
         slapTimes.append(now)
         SoundEngine.shared.play("slap")
         squash()
+        // The slap flings the hands up and to one side, the feet a little.
+        let side: CGFloat = Bool.random() ? -1 : 1
+        springLH.y.velocity -= KlayMotion.Kick.slapUp
+        springRH.y.velocity -= KlayMotion.Kick.slapUp
+        springLH.x.velocity += side * KlayMotion.Kick.slapSide
+        springRH.x.velocity += side * KlayMotion.Kick.slapSide
+        springLF.y.velocity -= KlayMotion.Kick.slapFeet
+        springRF.y.velocity -= KlayMotion.Kick.slapFeet
         if slapTimes.count >= 3 {
             slapTimes = []
             NotificationCenter.default.post(name: .botDizzy, object: nil)
@@ -438,6 +494,20 @@ final class BotEngine: ObservableObject {
     func setDancing(_ dancing: Bool) {
         guard isDancing != dancing else { return }
         isDancing = dancing
+    }
+
+    /// The perk-up as the pointer arrives on Klay: a little stretch, hands up.
+    private func perk() {
+        anim("sy", keys: [
+            TweenKey(target: 1.07, duration: 110, ease: Ease.out),
+            TweenKey(target: 1,    duration: 280, ease: Ease.back),
+        ])
+        anim("sx", keys: [
+            TweenKey(target: 0.96, duration: 110, ease: Ease.out),
+            TweenKey(target: 1,    duration: 280, ease: Ease.back),
+        ])
+        springLH.y.velocity -= KlayMotion.Kick.perk
+        springRH.y.velocity -= KlayMotion.Kick.perk
     }
 
     // MARK: - Mini periodic behavior loop
@@ -741,18 +811,39 @@ final class BotEngine: ObservableObject {
             }
         }
 
-        // Compute look targets
         let t = CGFloat(now - t0)
-        var ty: CGFloat = lookX * 0.62
-        var tp: CGFloat = lookY * 0.5
+        let kGen = CGFloat(1 - pow(0.0008, dt))
+
+        // Hover: the island raises tgEs above 1 while the pointer is on Klay.
+        let isHovered = !isMini && tgEs > 1.001
+        if isHovered && !hovered { perk() }
+        hovered = isHovered
+        hoverLift += ((isHovered ? 1 : 0) - hoverLift) * kGen
+
+        // How long the pointer has been still.
+        if abs(lookX - lastLookX) + abs(lookY - lastLookY) > 0.002 {
+            pointerStillSince = now
+            stillLook = Double.random(in: KlayMotion.Idle.stillLook)
+            glance = nil
+            glanceNext = 0
+        }
+        lastLookX = lookX
+        lastLookY = lookY
+        let still = now - pointerStillSince
+
+        // Where Klay looks: the pointer, through the response curve (closer still when on him).
+        let gain = isHovered ? KlayMotion.Hover.gain : 1
+        var ty = clamp(KlayMotion.pointerCurve(lookX) * gain, -1, 1) * KlayMotion.yawRange
+        var tp = clamp(KlayMotion.pointerCurve(lookY) * gain, -1, 1) * KlayMotion.pitchRange
 
         if let fixedLook = cfg.look {
             ty = ty * 0.35 + fixedLook.x * 0.55
             tp = tp * 0.3  + fixedLook.y * 0.5
         }
         if cfg.scans {
+            // The binoculars sweep left and right, a little above the horizon.
             ty = sin(t * 2.6) * 0.6
-            tp = -0.06
+            tp = 0.06
         }
         if state == .sleeping { ty = 0; tp = -0.14 }
         if state == .dizzy    { ty = sin(t * 9) * 0.25 }
@@ -770,6 +861,25 @@ final class BotEngine: ObservableObject {
             tp = miniLookTarget.y * 0.5
         }
 
+        // The main Klay, pointer still for a while: he looks around, now and then back at it.
+        let glances = !isMini && !isHovered && cfg.look == nil && !cfg.scans
+            && (state == .idle || state == .working || state == .finished)
+        if glances && still > stillLook {
+            if now >= glanceNext {
+                let I = KlayMotion.Idle.self
+                glance = Double.random(in: 0..<1) < I.back ? nil : CGPoint(
+                    x: CGFloat.random(in: -I.glanceX...I.glanceX),
+                    y: CGFloat.random(in: I.glanceDown...I.glanceUp))
+                glanceNext = now + Double.random(in: I.glance)
+            }
+            if let g = glance {
+                ty = g.x * KlayMotion.yawRange
+                tp = g.y * KlayMotion.pitchRange
+            }
+        } else {
+            glance = nil
+        }
+
         tgYaw   = ty
         tgPitch = tp
         tgTilt  = cfg.tilt
@@ -783,7 +893,7 @@ final class BotEngine: ObservableObject {
 
         let bounce = cfg.bounces ? -abs(sin(t * 5.2)) * 0.07 : CGFloat(0)
         // oy tween can override if not locked
-        if !locks.contains("oy") { oy += (bounce - oy) * CGFloat(1 - pow(0.0008, dt)) }
+        if !locks.contains("oy") { oy += (bounce - oy) * kGen }
 
         if cfg.breathes {
             let amp: CGFloat = isMini ? 0.07 : 0.035
@@ -794,7 +904,10 @@ final class BotEngine: ObservableObject {
             tgSy = 1 + sin(t * 2.2) * 0.04
             tgSx = 1 - sin(t * 2.2) * 0.02
         } else {
-            tgSy = 1; tgSx = 1
+            // Awake, the main Klay breathes too, lightly.
+            let B = KlayMotion.Breath.self
+            tgSy = 1 + sin(t * B.speed) * B.amp
+            tgSx = 1 - sin(t * B.speed) * B.amp * 0.5
         }
 
         // Mini bots: periodic dramatic behaviors
@@ -802,25 +915,51 @@ final class BotEngine: ObservableObject {
             doMiniBehaviorLoop()
         }
 
-        // Smooth look
-        let kLook = CGFloat(1 - pow(0.0025, dt))
-        let kGen  = CGFloat(1 - pow(0.0008, dt))
-
-        if !locks.contains("yaw")   { yaw   += (tgYaw   - yaw)   * kLook }
-        if !locks.contains("pitch") { pitch += (tgPitch  - pitch) * kLook }
+        // The gaze springs to its target: the eyes dart, overshoot a touch and settle.
+        if !locks.contains("yaw") {
+            var sp = KlaySpring(value: yaw, velocity: yawVel)
+            sp.step(towards: tgYaw, dt: dt, response: KlayMotion.gazeResponse, damping: KlayMotion.gazeDamping)
+            yaw = sp.value
+            yawVel = sp.velocity
+        } else {
+            yawVel = 0
+        }
+        if !locks.contains("pitch") {
+            var sp = KlaySpring(value: pitch, velocity: pitchVel)
+            sp.step(towards: tgPitch, dt: dt, response: KlayMotion.gazeResponse, damping: KlayMotion.gazeDamping)
+            pitch = sp.value
+            pitchVel = sp.velocity
+        } else {
+            pitchVel = 0
+        }
         if !locks.contains("tilt")  { tilt  += (tgTilt   - tilt)  * kGen  }
         if !locks.contains("sy")    { sy    += (tgSy     - sy)    * kGen  }
         if !locks.contains("sx")    { sx    += (tgSx     - sx)    * kGen  }
         if !locks.contains("es")    { es    += (tgEs     - es)    * kGen  }
 
+        // The whole figure leans towards where Klay looks, after the eyes.
+        if !isMini {
+            let L = KlayMotion.Lean.self
+            lean.step(towards: CGPoint(x: clamp(tgYaw / KlayMotion.yawRange, -1, 1),
+                                       y: clamp(tgPitch / KlayMotion.pitchRange, -1, 1)),
+                      dt: dt, response: L.response, damping: L.damping)
+        }
+
         // Animate color
         col = mixColor(col, colT, 1 - pow(0.002, dt))
 
-        // Limbs follow their targets with a quick, springy ease.
-        if !isMini {
-            let target = KlayPaint.limbTargets(state: state, t: t, waving: waving ? hands : 0, look: yaw)
-            limbs = limbs.eased(towards: target, CGFloat(1 - pow(0.00002, dt)))
+        // Dance level: fade in 0.3s, out 0.5s
+        let dancingTarget: CGFloat = isDancing ? 1 : 0
+        if dancingLevel < dancingTarget {
+            dancingLevel = min(dancingTarget, dancingLevel + dtCG / 0.3)
+        } else if dancingLevel > dancingTarget {
+            dancingLevel = max(dancingTarget, dancingLevel - dtCG / 0.5)
         }
+
+        updateFidget(now: now, still: still)
+
+        // Limbs: springs pulled towards the pose, carried by the body's motion.
+        if !isMini { updateLimbs(now: now, t: t, dt: dt, waving: waving) }
 
         // Blink
         if now > nextBlink {
@@ -858,15 +997,105 @@ final class BotEngine: ObservableObject {
         slotHVel += slotAcc * dtCG
         slotH = max(0, slotH + slotHVel * dtCG)
 
-        // Dance level: fade in 0.3s, out 0.5s
-        let dancingTarget: CGFloat = isDancing ? 1 : 0
-        if dancingLevel < dancingTarget {
-            dancingLevel = min(dancingTarget, dancingLevel + CGFloat(dt) / 0.3)
-        } else if dancingLevel > dancingTarget {
-            dancingLevel = max(dancingTarget, dancingLevel - CGFloat(dt) / 0.5)
+        lastTime = now
+    }
+
+    /// Idle fidgets of the main Klay: a foot tap every few seconds, and when the pointer has
+    /// been still a long while, a stretch or a yawn in turn. Only while idle and calm.
+    private func updateFidget(now: Double, still: Double) {
+        if let f = fidget {
+            let dur = f.kind == .tap ? KlayMotion.Tap.dur : KlayMotion.Stretch.dur
+            if now - f.start >= dur || state != .idle || hovered { fidget = nil }
+            return
+        }
+        let calm = !isMini && state == .idle && !hovered && dancingLevel < 0.01
+            && now >= waveUntil && morph < 0.01 && eyeOverride == nil && !locks.contains("sy")
+        guard calm else {
+            nextFidget = max(nextFidget, now + 2)
+            return
+        }
+        guard now >= nextFidget else { return }
+        let I = KlayMotion.Idle.self
+        nextFidget = now + Double.random(in: I.fidget)
+        if still > I.longAfter && now >= nextLong {
+            nextLong = now + Double.random(in: I.longEvery)
+            longYawn.toggle()
+            if longYawn {
+                triggerEmote(.yawn, duration: 2.2)
+                return
+            }
+            fidget = Fidget(kind: .stretch, start: now, side: 1)
+            let S = KlayMotion.Stretch.self
+            let up = CGFloat(S.up * 1000)
+            let hold = CGFloat((S.hold - S.up) * 1000)
+            let down = CGFloat((S.dur - S.hold) * 1000)
+            anim("sy", keys: [
+                TweenKey(target: 1.06, duration: up,   ease: Ease.inOut),
+                TweenKey(target: 1.06, duration: hold, ease: Ease.lin),
+                TweenKey(target: 1,    duration: down, ease: Ease.back),
+            ])
+            anim("sx", keys: [
+                TweenKey(target: 0.97, duration: up,   ease: Ease.inOut),
+                TweenKey(target: 0.97, duration: hold, ease: Ease.lin),
+                TweenKey(target: 1,    duration: down, ease: Ease.back),
+            ])
+            return
+        }
+        fidget = Fidget(kind: .tap, start: now, side: Bool.random() ? -1 : 1)
+    }
+
+    /// Where the body is, for the limbs' inertia: glyph units and radians.
+    private func bodyPose(now: Double) -> BodyPose {
+        let L = KlayMotion.Lean.self
+        let u = BotEngine.unitsPerR
+        var x = ox * u + lean.x.value * L.shift
+        var y = oy * u - (lean.y.value * L.rise + hoverLift * KlayMotion.Hover.rise)
+        if dancingLevel > 0.001 {
+            let d = KlayMotion.dance(time: now, level: dancingLevel)
+            x += d.dx * u
+            y += d.dy * u
+        }
+        return BodyPose(x: x, y: y, lean: lean.x.value * L.tilt, tilt: tilt)
+    }
+
+    private func updateLimbs(now: Double, t: CGFloat, dt: Double, waving: Bool) {
+        var target = KlayPaint.limbTargets(state: state, t: t, waving: waving ? hands : 0, look: yaw)
+        if let f = fidget {
+            let ft = now - f.start
+            switch f.kind {
+            case .tap:
+                if f.side < 0 { target.lf.y -= KlayMotion.footTapLift(ft) }
+                else { target.rf.y -= KlayMotion.footTapLift(ft) }
+            case .stretch:
+                let k = KlayMotion.stretchAmount(ft)
+                let h = KlayMotion.Stretch.hands
+                target.lh = KlayPaint.blend(target.lh, CGPoint(x: -h.x, y: h.y), k)
+                target.rh = KlayPaint.blend(target.rh, h, k)
+            }
         }
 
-        lastTime = now
+        // The body's motion since last frame, seen from Klay's frame: a limb keeps `inertia`
+        // of its place in the world, then its spring brings it back (lag, overshoot, settle).
+        let body = bodyPose(now: now)
+        let prev = bodyPrev ?? body
+        bodyPrev = body
+        let dx = clamp(body.x - prev.x, -KlayMotion.maxStep, KlayMotion.maxStep)
+        let dy = clamp(body.y - prev.y, -KlayMotion.maxStep, KlayMotion.maxStep)
+        let dLean = clamp(body.lean - prev.lean, -KlayMotion.maxTurn, KlayMotion.maxTurn)
+        let dTilt = clamp(body.tilt - prev.tilt, -KlayMotion.maxTurn, KlayMotion.maxTurn)
+        let soles = CGPoint(x: 0, y: KlayPaint.bottom)
+        func carry(_ sp: inout KlaySpring2, to p: CGPoint, _ c: KlayMotion.Limb) {
+            sp.shift(dx: -dx * c.inertia, dy: -dy * c.inertia)
+            sp.rotate(about: soles, by: -dLean * c.inertia)
+            sp.rotate(about: .zero, by: -dTilt * c.inertia)
+            sp.step(towards: p, dt: dt, response: c.response, damping: c.damping)
+        }
+        carry(&springLH, to: target.lh, KlayMotion.hand)
+        carry(&springRH, to: target.rh, KlayMotion.hand)
+        carry(&springLF, to: target.lf, KlayMotion.foot)
+        carry(&springRF, to: target.rf, KlayMotion.foot)
+        limbs = KlayPaint.Limbs(lh: springLH.point, rh: springRH.point,
+                                lf: springLF.point, rf: springRF.point)
     }
 
     // MARK: - Geometry
@@ -885,7 +1114,7 @@ final class BotEngine: ObservableObject {
 
     // MARK: - Dance transform
 
-    /// Applies a 112-BPM dance bounce/sway around Klay's feet.
+    /// Applies a 112-BPM dance bounce/sway around Klay's feet (KlayMotion.dance).
     /// Call this on a copy of the GraphicsContext before drawing.
     func applyDance(_ ctx: inout GraphicsContext, size: CGSize) {
         guard dancingLevel > 0.001 else { return }
@@ -894,11 +1123,10 @@ final class BotEngine: ObservableObject {
         let footOffset = isMini ? R : (KlayPaint.bottom - KlayPaint.centerY) * glyphScale(W)
         let px = c.x
         let py = c.y + footOffset
-        let beat = CGFloat(CACurrentMediaTime()) * 112 / 60
-        let hop = abs(sin(.pi * beat)), land = pow(1 - hop, 6), l = dancingLevel
-        ctx.translateBy(x: px + 0.08 * R * sin(.pi * beat) * l, y: py - 0.20 * R * hop * l)
-        ctx.rotate(by: .radians(0.10 * sin(.pi * beat) * l))
-        ctx.scaleBy(x: 1 + 0.045 * land * l, y: 1 - 0.06 * land * l)
+        let d = KlayMotion.dance(time: CACurrentMediaTime(), level: dancingLevel)
+        ctx.translateBy(x: px + d.dx * R, y: py + d.dy * R)
+        ctx.rotate(by: .radians(Double(d.rot)))
+        ctx.scaleBy(x: d.sx, y: d.sy)
         ctx.translateBy(x: -px, y: -py)
     }
 
@@ -951,6 +1179,16 @@ final class BotEngine: ObservableObject {
         if m < 0.999 {
             var ctx = context
             ctx.translateBy(x: hubX, y: hubY)
+            // Lean: the whole figure turns towards where Klay looks, about the soles; looking
+            // up lifts and stretches him a little, and he rises towards a pointer on him.
+            let L = KlayMotion.Lean.self
+            let soles = KlayPaint.bottom * s
+            ctx.translateBy(x: lean.x.value * L.shift * s,
+                            y: -(lean.y.value * L.rise + hoverLift * KlayMotion.Hover.rise) * s)
+            ctx.translateBy(x: 0, y: soles)
+            ctx.rotate(by: .radians(Double(lean.x.value * L.tilt)))
+            ctx.scaleBy(x: 1, y: 1 + lean.y.value * L.stretch)
+            ctx.translateBy(x: 0, y: -soles)
             if abs(roll) > 0.001 {
                 // Spins turn the whole of Klay around the middle of its height.
                 ctx.translateBy(x: 0, y: KlayPaint.centerY * s)
@@ -967,7 +1205,8 @@ final class BotEngine: ObservableObject {
             let binoculars = state == .searching
             KlayPaint.drawFigure(ctx, limbs: showLimbs ? limbs : nil,
                                  binoculars: binoculars ? yaw : nil)
-            KlayPaint.drawBlush(ctx, amount: blush * (1 - m))
+            KlayPaint.drawBlush(ctx, amount: blush * (1 - m),
+                                dx: KlayMotion.gaze(yaw: yaw, pitch: pitch).eye.x * 0.8)
             if !binoculars { drawEyes(ctx, mult: 1, center: .zero) }
         }
 
@@ -1026,6 +1265,11 @@ final class BotEngine: ObservableObject {
         if isDancing && dancingLevel > 0.15 && !isMini && (state == .idle || state == .finished) {
             shape = .happy
         }
+        // Stretching: eyes shut in the middle of it.
+        if let f = fidget, f.kind == .stretch, eyeOverride == nil {
+            let ft = CACurrentMediaTime() - f.start
+            if ft > KlayMotion.Stretch.eyesFrom && ft < KlayMotion.Stretch.eyesTo { shape = .closed }
+        }
         // In box mode: cup eyes when file over box (slotHTarget set), happy arcs while chewing
         if morph > 0.5 {
             if isChewing { shape = .happy }
@@ -1034,12 +1278,12 @@ final class BotEngine: ObservableObject {
         return shape
     }
 
-    /// Eyes in Klay's frame (glyph units). They slide a little towards where Klay looks.
+    /// Eyes in Klay's frame (glyph units), placed by the gaze (KlayMotion.gaze): the whites
+    /// shift and narrow on the side he turns to, the pupils move further inside.
     private func drawEyes(_ ctx: GraphicsContext, mult: CGFloat, center: CGPoint) {
-        // pitch > 0 looks up; the drawing's y axis points down.
-        let look = CGPoint(x: clamp(yaw, -1, 1) * 14, y: -clamp(pitch, -1, 1) * 12)
         KlayPaint.drawEyes(ctx, shape: currentEyeShape(), mult: mult, center: center,
-                           look: look, scale: es, open: open, time: CGFloat(CACurrentMediaTime()))
+                           gaze: KlayMotion.gaze(yaw: yaw, pitch: pitch), scale: es, open: open,
+                           time: CGFloat(CACurrentMediaTime()))
     }
 
     private func drawBadge(context: GraphicsContext, badge: BadgeType, R: CGFloat, cx: CGFloat, cy: CGFloat) {
