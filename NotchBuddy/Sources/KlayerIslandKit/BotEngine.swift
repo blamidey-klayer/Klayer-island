@@ -251,7 +251,7 @@ final class BotEngine: ObservableObject {
     // Slap tracking (for dizzy on 3 slaps)
     var slapTimes: [Double] = []
 
-    // Dancing (Apple Music)
+    // Dancing (music playing)
     var isDancing: Bool = false
     var dancingLevel: CGFloat = 0   // 0→1 over 0.3s, 1→0 over 0.5s
 

@@ -66,8 +66,8 @@ struct AgentTask: Identifiable, Equatable {
 
 enum AgentSource: Equatable {
     case claudeCode
-    case n8n
-    case agent   // third-party agent via klayer_agent field
+    case integration   // persistent pill of a service or chat provider (GitHub, Spotify, AI for the chat)
+    case agent         // third-party agent via klayer_agent field
 }
 
 // MARK: - Chat provider

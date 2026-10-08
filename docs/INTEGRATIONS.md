@@ -3,7 +3,6 @@
 Règle d'or : **vérifier la doc officielle au moment d'implémenter**. Les formats ci-dessous sont le plan, pas une garantie. Sources à relire :
 - Hooks Claude Code : https://code.claude.com/docs/en/hooks
 - API Claude (Messages, outil de recherche web, modèles) : https://docs.claude.com/en/api/overview
-- API publique n8n : `{URL de l'instance}/api/v1/docs` (playground de l'instance de Louis)
 
 ---
 
@@ -202,20 +201,9 @@ Priorité : failure > review demandée > success. Un seul badge/son par cycle.
 
 ---
 
-## 2. n8n (workflows de Louis)
+## 2. Services retirés
 
-- Réglages : URL de l'instance (probablement `https://n8nlouis.dcsys.tech`, **à confirmer avec Louis**) et clé API n8n (Trousseau). La clé se crée dans n8n : Settings → n8n API.
-- Le Mac joint n8n, pas l'inverse : **polling** toutes les 5 s de l'API publique :
-  - noms des workflows : `GET /api/v1/workflows` (cache 10 min) ;
-  - exécutions récentes : `GET /api/v1/executions` avec filtres de statut et `limit`.
-- Mapping :
-  - exécution en cours → tâche `working` (si l'API expose les exécutions en cours ; sinon n8n n'apparaît qu'aux erreurs et aux succès, c'est acceptable) ;
-  - nouvelle exécution en erreur → alerte `error`, détail = nœud en échec + message (`GET /api/v1/executions/{id}?includeData=true`) ;
-  - succès → mini-bonhomme `finished` 3 s en compact, **sans** ouvrir l'island (sinon trop de bruit), sauf réglage contraire.
-- Boutons :
-  - « Relancer » → endpoint de retry de l'API publique (vérifier sa présence et son chemin dans le playground de l'instance). S'il n'existe pas : ouvrir l'exécution dans n8n.
-  - « Ouvrir dans n8n » → ouvrir `{URL}/workflow/{workflowId}/executions/{executionId}` dans le navigateur par défaut.
-- Réglage « workflows suivis » : tous par défaut, liste à cocher.
+Stripe, n8n, Resend, Cal.com, Notion, Vercel et Apple Music ne sont plus pris en charge : l'app se centre sur l'app Claude. Il reste GitHub (§1quater) et Spotify (pastille de lecture). Le numéro 2 est conservé pour ne pas casser les renvois des autres documents.
 
 ---
 
@@ -327,7 +315,6 @@ Réglages → Chat → Local models → **Disconnect**. Efface l'URL sauvegardé
 |---|---|---|
 | Automatisation → Mail | envoyer les mails | premier envoi |
 | Automatisation → Terminal / iTerm / navigateur | sauter au bon onglet, lire l'URL | première utilisation |
-| Automatisation → Musique *(GitHub only)* | contrôler la lecture Apple Music | première commande depuis le notch |
 | Automatisation → Spotify *(GitHub only)* | lire la position, le shuffle, le volume ; piloter la lecture | activation de la pill Spotify, ou première ouverture de sa carte |
 | Enregistrement de l'écran | capturer la fenêtre attrapée | première attache |
 | Micro + Reconnaissance vocale (optionnel) | dictée | premier clic sur le micro |

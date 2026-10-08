@@ -186,13 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         islandController?.showWindow(nil)
         islandController?.fsm.launch()
         HookServer.shared.start()
-        N8nPoller.shared.start()
-        VercelPoller.shared.start()
-        ResendPoller.shared.start()
         GithubPoller.shared.start()
-        StripePoller.shared.start()
-        CalcomPoller.shared.start()
-        NotionPoller.shared.start()
         NotificationCenter.default.addObserver(self, selector: #selector(openSettingsFromNotification(_:)),
                                                name: .openFullSettings, object: nil)
         // After the greeting ends, fly Klay back to the desktop if it was there at last quit
@@ -209,7 +203,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.checkMondayRecap()
         }
         #if !APPSTORE
-        _ = MusicController.shared
         _ = SpotifyController.shared
         #endif
     }

@@ -42,10 +42,9 @@ struct DesktopBotView: View {
                 // Dance when music plays (same rules as compact mode)
                 let dancing: Bool = {
                     #if !APPSTORE
-                    let music = appState.musicPlaying && appState.activeIntegrations.contains("integration_music")
                     let spotify = SpotifyController.shared.isPlaying
                         && appState.activeIntegrations.contains(SpotifyController.pillId)
-                    guard music || spotify else { return false }
+                    guard spotify else { return false }
                     let allowed: Set<BotState> = [.idle, .working, .thinking, .searching, .finished]
                     return allowed.contains(appState.effectiveState)
                     #else

@@ -65,7 +65,7 @@ targets:
         LSUIElement: YES
         NSHighResolutionCapable: YES
         NSSupportsAutomaticGraphicsSwitching: YES
-        NSAppleEventsUsageDescription: "Pour sauter au terminal, envoyer des mails et piloter Musique et Spotify."
+        NSAppleEventsUsageDescription: "Pour sauter au terminal, envoyer des mails et piloter Spotify."
         NSMicrophoneUsageDescription: "Klayer Island uses the microphone when you dictate a message in the chat."
         NSSpeechRecognitionUsageDescription: "Klayer Island turns your voice into the text of a chat message."
         NSAccessibilityUsageDescription: "Pour lire le titre de la fenêtre active et l'attacher comme contexte."

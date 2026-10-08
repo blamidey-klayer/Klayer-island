@@ -280,26 +280,8 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(islandDisplay.storageValue, forKey: "islandDisplay") }
     }
 
-    // Vercel project filter — empty = watch all projects
-    @Published var vercelProjectFilter: Set<String> = [] {
-        didSet {
-            if let data = try? JSONEncoder().encode(Array(vercelProjectFilter)) {
-                UserDefaults.standard.set(data, forKey: "vercelProjectFilter")
-            }
-        }
-    }
-
-    // n8n workflow filter — empty = watch all workflows
-    @Published var n8nWorkflowFilter: Set<String> = [] {
-        didSet {
-            if let data = try? JSONEncoder().encode(Array(n8nWorkflowFilter)) {
-                UserDefaults.standard.set(data, forKey: "n8nWorkflowFilter")
-            }
-        }
-    }
-
     // Active integration pills (main workspace pill excluded). Max 4.
-    @Published var activeIntegrations: Set<String> = ["integration_resend", "integration_n8n", "integration_vercel", "integration_github"] {
+    @Published var activeIntegrations: Set<String> = ["integration_github"] {
         didSet {
             if let data = try? JSONEncoder().encode(Array(activeIntegrations)) {
                 UserDefaults.standard.set(data, forKey: "activeIntegrations")
@@ -315,38 +297,10 @@ final class AppState: ObservableObject {
     // Pending API result
     @Published var searchResult: SearchResult? = nil
 
-    // Vercel deployments (populated by VercelPoller)
-    @Published var vercelDeployments: [VercelDeployment] = []
-
-    // Resend emails (populated by ResendPoller)
-    @Published var resendEmails: [ResendEmail] = []
-    @Published var resendTotal: Int? = nil
-
     // GitHub stats + pulse + activity (populated by GithubPoller)
     @Published var githubStats: GitHubStats? = nil
     @Published var githubPulse: GitHubPulse? = nil
     @Published var githubActivity: GitHubActivity? = nil
-
-    // Stripe (populated by StripePoller)
-    @Published var stripePayments: [StripePayment] = []
-    @Published var stripeBalance: Int = 0           // raw balance in cents
-    @Published var stripeDisplayBalance: Int = 0    // animated balance target
-    @Published var stripeCurrency: String = "eur"
-    @Published var stripeLoaded: Bool = false       // true after first successful poll
-    @Published var stripeError: String? = nil      // last API error (nil = ok)
-
-    // Cal.com (populated by CalcomPoller)
-    @Published var calcomBookings: [CalcomBooking] = []
-    @Published var calcomLoaded: Bool = false
-    @Published var calcomError: String? = nil
-
-    // Notion (populated by NotionPoller)
-    @Published var notionPages: [NotionPage] = []
-    @Published var notionLoaded: Bool = false
-    @Published var notionError: String? = nil
-
-    // n8n — the last executions, newest first (the notch shows only the latest)
-    @Published var n8nRuns: [N8nRun] = []
 
     // Chat conversation history
     @Published var chatHistory: [ChatMessage] = []
@@ -398,11 +352,6 @@ final class AppState: ObservableObject {
         sessionDiffTimers[pillId] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 3600, execute: work)
     }
-
-    #if !APPSTORE
-    @Published var musicPlaying: Bool = false
-    @Published var musicAutomationDenied: Bool = false
-    #endif
 
     // Claude plan gauge (from statusline hook)
     @Published var claudePlanUsage: PlanUsage? = nil {
@@ -474,10 +423,6 @@ final class AppState: ObservableObject {
         if let v = ud.object(forKey: "hotkeyFlags")   as? Int   { hotkeyFlags = UInt(v) }
         if let v = ud.object(forKey: "hotkeyCode")    as? Int   { hotkeyCode = UInt16(v) }
         if let v = ud.string(forKey: "islandDisplay") { islandDisplay = IslandDisplayChoice(storageValue: v) }
-        if let d = ud.data(forKey: "vercelProjectFilter"),
-           let a = try? JSONDecoder().decode([String].self, from: d) { vercelProjectFilter = Set(a) }
-        if let d = ud.data(forKey: "n8nWorkflowFilter"),
-           let a = try? JSONDecoder().decode([String].self, from: d) { n8nWorkflowFilter = Set(a) }
         if let d = ud.data(forKey: "activeIntegrations"),
            let a = try? JSONDecoder().decode([String].self, from: d) { activeIntegrations = Set(a) }
         if let v = ud.string(forKey: "mainPill"), !v.isEmpty,
@@ -695,124 +640,11 @@ struct ResultItem {
     var url: String?
 }
 
-// MARK: - Vercel
-
-struct VercelDeployment: Identifiable {
-    let id: String
-    let projectName: String
-    let url: String
-    let state: String        // "READY", "ERROR", "CANCELED"
-    let createdAt: Date
-    let commitMessage: String?
-    let branch: String?
-
-    var isSuccess: Bool { state == "READY" }
-    var statusLabel: String { isSuccess ? "Ready" : (state == "CANCELED" ? "Canceled" : "Error") }
-    var timeAgo: String {
-        let diff = Date().timeIntervalSince(createdAt)
-        if diff < 60    { return "just now" }
-        if diff < 3600  { return "\(Int(diff/60))m" }
-        if diff < 86400 { return "\(Int(diff/3600))h" }
-        return "\(Int(diff/86400))d"
-    }
-}
-
-// MARK: - Resend
-
-struct ResendEmail: Identifiable {
-    let id: String
-    let to: [String]
-    let subject: String
-    let createdAt: Date
-    let lastEvent: String   // "delivered", "bounced", "complained", "opened", etc.
-
-    var recipientShort: String {
-        guard let first = to.first else { return "?" }
-        return first.components(separatedBy: "@").first ?? first
-    }
-    var timeAgo: String {
-        let diff = Date().timeIntervalSince(createdAt)
-        if diff < 60    { return "just now" }
-        if diff < 3600  { return "\(Int(diff/60))m" }
-        if diff < 86400 { return "\(Int(diff/3600))h" }
-        return "\(Int(diff/86400))d"
-    }
-    var isDelivered: Bool { lastEvent == "delivered" }
-}
-
 // MARK: - GitHub
 
 struct GitHubStats {
     let totalRepos: Int
     let totalStars: Int
-}
-
-// MARK: - Stripe
-
-struct StripePayment: Identifiable, Equatable {
-    let id: String
-    let amount: Int         // in cents/smallest unit
-    let currency: String
-    let description: String?
-    let createdAt: Date
-    let status: String      // "succeeded", "pending", "failed"
-
-    var amountFormatted: String { String(format: "%.2f", Double(amount) / 100.0) }
-    var isSuccess: Bool { status == "succeeded" }
-    var timeAgo: String {
-        let diff = Date().timeIntervalSince(createdAt)
-        if diff < 60    { return "just now" }
-        if diff < 3600  { return "\(Int(diff/60))m" }
-        if diff < 86400 { return "\(Int(diff/3600))h" }
-        return "\(Int(diff/86400))d"
-    }
-}
-
-// MARK: - Cal.com
-
-struct CalcomBooking: Identifiable, Equatable {
-    let id: Int
-    let title: String
-    let startTime: Date
-    let endTime: Date
-    let status: String
-    let attendeeName: String?
-    let attendeeEmail: String?
-    let attendeeNotes: String?
-
-    var isActive: Bool { status == "ACCEPTED" || status == "PENDING" }
-    var timeLabel: String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: startTime)
-    }
-    var dayKey: String {
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: startTime)
-        return "\(c.year!)-\(String(format: "%02d", c.month!))-\(String(format: "%02d", c.day!))"
-    }
-}
-
-// MARK: - Notion
-
-struct N8nRun: Equatable {
-    let workflow: String
-    let detail: String?
-    let success: Bool
-    let date: Date
-}
-
-struct NotionPage: Identifiable {
-    let id: String
-    let title: String
-    let emoji: String?
-    let lastEditedAt: Date
-    let url: String
-
-    var timeAgo: String {
-        let diff = Date().timeIntervalSince(lastEditedAt)
-        if diff < 60 { return "now" }
-        if diff < 3600 { return "\(Int(diff/60))m" }
-        if diff < 86400 { return "\(Int(diff/3600))h" }
-        return "\(Int(diff/86400))d"
-    }
 }
 
 // MARK: - Chat

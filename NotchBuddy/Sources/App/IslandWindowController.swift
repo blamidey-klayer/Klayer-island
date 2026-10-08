@@ -22,7 +22,7 @@ final class IslandWindowController: NSWindowController {
     // Confused recovery timer (set by handleDizzy)
     private var confusedRecoveryTimer: DispatchWorkItem?
 
-    // Suppress peek sound on next reveal (e.g. musicReveal)
+    // Suppress peek sound on next reveal (e.g. spotifyReveal)
     var silentNextReveal = false
 
     // Finished-pin timer
@@ -686,8 +686,8 @@ final class IslandWindowController: NSWindowController {
             self.fsm.reveal()
         }
 
-        // Music started playing: reveal silently (no peek sound)
-        NotificationCenter.default.addObserver(forName: .musicReveal, object: nil, queue: .main) { [weak self] _ in
+        // Spotify started playing: reveal silently (no peek sound)
+        NotificationCenter.default.addObserver(forName: .spotifyReveal, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.silentNextReveal = true
             self.fsm.reveal()
@@ -1224,7 +1224,7 @@ extension Notification.Name {
     static let islandActivateCardSelection = Notification.Name("notchBuddy.islandActivateCardSelection")
     static let openFullSettings    = Notification.Name("notchBuddy.openFullSettings")
     static let hookReveal       = Notification.Name("notchBuddy.hookReveal")
-    static let musicReveal      = Notification.Name("notchBuddy.musicReveal")
+    static let spotifyReveal    = Notification.Name("notchBuddy.spotifyReveal")
     // Greeting ↔ IslandWindowController
     static let greetComplete    = Notification.Name("notchBuddy.greetComplete")
     static let checkMondayRecap = Notification.Name("notchBuddy.checkMondayRecap")

@@ -34,8 +34,8 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 - **Quotas** : limites 5 heures et hebdomadaires de Claude et de Codex dans l'en-tête de l'île.
 - **Dépôt de fichier** sur l'île, puis question à Claude ou envoi par email (Mail.app).
 - **Klay sur le bureau** : glissez-le hors de l'île, il flotte sur le bureau et revient quand un agent a besoin de vous.
-- **Intégrations** : GitHub (PR, revues, CI), Vercel, Stripe, n8n, Resend, Notion, Cal.com. Chacune a son mini Klay coloré.
-- **Musique** : pastilles Apple Music et Spotify.
+- **GitHub** : PR, revues et CI dans l'île. Sa pastille a son mini Klay coloré.
+- **Spotify** : pastille de lecture (pochette, progression, volume). Klay danse quand Spotify joue.
 - **Raccourcis clavier** globaux, modifiables dans Réglages → Raccourcis.
 - **Récap hebdomadaire** le lundi matin, partageable en image ; l'historique reste sur la machine.
 - **10 langues**, dont le français.
@@ -68,7 +68,7 @@ Icône Klayer Island dans la barre des menus → **Réglages…**
 | Autres agents | une pastille par agent | Réglages → Agents ; détail dans [docs/AGENTS.md](docs/AGENTS.md) |
 | Clé API Anthropic | chat et questions sur un fichier | Réglages → Anthropic API, rangée dans le trousseau |
 | Quotas Claude | jauge dans l'en-tête | Réglages → Agents → Plan usage → **Install relay** |
-| Intégrations | pastilles de services | clés dans le trousseau, toutes optionnelles |
+| GitHub | PR, revues et CI | Réglages → Integrations : jeton personnel rangé dans le trousseau, optionnel |
 
 Si l'app ne tourne pas, le hook rend la main immédiatement : **Claude Code n'est jamais bloqué.**
 

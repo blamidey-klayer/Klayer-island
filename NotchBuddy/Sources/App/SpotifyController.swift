@@ -200,7 +200,7 @@ final class SpotifyController: ObservableObject {
         isPlaying = playing
         // Reveal only on transition from not-playing → playing
         if playing && !wasPlaying {
-            NotificationCenter.default.post(name: .musicReveal, object: nil)
+            NotificationCenter.default.post(name: .spotifyReveal, object: nil)
         }
     }
 
@@ -428,7 +428,7 @@ final class SpotifyController: ObservableObject {
         }
     }
 
-    // MARK: - Metadata cleaners (same rules as Apple Music)
+    // MARK: - Metadata cleaners
 
     private static func shortTitle(_ raw: String) -> String {
         guard !raw.isEmpty else { return raw }
