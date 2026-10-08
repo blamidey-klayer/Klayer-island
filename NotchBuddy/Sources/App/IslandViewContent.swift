@@ -194,8 +194,18 @@ struct EmptyStateView: View {
 
 struct ApprovalView: View {
     @ObservedObject var state: AppState
+    /// The buttons act only once the request on screen has stayed `PendingRequest.armingDelay`:
+    /// a click aimed at the card it replaced never answers it (CLAUDE.md, an explicit click).
+    @State private var armed = false
+    /// Counts the changes of the request on screen: only the latest one's delay arms the buttons.
+    @State private var armGeneration = 0
 
     var approval: ApprovalInfo? { state.pendingApproval }
+
+    /// The request whose card the open island shows, nil while it shows another view.
+    private var requestOnScreen: Int? {
+        state.mode == .expanded && state.view == .approval ? approval?.requestId : nil
+    }
 
     var body: some View {
         ZStack {
@@ -214,11 +224,24 @@ struct ApprovalView: View {
                         HookServer.shared.sendApprovalDecision("always")
                     }
                 }
+                .disabled(!armed)
+                .opacity(armed ? 1 : 0.4)
             }
             .padding(.leading, 116)
             .padding(.trailing, 16)
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // Disarmed whenever the request on screen changes (a newer one, the island opening on it),
+        // armed 0.6 s later: one delayed call per change, no timer.
+        .onChange(of: requestOnScreen, initial: true) { _, onScreen in
+            armGeneration += 1
+            armed = false
+            guard onScreen != nil else { return }
+            let generation = armGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + PendingRequest.armingDelay) {
+                if armGeneration == generation { armed = true }
+            }
         }
     }
 }
@@ -235,8 +258,18 @@ struct QuestionView: View {
     // Per-question "Other…" mode active
     @State private var showOther: [Bool] = []
     @FocusState private var otherFieldFocused: Bool
+    /// The buttons act only once the request on screen has stayed `PendingRequest.armingDelay`
+    /// (see ApprovalView).
+    @State private var armed = false
+    @State private var armGeneration = 0
 
     var question: AskQuestion? { state.pendingQuestion }
+
+    /// The request whose card the open island shows, nil while it shows another view.
+    private var requestOnScreen: Int? {
+        state.mode == .expanded && state.view == .question && question != nil
+            ? state.pendingQuestionRequestId : nil
+    }
 
     var body: some View {
         ZStack {
@@ -270,6 +303,8 @@ struct QuestionView: View {
                             .font(.system(size: 10))
                             .foregroundColor(Color(hex: "#6B7079"))
                             .underline()
+                            .disabled(!armed)
+                            .opacity(armed ? 1 : 0.4)
                     }
                     // Optional short header label above question text
                     if !item.header.isEmpty {
@@ -281,114 +316,119 @@ struct QuestionView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(Color(hex: "#F5F6F8"))
                         .fixedSize(horizontal: false, vertical: true)
-                    // Options (wrapping) or "Other…" compact inline row
-                    if curOther {
-                        HStack(spacing: 6) {
-                            TextField("Your answer…", text: Binding(
-                                get: { qi < otherTexts.count ? otherTexts[qi] : "" },
-                                set: { v in if qi < otherTexts.count { otherTexts[qi] = v } }
-                            ))
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(hex: "#F5F6F8"))
-                            .focused($otherFieldFocused)
-                            .onAppear { otherFieldFocused = true }
-                            .onSubmit { commitOtherAndProceed(q: q, qi: qi, isLast: isLast) }
-                            .onExitCommand { if qi < showOther.count { showOther[qi] = false } }
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .background(Color.white.opacity(0.07))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            Button(isLast ? "Send" : "Next") {
-                                commitOtherAndProceed(q: q, qi: qi, isLast: isLast)
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(curOtherText.isEmpty ? Color(hex: "#6B7079") : Color(hex: "#F5F6F8"))
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .background(Color.white.opacity(curOtherText.isEmpty ? 0.05 : 0.15))
-                            .clipShape(Capsule())
-                            .disabled(curOtherText.isEmpty)
-                            Button { if qi < showOther.count { showOther[qi] = false } } label: {
-                                Text("✕").font(.system(size: 9))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(Color(hex: "#6B7079"))
-                        }
-                    } else if item.hasDescriptions {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(item.options.enumerated()), id: \.offset) { idx, opt in
-                                let isSelected = curSel.contains(opt.label)
-                                Button {
-                                    if isMulti {
-                                        toggleSelection(qi: qi, label: opt.label)
-                                    } else {
-                                        selectAndProceed(q: q, qi: qi, label: opt.label, isLast: isLast)
-                                    }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(opt.label)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(isSelected ? Color(hex: "#67E8F9") : Color(hex: "#F5F6F8"))
-                                        if !opt.description.isEmpty {
-                                            Text(opt.description)
-                                                .font(.system(size: 11))
-                                                .foregroundColor(Color(hex: "#9AA0A8"))
-                                                .multilineTextAlignment(.leading)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(isSelected ? Color(hex: "#22D3EE").opacity(0.22) : Color.white.opacity(0.07))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color(hex: "#22D3EE").opacity(0.55) : Color.white.opacity(0.1), lineWidth: 1))
+                    // Options (wrapping) or "Other…" compact inline row, then Send/Next: disabled and
+                    // dimmed until the request on screen is armed
+                    Group {
+                        if curOther {
+                            HStack(spacing: 6) {
+                                TextField("Your answer…", text: Binding(
+                                    get: { qi < otherTexts.count ? otherTexts[qi] : "" },
+                                    set: { v in if qi < otherTexts.count { otherTexts[qi] = v } }
+                                ))
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundColor(Color(hex: "#F5F6F8"))
+                                .focused($otherFieldFocused)
+                                .onAppear { otherFieldFocused = true }
+                                .onSubmit { commitOtherAndProceed(q: q, qi: qi, isLast: isLast) }
+                                .onExitCommand { if qi < showOther.count { showOther[qi] = false } }
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .background(Color.white.opacity(0.07))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                Button(isLast ? "Send" : "Next") {
+                                    commitOtherAndProceed(q: q, qi: qi, isLast: isLast)
                                 }
                                 .buttonStyle(.plain)
-                                .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(curOtherText.isEmpty ? Color(hex: "#6B7079") : Color(hex: "#F5F6F8"))
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .background(Color.white.opacity(curOtherText.isEmpty ? 0.05 : 0.15))
+                                .clipShape(Capsule())
+                                .disabled(curOtherText.isEmpty)
+                                Button { if qi < showOther.count { showOther[qi] = false } } label: {
+                                    Text("✕").font(.system(size: 9))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(Color(hex: "#6B7079"))
                             }
-                            SecondaryButton("Other…") {
-                                if qi < showOther.count { showOther[qi] = true }
-                            }
-                        }
-                    } else {
-                        ChipFlowLayout(spacing: 6) {
-                            ForEach(Array(item.options.enumerated()), id: \.offset) { idx, opt in
-                                let isSelected = curSel.contains(opt.label)
-                                if isMulti {
+                        } else if item.hasDescriptions {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(Array(item.options.enumerated()), id: \.offset) { idx, opt in
+                                    let isSelected = curSel.contains(opt.label)
                                     Button {
-                                        toggleSelection(qi: qi, label: opt.label)
+                                        if isMulti {
+                                            toggleSelection(qi: qi, label: opt.label)
+                                        } else {
+                                            selectAndProceed(q: q, qi: qi, label: opt.label, isLast: isLast)
+                                        }
                                     } label: {
-                                        Text(opt.label)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .padding(.horizontal, 8).padding(.vertical, 4)
-                                            .background(isSelected ? Color(hex: "#22D3EE").opacity(0.22) : Color.white.opacity(0.07))
-                                            .foregroundColor(isSelected ? Color(hex: "#67E8F9") : Color(hex: "#C5C8CD"))
-                                            .clipShape(RoundedRectangle(cornerRadius: 7))
-                                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(isSelected ? Color(hex: "#22D3EE").opacity(0.55) : Color.white.opacity(0.1), lineWidth: 1))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(opt.label)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundColor(isSelected ? Color(hex: "#67E8F9") : Color(hex: "#F5F6F8"))
+                                            if !opt.description.isEmpty {
+                                                Text(opt.description)
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(Color(hex: "#9AA0A8"))
+                                                    .multilineTextAlignment(.leading)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 10).padding(.vertical, 6)
+                                        .background(isSelected ? Color(hex: "#22D3EE").opacity(0.22) : Color.white.opacity(0.07))
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color(hex: "#22D3EE").opacity(0.55) : Color.white.opacity(0.1), lineWidth: 1))
                                     }
                                     .buttonStyle(.plain)
                                     .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
-                                } else {
-                                    SecondaryButton(verbatim: opt.label) {
-                                        selectAndProceed(q: q, qi: qi, label: opt.label, isLast: isLast)
-                                    }
-                                    .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                }
+                                SecondaryButton("Other…") {
+                                    if qi < showOther.count { showOther[qi] = true }
                                 }
                             }
-                            // "Other…" implicit free-text option
-                            SecondaryButton("Other…") {
-                                if qi < showOther.count { showOther[qi] = true }
+                        } else {
+                            ChipFlowLayout(spacing: 6) {
+                                ForEach(Array(item.options.enumerated()), id: \.offset) { idx, opt in
+                                    let isSelected = curSel.contains(opt.label)
+                                    if isMulti {
+                                        Button {
+                                            toggleSelection(qi: qi, label: opt.label)
+                                        } label: {
+                                            Text(opt.label)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                                .background(isSelected ? Color(hex: "#22D3EE").opacity(0.22) : Color.white.opacity(0.07))
+                                                .foregroundColor(isSelected ? Color(hex: "#67E8F9") : Color(hex: "#C5C8CD"))
+                                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(isSelected ? Color(hex: "#22D3EE").opacity(0.55) : Color.white.opacity(0.1), lineWidth: 1))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                    } else {
+                                        SecondaryButton(verbatim: opt.label) {
+                                            selectAndProceed(q: q, qi: qi, label: opt.label, isLast: isLast)
+                                        }
+                                        .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                    }
+                                }
+                                // "Other…" implicit free-text option
+                                SecondaryButton("Other…") {
+                                    if qi < showOther.count { showOther[qi] = true }
+                                }
                             }
                         }
-                    }
-                    // Send/Next — only for multi-select (and not while "Other…" field is open)
-                    if isMulti && !curOther {
-                        PrimaryButton(isLast ? "Send" : "Next") {
-                            proceedFromQuestion(q: q, qi: qi, isLast: isLast)
+                        // Send/Next — only for multi-select (and not while "Other…" field is open)
+                        if isMulti && !curOther {
+                            PrimaryButton(isLast ? "Send" : "Next") {
+                                proceedFromQuestion(q: q, qi: qi, isLast: isLast)
+                            }
+                            .disabled(!canProceed)
+                            .opacity(canProceed ? 1 : 0.4)
                         }
-                        .disabled(!canProceed)
-                        .opacity(canProceed ? 1 : 0.4)
                     }
+                    .disabled(!armed)
+                    .opacity(armed ? 1 : 0.4)
                 }
                 .padding(.leading, 116)
                 .padding(.trailing, 16)
@@ -401,6 +441,16 @@ struct QuestionView: View {
         // connection closes or times out (HookServer).
         .onAppear { resetQuestionState() }
         .onChange(of: state.pendingQuestion) { _, _ in resetQuestionState() }
+        // Disarmed whenever the request on screen changes, armed 0.6 s later (see ApprovalView).
+        .onChange(of: requestOnScreen, initial: true) { _, onScreen in
+            armGeneration += 1
+            armed = false
+            guard onScreen != nil else { return }
+            let generation = armGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + PendingRequest.armingDelay) {
+                if armGeneration == generation { armed = true }
+            }
+        }
     }
 
     private func resetQuestionState() {

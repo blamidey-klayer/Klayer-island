@@ -184,6 +184,9 @@ final class AppState: ObservableObject {
     @Published var pendingQuestion: AskQuestion? = nil {
         didSet { QuestionLayout.height = pendingQuestion?.estimatedIslandHeight }
     }
+    // Token of the pending question (HookServer), set before `pendingQuestion`: the card re-arms
+    // its buttons and keeps its draft per request, even for two questions with the same text.
+    @Published var pendingQuestionRequestId: Int = 0
 
     // Choices answered from the island (permissions and questions), kept in choices.json.
     // `recentChoices` is the 5 newest, newest first, for the open island.

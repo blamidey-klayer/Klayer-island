@@ -49,10 +49,12 @@ final class HookServer: @unchecked Sendable {
         approvalFDSource = nil
     }
 
-    /// Cancels the approval fd source (which closes the fd via its cancel handler), shows a
-    /// 3-second note, clears approval state, then collapses the island.
+    /// Cancels the approval fd source (which closes the fd via its cancel handler), clears the
+    /// approval, then shows the note for 3 s (`requestLeft`): the request still waiting replaces
+    /// it, else the island folds.
     @MainActor
     private func dismissApprovalCard(note: String) {
+        let onScreen = requestOnScreen
         // cancelApprovalFDSource() triggers the cancel handler which closes the fd.
         // Never close the fd here directly — Apple requires it to happen in the cancel handler.
         cancelApprovalFDSource()
@@ -62,29 +64,109 @@ final class HookServer: @unchecked Sendable {
         let pillId = state.pendingApproval?.pillId ?? "integration_claude"
         let sessionId = state.pendingApproval?.sessionId
         state.pendingApproval = nil
-        state.isPinned = false
-        state.updateTask(id: pillId, state: .working)
         resumeSession(sessionId)
-        clearPillBadge(id: pillId)
-        // Restore focus to the pill that was focused before the approval card appeared.
-        if let prev = focusBeforeApproval {
-            focusBeforeApproval = nil
-            if state.focusId == pillId, state.tasks.contains(where: { $0.id == prev }) {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = prev }
-            }
-        }
-        state.noteMessage = note
-        state.view = .note
-        foldNoteAfterDelay()
+        requestLeft(.approval, pillId: pillId, onScreen: onScreen, note: note)
     }
 
-    /// Folds the island 3 seconds after a "Handled in …" note, but only if the note is still the
-    /// view: another view that took its place (the end of a session, a question) is not folded.
+    // MARK: - After a request leaves (spec §1: no request stays unseen)
+
+    /// The request card the open island shows, nil when it is folded or shows another view.
     @MainActor
-    private func foldNoteAfterDelay() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            if AppState.shared.view == .note {
-                NotificationCenter.default.post(name: .islandCollapse, object: nil)
+    private var requestOnScreen: PendingRequest? {
+        let state = AppState.shared
+        guard state.mode == .expanded else { return nil }
+        if state.view == .approval, state.pendingApproval != nil { return .approval }
+        if state.view == .question, state.pendingQuestion != nil { return .question }
+        return nil
+    }
+
+    /// A permission or a question left (answered, handed back, handled elsewhere, timed out), its
+    /// pending state already cleared. Its pill and the focus are given back, then the island shows
+    /// what `PendingRequest.after` decides: the other request first, else the home; never a change
+    /// under the pointer when the other card is the one on screen.
+    @MainActor
+    private func requestLeft(_ kind: PendingRequest, pillId: String, onScreen: PendingRequest?, note: String) {
+        let state = AppState.shared
+        let approval = state.pendingApproval != nil
+        let question = state.pendingQuestion != nil
+        // A request still waiting keeps the island pinned: Escape typed in another app never folds it.
+        state.isPinned = approval || question
+        // The pill goes back to work, unless the other request of the same pill still waits on it.
+        if mayRemovePill(pillId) { state.updateTask(id: pillId, state: .working) }
+        clearPillBadge(id: pillId)
+        let after = PendingRequest.after(leaving: kind, onScreen: onScreen, note: !note.isEmpty,
+                                         approval: approval, question: question)
+        // The focus saved when this request took the screen.
+        let saved: String?
+        switch kind {
+        case .approval: saved = focusBeforeApproval; focusBeforeApproval = nil
+        case .question: saved = focusBeforeQuestion; focusBeforeQuestion = nil
+        }
+        if after == .keepView {
+            // The other card stays, its pill in focus: it gives the oldest saved focus back when answered.
+            switch kind {
+            case .approval: focusBeforeQuestion = saved ?? focusBeforeQuestion
+            case .question: focusBeforeApproval = saved ?? focusBeforeApproval
+            }
+        } else if let prev = saved, state.focusId == pillId, state.tasks.contains(where: { $0.id == prev }) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = prev }
+        }
+        switch after {
+        case .keepView:        break
+        case .note:            showNote(note)
+        case .show(let next):  showHeldRequest(next)
+        case .home:            state.view = state.tasks.isEmpty ? .empty : .overview
+        }
+    }
+
+    /// Puts a request that waited behind another card (or behind a note) on screen: its pill takes
+    /// the focus and the pose of the request, its badge goes. The card's buttons arm 0.6 s later.
+    @MainActor
+    private func showHeldRequest(_ kind: PendingRequest) {
+        let state = AppState.shared
+        let pillId: String
+        switch kind {
+        case .approval:
+            guard let info = state.pendingApproval else { return }
+            pillId = info.pillId
+            if focusBeforeApproval == nil { focusBeforeApproval = state.focusId }
+            state.updateTask(id: pillId, state: .approval)
+        case .question:
+            guard state.pendingQuestion != nil else { return }
+            pillId = questionPillId
+            if focusBeforeQuestion == nil { focusBeforeQuestion = state.focusId }
+            state.updateTask(id: pillId, state: .question)
+        }
+        clearPillBadge(id: pillId)
+        if state.focusId != pillId, state.tasks.contains(where: { $0.id == pillId }) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
+        }
+        state.view = kind == .approval ? .approval : .question
+    }
+
+    /// Token of the note on screen: the 3 s timer of an earlier note never ends a later one.
+    private var noteToken = 0
+
+    /// Shows « Handled in … » or « Still waiting in … » for 3 s, then `PendingRequest.noteEnd`:
+    /// the request still waiting replaces the note (the island stays open), else the island folds.
+    /// Nothing happens if the note is no longer on screen.
+    @MainActor
+    private func showNote(_ note: String) {
+        let state = AppState.shared
+        noteToken += 1
+        let token = noteToken
+        state.noteMessage = note
+        state.view = .note
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self else { return }
+            let state = AppState.shared
+            let end = PendingRequest.noteEnd(noteStillOnScreen: self.noteToken == token && state.view == .note,
+                                             approval: state.pendingApproval != nil,
+                                             question: state.pendingQuestion != nil)
+            switch end {
+            case .nothing:         break
+            case .show(let next):  self.showHeldRequest(next)
+            case .fold:            NotificationCenter.default.post(name: .islandCollapse, object: nil)
             }
         }
     }
@@ -97,8 +179,11 @@ final class HookServer: @unchecked Sendable {
         questionFDSource = nil
     }
 
+    /// Clears the question (its source closes the fd), then the island shows what `requestLeft`
+    /// decides: the permission still waiting first, else the home.
     @MainActor
     private func dismissQuestionCard(note: String) {
+        let onScreen = requestOnScreen
         cancelQuestionFDSource()
         pendingQuestionFD = -1
         requestTokens.release(.question)
@@ -107,22 +192,7 @@ final class HookServer: @unchecked Sendable {
         resumeSession(questionSessionId)
         questionSessionId = nil
         state.pendingQuestion = nil
-        state.isPinned = false
-        state.updateTask(id: pillId, state: .working)
-        clearPillBadge(id: pillId)
-        if let prev = focusBeforeQuestion {
-            focusBeforeQuestion = nil
-            if state.focusId == pillId, state.tasks.contains(where: { $0.id == prev }) {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = prev }
-            }
-        }
-        if !note.isEmpty {
-            state.noteMessage = note
-            state.view = .note
-            foldNoteAfterDelay()
-        } else {
-            state.view = state.tasks.isEmpty ? .empty : .overview
-        }
+        requestLeft(.question, pillId: pillId, onScreen: onScreen, note: note)
     }
 
     /// Called by QuestionView. Sends answers JSON and cleans up.
@@ -680,6 +750,12 @@ final class HookServer: @unchecked Sendable {
 
         let command = toolInput["command"] as? String ?? tool
 
+        // A question card on screen is never swapped for this permission under the pointer: the
+        // permission waits behind it, badged, and shows once the question is answered.
+        let onScreen = requestOnScreen
+        let takesScreen = PendingRequest.arrivalTakesScreen(.approval, onScreen: onScreen)
+        let cardPill: String? = onScreen == .question ? questionPillId : nil
+
         if pendingApprovalFD >= 0 {
             // Displace the previous request: write "ask" then cancel its source.
             // The cancel handler closes the old fd — never close it directly.
@@ -700,20 +776,27 @@ final class HookServer: @unchecked Sendable {
 
         upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName,
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
-        state.updateTask(id: pillId, state: .approval)
+        // The pill of the question card on screen keeps the question's pose.
+        if takesScreen || pillId != cardPill { state.updateTask(id: pillId, state: .approval) }
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .approval,
                             lastAction: SessionRoster.line(command),
                             hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
-                                              command: command, inputKey: inputKey, pillId: pillId)
+                                              command: command, inputKey: inputKey, pillId: pillId,
+                                              requestId: token)
         state.isPinned = true
         SoundEngine.shared.play("approval")
 
-        // Approval always forces the island open — user must be able to respond.
-        // Save current focus so we can restore it when the card is dismissed.
-        if focusBeforeApproval == nil { focusBeforeApproval = state.focusId }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
-        expandIfNeeded(to: .approval)
+        if takesScreen {
+            // Approval forces the island open — user must be able to respond.
+            // Save current focus so we can restore it when the card is dismissed.
+            if focusBeforeApproval == nil { focusBeforeApproval = state.focusId }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
+            expandIfNeeded(to: .approval)
+        } else {
+            // Badge and sound only; requestLeft shows it when the question leaves.
+            setPillBadge(id: pillId, badge: .approval)
+        }
 
         // Monitor fd: if the editor closes the connection (handled externally), dismiss the card.
         // The cancel handler closes the fd — never close it anywhere else.
@@ -738,6 +821,7 @@ final class HookServer: @unchecked Sendable {
     /// Called by ApprovalView buttons. Writes the decision to the waiting nb-hook and cleans up.
     @MainActor
     func sendApprovalDecision(_ decision: String) {
+        let onScreen = requestOnScreen
         let fd = pendingApprovalFD
         pendingApprovalFD = -1
         requestTokens.release(.approval)
@@ -775,18 +859,9 @@ final class HookServer: @unchecked Sendable {
         }
         let answeredSessionId = state.pendingApproval?.sessionId
         state.pendingApproval = nil
-        state.isPinned = false
-        state.updateTask(id: pillId, state: .working)
         resumeSession(answeredSessionId)
-        clearPillBadge(id: pillId)
-        // Restore focus to the pill that was focused before the approval card appeared.
-        if let prev = focusBeforeApproval {
-            focusBeforeApproval = nil
-            if state.focusId == pillId, state.tasks.contains(where: { $0.id == prev }) {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = prev }
-            }
-        }
-        state.view = state.tasks.isEmpty ? .empty : .overview
+        // The question still waiting shows next, else the home.
+        requestLeft(.approval, pillId: pillId, onScreen: onScreen, note: "")
     }
 
     // MARK: - Question request
@@ -814,6 +889,12 @@ final class HookServer: @unchecked Sendable {
         let pillId = route.pillId
         let terminalHost = route.terminalHost
 
+        // A permission card on screen is never swapped for this question under the pointer: the
+        // question waits behind it, badged, and shows once the permission is answered.
+        let onScreen = requestOnScreen
+        let takesScreen = PendingRequest.arrivalTakesScreen(.question, onScreen: onScreen)
+        let cardPill: String? = onScreen == .approval ? state.pendingApproval?.pillId : nil
+
         // Displace any previous question waiting for an answer.
         if pendingQuestionFD >= 0 {
             let old = pendingQuestionFD
@@ -834,17 +915,25 @@ final class HookServer: @unchecked Sendable {
 
         upsertRequestPill(agent: rawAgent, pillId: pillId, projectName: projectName,
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
-        state.updateTask(id: pillId, state: .question)
+        // The pill of the permission card on screen keeps the permission's pose.
+        if takesScreen || pillId != cardPill { state.updateTask(id: pillId, state: .question) }
         state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .question,
                             lastAction: parsed.questions.first.flatMap { SessionRoster.line($0.question) },
                             hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
+        // The request id first: the card keys its draft and the arming of its buttons on it.
+        state.pendingQuestionRequestId = token
         state.pendingQuestion = parsed
         state.isPinned = true
         SoundEngine.shared.play("approval")
 
-        if focusBeforeQuestion == nil { focusBeforeQuestion = state.focusId }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
-        expandIfNeeded(to: .question)
+        if takesScreen {
+            if focusBeforeQuestion == nil { focusBeforeQuestion = state.focusId }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
+            expandIfNeeded(to: .question)
+        } else {
+            // Badge and sound only; requestLeft shows it when the permission leaves.
+            setPillBadge(id: pillId, badge: .approval)
+        }
 
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in

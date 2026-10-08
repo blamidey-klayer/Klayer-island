@@ -23,6 +23,69 @@ enum PendingRequest: Equatable {
     static func outsideClickActs(pinned: Bool, requestPending: Bool) -> Bool {
         !pinned || requestPending
     }
+
+    // MARK: - After a request leaves (spec §1: no request stays unseen)
+
+    /// What the island shows once a request left: answered from its card, handed back to its
+    /// window, handled there, or timed out.
+    enum AfterRequest: Equatable {
+        /// The card of the other request is on screen: it stays as it is, nothing moves under
+        /// the pointer.
+        case keepView
+        /// The note « Handled in … » or « Still waiting in … », then `noteEnd` decides.
+        case note
+        /// The other request, waiting behind the one that left.
+        case show(PendingRequest)
+        /// The home.
+        case home
+    }
+
+    /// `leaving`: the request that left. `onScreen`: the request card the open island shows (nil
+    /// when it is folded or shows another view). `note`: the request left with a note.
+    /// `approval`, `question`: what is still pending once it left. The other request comes first,
+    /// before the home, and never under a note when the other card is the one on screen.
+    static func after(leaving: PendingRequest, onScreen: PendingRequest?, note: Bool,
+                      approval: Bool, question: Bool) -> AfterRequest {
+        if let onScreen, onScreen != leaving { return .keepView }
+        if note { return .note }
+        if let next = first(approval: approval, question: question) { return .show(next) }
+        return .home
+    }
+
+    /// What the 3 s timer of a note does.
+    enum NoteEnd: Equatable {
+        /// The note is no longer on screen (another note, a request or a finished view took its
+        /// place): whatever is there stays.
+        case nothing
+        /// A request waits: its card replaces the note, the island stays open.
+        case show(PendingRequest)
+        /// Nothing waits: the island folds.
+        case fold
+    }
+
+    /// `noteStillOnScreen`: this very note is still the view (each note has its own token, so an
+    /// earlier note's timer never ends a later one).
+    static func noteEnd(noteStillOnScreen: Bool, approval: Bool, question: Bool) -> NoteEnd {
+        guard noteStillOnScreen else { return .nothing }
+        if let next = first(approval: approval, question: question) { return .show(next) }
+        return .fold
+    }
+
+    // MARK: - A card never changes under the pointer (CLAUDE.md: an explicit click)
+
+    /// Whether a request that just arrived takes the screen. `onScreen`: the request card the
+    /// open island shows, nil when it shows none. A card is never swapped for a request of the
+    /// other kind, which waits (badge and sound) until the first is answered. A newer request of
+    /// the same kind replaces the older one, which goes back to its own window.
+    static func arrivalTakesScreen(_ incoming: PendingRequest, onScreen: PendingRequest?) -> Bool {
+        guard let onScreen else { return true }
+        return onScreen == incoming
+    }
+
+    /// How long the buttons of a permission or question card stay disabled and dimmed after the
+    /// request on screen changed (a new request, another card, the island opening on it): a click
+    /// aimed at what was there before never answers the request that took its place.
+    static let armingDelay: TimeInterval = 0.6
 }
 
 /// One token per request the island holds, a permission and a question at most. A timer or a

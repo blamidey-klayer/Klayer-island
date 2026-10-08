@@ -38,6 +38,8 @@ struct ApprovalInfo: Sendable {
     var inputKey: String
     /// Pill that owns this approval: "integration_claude", or "agent_claude-desktop" for a Claude app session.
     var pillId: String
+    /// Token of the held request (HookServer): the card re-arms its buttons when it changes.
+    var requestId: Int = 0
 }
 
 // MARK: - Pill badge (shown on pill edge when non-focused task has an alert)
