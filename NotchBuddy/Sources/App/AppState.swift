@@ -184,6 +184,16 @@ final class AppState: ObservableObject {
         didSet { QuestionLayout.height = pendingQuestion?.estimatedIslandHeight }
     }
 
+    // Choices answered from the island (permissions and questions), kept in choices.json.
+    // `recentChoices` is the 5 newest, newest first, for the open island.
+    let choiceHistory = ChoiceHistory(fileURL: HookServer.supportDir.appendingPathComponent("choices.json"))
+    @Published private(set) var recentChoices: [ChoiceRecord] = []
+
+    func recordChoice(_ r: ChoiceRecord) {
+        choiceHistory.record(r)
+        recentChoices = choiceHistory.latest(5)
+    }
+
     // Per-pill flat list of FileDiffs, in order of reception.
     // Not @Published — steps[] changes already trigger redraws.
     var sessionDiffs: [String: [FileDiff]] = [:]
@@ -255,6 +265,7 @@ final class AppState: ObservableObject {
         if let v = ud.object(forKey: "soundEnabled") as? Bool   { soundEnabled = v }
         if let v = ud.object(forKey: "soundVolume")  as? Double { soundVolume  = v }
         pillColors = PillColors.stored
+        recentChoices = choiceHistory.latest(5)
         if let v = ud.string(forKey: "claudeModel"),
            !v.trimmingCharacters(in: .whitespaces).isEmpty { claudeModel = v }
         // Migrate old 60s default → 15s
