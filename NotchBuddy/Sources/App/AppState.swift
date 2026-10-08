@@ -129,11 +129,6 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(autoCloseInterval, forKey: "autoCloseInterval") }
     }
 
-    // Absence interval — persisted
-    var absenceInterval: TimeInterval = 3 * 60 {
-        didSet { UserDefaults.standard.set(absenceInterval, forKey: "absenceInterval") }
-    }
-
     // Greeting threshold — how long hidden before greeting on reappear (default 2 min)
     var greetThresholdSeconds: TimeInterval = 120 {
         didSet { UserDefaults.standard.set(greetThresholdSeconds, forKey: "greetThreshold") }
@@ -280,7 +275,6 @@ final class AppState: ObservableObject {
         if let v = ud.object(forKey: "autoCloseInterval") as? Double {
             autoCloseInterval = (v == 60) ? 15 : v
         }
-        if let v = ud.object(forKey: "absenceInterval")   as? Double { absenceInterval   = v }
         if let v = ud.object(forKey: "greetThreshold")    as? Double { greetThresholdSeconds = v }
         if let v = ud.object(forKey: "hotkeyEnabled") as? Bool  { hotkeyEnabled = v }
         if let v = ud.object(forKey: "hotkeyFlags")   as? Int   { hotkeyFlags = UInt(v) }

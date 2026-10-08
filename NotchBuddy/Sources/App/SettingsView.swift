@@ -47,14 +47,6 @@ struct SettingsView: View {
     @State private var hotkeyFlags: UInt    = AppState.shared.hotkeyFlags
     @State private var hotkeyCode: UInt16   = AppState.shared.hotkeyCode
 
-    // Bindings in minutes for the absence field
-    private var absenceMinutes: Binding<Double> {
-        Binding(
-            get: { state.absenceInterval / 60 },
-            set: { state.absenceInterval = max(1, $0) * 60 }
-        )
-    }
-
     // Connected screens for the Display picker, refreshed when screens change
     @State private var connectedScreens: [(uuid: String, name: String)] = []
 
@@ -230,13 +222,6 @@ struct SettingsView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 64)
                     Text("s inactive")
-                }
-                HStack(spacing: 8) {
-                    Text("Hide after")
-                    TextField("3", value: absenceMinutes, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 48)
-                    Text("min without movement")
                 }
             }
             .padding(6)

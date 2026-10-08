@@ -179,7 +179,7 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 
 ### 2.8 Réglages et raccourcis (2 min)
 
-- [ ] Réglages, General, Behavior. Attendu : le réglage « Open on hover » a disparu.
+- [ ] Réglages, General, Behavior. Attendu : les réglages « Open on hover » et « Masquer après … min sans mouvement » (Hide after … min without movement) ont disparu. Seul « Fermer après … s d'inactivité » (Close after) reste.
 - [ ] Réglages, Active pills. Attendu : plus de sélecteur Main. « Claude Code » est marqué Main. Claude Desktop, GitHub et Spotify ont un interrupteur et une palette de couleur.
 - [ ] ⌘E dans l'île. Attendu : rien. Réglages, Shortcuts : plus de ligne ⌘E.
 - [ ] ⌃⌥T avec une session ouverte. Attendu : le terminal ou l'éditeur de la session la plus récente passe devant (l'app Claude si c'est une session de l'app). Sans session ou terminal fermé : le terminal de la pastille en focus, puis Terminal.
