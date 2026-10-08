@@ -28,6 +28,9 @@ enum ClaudeCLITests {
             ("shell_lookup_reads_an_executable_path", shellLookupReadsAnExecutablePath),
             ("chat_system_prompt", chatSystemPrompt),
             ("stderr_tail_and_last_line", stderrTailAndLastLine),
+            ("chat_answer_folds_a_turn", chatAnswerFoldsATurn),
+            ("chat_answer_trips_on_any_tool", chatAnswerTripsOnAnyTool),
+            ("pdf_text_reads_pages_up_to_the_limit", pdfTextReadsPagesUpToTheLimit),
         ]
         for (name, run) in cases {
             run()
@@ -527,6 +530,14 @@ enum ClaudeCLITests {
         let huge = file("huge.png", Data(count: ChatAttachment.maxImageBytes + 1))
         precondition(ChatAttachment.load(url: huge) == .refused("Cette image dépasse 5 Mo."))
 
+        // A PDF over 50 MB is refused from its size alone (a sparse file: nothing is read).
+        precondition(ChatAttachment.maxPDFBytes == 50 * 1024 * 1024)
+        let bigPDF = file("gros.pdf", Data())
+        let handle = try! FileHandle(forWritingTo: bigPDF)
+        try! handle.truncate(atOffset: UInt64(ChatAttachment.maxPDFBytes + 1))
+        try! handle.close()
+        precondition(ChatAttachment.load(url: bigPDF) == .refused("Ce PDF dépasse 50 Mo."))
+
         precondition(ChatAttachment.load(url: file("archive.zip", Data([1]))) == .refused(ChatAttachment.unsupportedMessage))
         precondition(ChatAttachment.load(url: dir.appendingPathComponent("gone.txt")) == .refused("Impossible de lire ce fichier."),
                      "a file that is gone is refused, never a crash")
@@ -657,5 +668,137 @@ enum ClaudeCLITests {
         precondition(ClaudeCLI.lastErrorLine(Data(" \n\n".utf8)) == nil)
         let long = ClaudeCLI.lastErrorLine(Data(String(repeating: "z", count: 1_000).utf8)) ?? ""
         precondition(long.count == 200 && long.hasSuffix("…"), "a short error, cut at 200 characters")
+    }
+
+    // MARK: - The chat's answer (Task 14 review)
+
+    static func delta(_ text: String) -> ClaudeStreamEvent { .textDelta(text) }
+
+    static func chatAnswerFoldsATurn() {
+        // Deltas fold into the text, the full text replaces them, the turn end keeps it.
+        var answer = ChatAnswer()
+        answer.read([.initialized(tools: []), delta("Bon"), delta("jour")])
+        precondition(answer.text == "Bonjour" && answer.end == nil, "the bubble grows with each delta")
+        answer.read([delta(" !"), .assistantText("Bonjour Théo !")])
+        precondition(answer.text == "Bonjour Théo !", "the full text replaces the pieces")
+        answer.read([.turnEnded(isError: false, message: "Bonjour Théo !")])
+        precondition(answer.end == .answered("Bonjour Théo !"))
+        // Nothing after the end of the turn changes it.
+        answer.read([delta("trop tard"), .turnEnded(isError: true, message: "x")])
+        precondition(answer.text == "Bonjour Théo !" && answer.end == .answered("Bonjour Théo !"))
+
+        // Events after the end in the same read are ignored too.
+        var same = ChatAnswer()
+        same.read([delta("Oui"), .turnEnded(isError: false, message: nil), delta("encore")])
+        precondition(same.text == "Oui" && same.end == .answered("Oui"))
+
+        // No delta and no full text: the result text is the answer.
+        var fallback = ChatAnswer()
+        fallback.read([.turnEnded(isError: false, message: "Réponse du résultat")])
+        precondition(fallback.text == "Réponse du résultat" && fallback.end == .answered("Réponse du résultat"))
+
+        // Nothing at all, or blank text: an empty answer.
+        var empty = ChatAnswer()
+        empty.read([delta("  \n"), .turnEnded(isError: false, message: " ")])
+        precondition(empty.end == .empty)
+        precondition(ChatAnswer.emptyMessage == "Claude n'a rien répondu.")
+
+        // An error keeps its message; a blank one leaves it to the caller (stderr line).
+        var failed = ChatAnswer()
+        failed.read([delta("début"), .turnEnded(isError: true, message: "API Error: overloaded")])
+        precondition(failed.end == .failed("API Error: overloaded") && failed.text == "début")
+        var silent = ChatAnswer()
+        silent.read([.turnEnded(isError: true, message: "  ")])
+        precondition(silent.end == .failed(nil))
+
+        // Read through the parser, line by line, as ChatSession does.
+        var parser = ClaudeStreamParser()
+        var streamed = ChatAnswer()
+        let lines = [
+            "{\"type\":\"system\",\"subtype\":\"init\",\"tools\":[]}",
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Sa\"}}}",
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"lut\"}}}",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Salut\"}]}}",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Salut\"}",
+        ]
+        for line in lines { streamed.read(feedLine(&parser, line)) }
+        precondition(streamed.end == .answered("Salut"))
+    }
+
+    static func chatAnswerTripsOnAnyTool() {
+        precondition(ChatAnswer.toolsMessage == "Le chat a reçu des outils : arrêt par sécurité.")
+        // The process says it has a tool: stopped before any text is kept.
+        var offered = ChatAnswer()
+        offered.read([.initialized(tools: ["Read"]), delta("je lis le fichier")])
+        precondition(offered.end == .toolsOffered && offered.text.isEmpty, "a listed tool stops the turn at once")
+        var mcp = ChatAnswer()
+        mcp.read([.initialized(tools: ["mcp__claude_ai_Gmail__create_draft"])])
+        precondition(mcp.end == .toolsOffered, "a connector tool too")
+        // The model calls a tool, or a tool answers: stopped, whatever came before.
+        var used = ChatAnswer()
+        used.read([delta("Voyons"), .toolUse(name: "Bash", inputJSON: "{}"), .turnEnded(isError: false, message: "ok")])
+        precondition(used.end == .toolsOffered && used.text == "Voyons")
+        var result = ChatAnswer()
+        result.read([.toolResult(text: "contenu")])
+        precondition(result.end == .toolsOffered)
+        // No tool, or only EndConversation (it only ends the conversation, reads and changes
+        // nothing, and no flag can remove it while another tool remains): no trip.
+        var none = ChatAnswer()
+        none.read([.initialized(tools: []), .initialized(tools: ["EndConversation"]), delta("ok"),
+                   .turnEnded(isError: false, message: nil)])
+        precondition(none.end == .answered("ok"))
+        for event: ClaudeStreamEvent in [.initialized(tools: ["Read"]), .toolUse(name: "x", inputJSON: "{}"),
+                                         .toolResult(text: "")] {
+            precondition(ChatAnswer.breaksNoToolRule(event), "\(event) breaks the no-tool rule")
+        }
+        for event: ClaudeStreamEvent in [.initialized(tools: []), .initialized(tools: ["EndConversation"]),
+                                         delta("a"), .assistantText("a"), .turnEnded(isError: true, message: nil)] {
+            precondition(!ChatAnswer.breaksNoToolRule(event), "\(event) is not a tool")
+        }
+    }
+
+    static func pdfTextReadsPagesUpToTheLimit() {
+        // Pages are joined, a page without text is skipped.
+        var asked: [Int] = []
+        let short = ChatAttachment.pdfText(pageCount: 3, limit: 100, page: { index in
+            asked.append(index)
+            return ["Page un", nil, "Page trois"][index]
+        }, isCancelled: { false })
+        precondition(short == "Page un\n\nPage trois" && asked == [0, 1, 2])
+
+        // A long PDF stops being read once past the limit: one character more than the limit
+        // is kept, so the attachment knows it was cut.
+        asked = []
+        let long = ChatAttachment.pdfText(pageCount: 1_000, limit: 25, page: { index in
+            asked.append(index)
+            return String(repeating: "x", count: 10)
+        }, isCancelled: { false })
+        precondition(asked == [0, 1, 2], "pages after the limit are never read, got \(asked)")
+        precondition(long == "xxxxxxxxxx\n\nxxxxxxxxxx\n\nxx", "limit + 1 characters, separators counted, got \(long ?? "nil")")
+
+        // With the real limit, the text handed to the attachment is cut there and said so.
+        let pages = ChatAttachment.pdfText(pageCount: 30, page: { _ in String(repeating: "a", count: 10_000) },
+                                           isCancelled: { false })
+        precondition(pages?.count == ChatAttachment.maxPDFCharacters + 1)
+        guard case .ready(let attached) = ChatAttachment.make(name: "p.pdf", kind: .pdf, data: nil, pdfText: pages) else {
+            preconditionFailure("attached")
+        }
+        precondition(attached.text.hasSuffix("\n\n[Texte coupé à 200 000 caractères.]"))
+
+        // Exactly the limit: the whole text, nothing extra, so nothing is marked as cut.
+        let exact = ChatAttachment.pdfText(pageCount: 2, limit: 22, page: { _ in String(repeating: "b", count: 10) },
+                                           isCancelled: { false })
+        precondition(exact == String(repeating: "b", count: 10) + "\n\n" + String(repeating: "b", count: 10))
+
+        // A reset cancels the read between two pages.
+        var calls = 0
+        let cancelled = ChatAttachment.pdfText(pageCount: 10, limit: 1_000, page: { _ in
+            calls += 1
+            return "page"
+        }, isCancelled: { calls >= 2 })
+        precondition(cancelled == nil && calls == 2, "no page is read once cancelled")
+
+        // No page at all: no text.
+        precondition(ChatAttachment.pdfText(pageCount: 0, page: { _ in "x" }, isCancelled: { false }) == "")
     }
 }

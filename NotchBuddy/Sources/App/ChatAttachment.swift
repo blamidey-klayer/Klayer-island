@@ -33,6 +33,8 @@ struct ChatAttachment: Equatable, Sendable {
     static let maxImageBytes = 5 * 1024 * 1024
     /// A PDF's text is cut after 200 000 characters.
     static let maxPDFCharacters = 200_000
+    /// A PDF over 50 MB is not opened.
+    static let maxPDFBytes = 50 * 1024 * 1024
     /// A text file goes inline up to 200 KB.
     static let maxTextBytes = 200_000
 
@@ -41,6 +43,7 @@ struct ChatAttachment: Equatable, Sendable {
     static let imageTooLargeMessage = "Cette image dépasse 5 Mo."
     static let textTooLargeMessage = "Ce fichier dépasse 200 Ko."
     static let pdfWithoutTextMessage = "Ce PDF ne contient pas de texte lisible."
+    static let pdfTooLargeMessage = "Ce PDF dépasse 50 Mo."
 
     /// The attachment of a file of `kind`. `data` is the file's bytes (nil when it could not
     /// be read), `pdfText` the text PDFKit found in a PDF (nil when it found none).
@@ -76,7 +79,8 @@ struct ChatAttachment: Equatable, Sendable {
 
     /// Reads the dropped file at `url` and builds its attachment. The size on disk is checked
     /// before anything is read, so a huge file is refused without loading it. Blocking (a PDF
-    /// can take a moment): call it off the main thread.
+    /// can take a moment): call it off the main thread, in a Task; cancelling that Task stops a
+    /// PDF between two pages.
     static func load(url: URL) -> Outcome {
         let name = url.lastPathComponent
         let kind = ChatAttachmentKind.forExtension(url.pathExtension)
@@ -90,6 +94,8 @@ struct ChatAttachment: Equatable, Sendable {
             return .refused(imageTooLargeMessage)
         case .text where size.intValue > maxTextBytes:
             return .refused(textTooLargeMessage)
+        case .pdf where size.intValue > maxPDFBytes:
+            return .refused(pdfTooLargeMessage)
         case .pdf:
             return make(name: name, kind: kind, data: nil, pdfText: pdfText(at: url))
         default:
@@ -98,14 +104,38 @@ struct ChatAttachment: Equatable, Sendable {
         return make(name: name, kind: kind, data: try? Data(contentsOf: url), pdfText: nil)
     }
 
-    /// The text of the PDF at `url`, nil when PDFKit cannot open it or this platform has no
-    /// PDFKit (the Linux tests).
+    /// The text of the PDF at `url`, page by page up to the limit; nil when PDFKit cannot open
+    /// it, the read was cancelled, or this platform has no PDFKit (the Linux tests).
     private static func pdfText(at url: URL) -> String? {
         #if canImport(PDFKit)
-        return PDFDocument(url: url)?.string
+        guard let document = PDFDocument(url: url) else { return nil }
+        return pdfText(pageCount: document.pageCount, page: { document.page(at: $0)?.string })
         #else
         return nil
         #endif
+    }
+
+    /// The text of a PDF read page by page (`page` gives a page's text, nil when it has none),
+    /// pages separated by a blank line. Reading stops once the text is past `limit`: what comes
+    /// back is at most `limit + 1` characters, so `make` knows it was cut, and a long PDF is
+    /// never turned into text whole. `isCancelled` is asked before each page; nil when it says so.
+    static func pdfText(pageCount: Int, limit: Int = maxPDFCharacters, page: (Int) -> String?,
+                        isCancelled: () -> Bool = { Task.isCancelled }) -> String? {
+        var text = ""
+        var count = 0
+        for index in 0..<max(pageCount, 0) {
+            if isCancelled() { return nil }
+            guard let pageText = page(index), !pageText.isEmpty else { continue }
+            let piece = text.isEmpty ? pageText : "\n\n" + pageText
+            let length = piece.count
+            if count + length > limit {
+                text += piece.prefix(limit + 1 - count)
+                return text
+            }
+            text += piece
+            count += length
+        }
+        return text
     }
 }
 
@@ -113,7 +143,7 @@ struct ChatAttachment: Equatable, Sendable {
 
 /// What one message of the chat carries to Claude Code: a single text and the images, written
 /// on the process's stdin as one `stream-json` line (images first).
-struct ChatOutgoing: Equatable {
+struct ChatOutgoing: Equatable, Sendable {
     let text: String
     let images: [ChatImage]
 

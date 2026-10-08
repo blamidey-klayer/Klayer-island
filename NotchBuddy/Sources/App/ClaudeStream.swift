@@ -261,3 +261,90 @@ struct GmailDraftPreview: Equatable {
                                  body: object["body"] as? String ?? "")
     }
 }
+
+// MARK: - One answer of the quick chat (Task 14)
+
+/// One answer of the quick chat, folded from the events of its turn. Foundation only, tested
+/// by scripts/test-claude-cli.sh: ChatSession writes what this decides and nothing more.
+///
+/// The chat must have no tool. Its flags already remove them all (`ClaudeCLI.chatArguments`),
+/// but the user's own permission rules still apply under `dontAsk`, so the answer also checks
+/// for itself: a tool listed by the process, a tool call or a tool result ends the turn as
+/// `toolsOffered`, and the caller stops the process.
+struct ChatAnswer: Equatable {
+    /// How a turn ended.
+    enum End: Equatable {
+        /// The text to keep in the bubble.
+        case answered(String)
+        /// A failed turn, with the CLI's message when it gave one (nil: the caller says, from
+        /// the last line of stderr or its own message).
+        case failed(String?)
+        /// The turn ended without any text.
+        case empty
+        /// The process has a tool or used one: stopped for safety.
+        case toolsOffered
+    }
+
+    static let emptyMessage = "Claude n'a rien répondu."
+    static let toolsMessage = "Le chat a reçu des outils : arrêt par sécurité."
+
+    /// Listed without being a risk: EndConversation only ends the conversation, never reads or
+    /// changes anything, and no flag can remove it while another tool remains (Claude Code
+    /// tools reference). Any other tool trips the check.
+    static let harmlessTools: Set<String> = ["EndConversation"]
+
+    /// The text the bubble shows so far.
+    private(set) var text = ""
+    /// Set once the turn is over; later events change nothing.
+    private(set) var end: End?
+
+    init() {}
+
+    /// True when the event shows that the process has a tool, or used one.
+    static func breaksNoToolRule(_ event: ClaudeStreamEvent) -> Bool {
+        switch event {
+        case .initialized(let tools):
+            return tools.contains { !harmlessTools.contains($0) }
+        case .toolUse, .toolResult:
+            return true
+        case .textDelta, .assistantText, .turnEnded:
+            return false
+        }
+    }
+
+    /// Reads the events of one stdout read, in order: deltas add to the text, a full text
+    /// replaces it, the turn end decides the outcome (the result text stands in when no text
+    /// came at all).
+    mutating func read(_ events: [ClaudeStreamEvent]) {
+        for event in events where end == nil {
+            if Self.breaksNoToolRule(event) {
+                end = .toolsOffered
+                return
+            }
+            switch event {
+            case .textDelta(let piece):
+                text += piece
+            case .assistantText(let whole):
+                text = whole
+            case .turnEnded(let isError, let message):
+                let said = message.flatMap { Self.isBlank($0) ? nil : $0 }
+                if isError {
+                    end = .failed(said)
+                } else if !Self.isBlank(text) {
+                    end = .answered(text)
+                } else if let said {
+                    text = said
+                    end = .answered(said)
+                } else {
+                    end = .empty
+                }
+            case .initialized, .toolUse, .toolResult:
+                break
+            }
+        }
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
