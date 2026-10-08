@@ -11573,6 +11573,36 @@
           }
         }
       }
+    },
+    "Vérifie les changements ci-dessous (- retiré, + ajouté), puis confirme.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifie les changements ci-dessous (- retiré, + ajouté), puis confirme."
+          }
+        }
+      }
+    },
+    "Les hooks sont déjà à jour : rien à écrire.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les hooks sont déjà à jour : rien à écrire."
+          }
+        }
+      }
+    },
+    "Aucun hook de Klayer Island à retirer.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun hook de Klayer Island à retirer."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

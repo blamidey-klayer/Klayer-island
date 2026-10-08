@@ -16,7 +16,7 @@ An event with any other value is dropped. A `PermissionRequest` carrying one is 
 
 ## Claude Code
 
-Settings → Agents → **Install hooks** writes the Klayer Island hooks into `~/.claude/settings.json`. The app backs the file up, merges its hooks, shows the diff and writes only after you confirm. The hook command is `nb-hook`, a shell wrapper around a Python relay that forwards each event to Klayer Island over a Unix domain socket and always exits 0, so Claude Code is never blocked.
+Settings → Agents → **Install hooks** writes the Klayer Island hooks into `~/.claude/settings.json`. The app first shows what changes in the `hooks` block, one entry per line (`-` removed, `+` added), writes only after you click **Confirm and write**, and backs the file up just before. It only touches its own entries: a command that runs its `nb-hook`, or the `~/.claude/klayer/nb-hook` of earlier builds. Your own hooks stay, even under a path that contains "klayer". **Uninstall** works the same way. The hook command is `nb-hook`, a shell wrapper around a Python relay that forwards each event to Klayer Island over a Unix domain socket and always exits 0, so Claude Code is never blocked.
 
 Events installed: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`, plus a dedicated `PreToolUse` hook for `AskUserQuestion` (`nb-hook --ask`).
 

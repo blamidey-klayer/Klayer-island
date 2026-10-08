@@ -257,7 +257,7 @@ Petit item dans la barre de menus (icône : silhouette du Klay, monochrome). Men
 
 Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Anthropic API** : clé (Trousseau), modèle (défaut `claude-sonnet-4-6` ; liste depuis l'API, voir INTEGRATIONS §5).
-- **Claude Code Hooks** : état des hooks, bouton Installer / Désinstaller.
+- **Claude Code Hooks** : état des hooks, boutons Installer et Désinstaller. Chacun montre d'abord les entrées du bloc `hooks` qui changent (« - » retirée, « + » ajoutée) et n'écrit qu'après « Confirmer et écrire », avec une sauvegarde datée juste avant. Seules les entrées de Klayer Island sont touchées (INTEGRATIONS §1).
 - **Plan usage** : toggle **Show in the notch** + bouton **Install relay** / **Uninstall relay**. Voir INTEGRATIONS §1bis. **Jauge de forfait Claude** : petit pill dans l'en-tête de l'île (vue home uniquement). Activé via `showPlanInNotch` (UserDefaults) + `HookServer.statusLineInstalled()`. Couleur = `ClaudePlanGauge.color(for: dominantPct)`. Clic → `showingPlanDetail` bascule et `ClaudePlanCardView` s'affiche à la place de la carte en cours. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode. Grand Klay prend la couleur de l'usage quand `showingPlanDetail == true`.
 - **Integrations** : jeton personnel GitHub (Trousseau).
 - **Sound** : son on/off, volume.

@@ -29,7 +29,10 @@ struct SettingsView: View {
     @State private var launchAtStartup: Bool = (SMAppService.mainApp.status == .enabled)
     @State private var statusMessage: String = ""
     @State private var showDiff: Bool = false
+    /// The previewed change to the "hooks" block, one entry per line (- removed, + added).
     @State private var pendingHookJSON: String = ""
+    /// What the pending preview does: install (true) or uninstall (false) the hooks.
+    @State private var hookPendingInstall: Bool = true
     @State private var hookNeedsUpdate: Bool = HookServer.hooksNeedUpdate()
 
     @State private var showStatusLineDiff: Bool = false
@@ -425,7 +428,7 @@ struct SettingsView: View {
                     .cornerRadius(6)
 
                     HStack {
-                        Button(String(localized: "hooks.confirm-write")) { confirmInstall() }
+                        Button(String(localized: "hooks.confirm-write")) { confirmHooks() }
                             .buttonStyle(.borderedProminent)
                         Button(String(localized: "Cancel")) { showDiff = false; pendingHookJSON = "" }
                             .buttonStyle(.bordered)
@@ -585,34 +588,45 @@ struct SettingsView: View {
 
     // MARK: - Hooks and status line
 
-    private func installHooks() {
+    private func installHooks() { previewHooks(install: true) }
+
+    /// Like the install: the entries that go are shown first, and nothing is written before
+    /// « Confirmer et écrire ».
+    private func uninstallHooks() { previewHooks(install: false) }
+
+    private func previewHooks(install: Bool) {
         do {
-            pendingHookJSON = try HookServer.shared.previewClaudeHooks()
-            showDiff = true
-            statusMessage = String(localized: "hooks.review-json")
+            let diff = try HookServer.shared.previewClaudeHooks(install: install)
+            hookPendingInstall = install
+            if diff.isEmpty {
+                showDiff = false
+                pendingHookJSON = ""
+                statusMessage = install
+                    ? String(localized: "Les hooks sont déjà à jour : rien à écrire.")
+                    : String(localized: "Aucun hook de Klayer Island à retirer.")
+            } else {
+                pendingHookJSON = diff.text
+                showDiff = true
+                statusMessage = String(localized: "Vérifie les changements ci-dessous (- retiré, + ajouté), puis confirme.")
+            }
         } catch {
+            showDiff = false
+            pendingHookJSON = ""
             statusMessage = "❌ \(error.localizedDescription)"
         }
     }
 
-    private func confirmInstall() {
+    private func confirmHooks() {
         do {
             try HookServer.shared.writeClaudeHooks()
             showDiff = false
-            statusMessage = String(localized: "status.hooks-installed-settings")
             pendingHookJSON = ""
-            hookNeedsUpdate = false
+            statusMessage = hookPendingInstall
+                ? String(localized: "status.hooks-installed-settings")
+                : String(localized: "status.hooks-removed")
+            hookNeedsUpdate = HookServer.hooksNeedUpdate()
         } catch {
             statusMessage = "❌ Write error: \(error.localizedDescription)"
-        }
-    }
-
-    private func uninstallHooks() {
-        do {
-            try HookServer.shared.uninstallClaudeHooks()
-            statusMessage = String(localized: "status.hooks-removed")
-        } catch {
-            statusMessage = "❌ \(error.localizedDescription)"
         }
     }
 

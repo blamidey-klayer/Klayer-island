@@ -72,11 +72,11 @@ Vérifier dans la doc la liste exacte des événements et leurs champs.
 Demande l'autorisation Automatisation la première fois (normal).
 
 ### Installation des hooks : procédure obligatoire
-1. Lire `~/.claude/settings.json` (le créer s'il n'existe pas).
-2. Copier en `~/.claude/settings.json.bak-AAAAMMJJ-HHMM`.
-3. **Fusionner** : ajouter les hooks Notch Buddy sans toucher aux hooks existants. Chemin de `nb-hook` entre guillemets (il contient un espace).
-4. Montrer le diff à Louis, attendre son OK, écrire.
-5. Bouton « Désinstaller les hooks » dans les réglages qui retire uniquement les entrées Notch Buddy.
+1. Lire `~/.claude/settings.json` (absent, il sera créé). Un fichier illisible, un JSON invalide ou un bloc `hooks` d'une forme inconnue arrête tout : rien n'est écrit.
+2. Ne toucher qu'aux entrées de Klayer Island (`KlayerHookCommand`) : une commande qui lance le `nb-hook` de l'app, chemin entre guillemets (il contient un espace), ou celui des anciennes builds, `~/.claude/klayer/nb-hook`. Seuls des arguments simples peuvent suivre (`--ask`). Un hook à vous n'est jamais retiré, même si son chemin contient « klayer » ou « NotchBuddy ». Une entrée est retirée seule ; son groupe ne part que s'il n'a plus rien.
+3. **Installer** retire les entrées de Klayer Island puis ajoute celles du jour. **Désinstaller** les retire seulement.
+4. Montrer les changements du bloc `hooks`, une entrée par ligne (« - » retirée, « + » ajoutée), et n'écrire qu'après « Confirmer et écrire ». Désinstaller suit la même étape. Si rien ne change, l'app le dit et n'écrit rien.
+5. Juste avant d'écrire, copier le fichier en `~/.claude/settings.json.bak-AAAAMMJJ-HHMMSS`. Si le fichier a changé depuis l'aperçu, ne rien écrire.
 
 ---
 

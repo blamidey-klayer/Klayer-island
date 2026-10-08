@@ -152,6 +152,106 @@ enum ClaudeSettingsFileTests {
         precondition(contents(real) == next)
         precondition(contents(linkBackup) == original)
 
+        try hooksMerge()
+
         print("Claude settings file: all checks passed")
+    }
+
+    // MARK: - Klayer Island's hooks in the "hooks" block
+
+    static func object(_ json: String) -> [String: Any] {
+        (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]
+    }
+
+    static func commands(_ hooks: [String: Any], _ event: String) -> [String] {
+        ((hooks[event] as? [[String: Any]]) ?? []).flatMap { group in
+            ((group["hooks"] as? [[String: Any]]) ?? []).compactMap { $0["command"] as? String }
+        }
+    }
+
+    static func hooksMerge() throws {
+        let name = "settings.json"
+        let ours = KlayerHookCommand(scriptPath: "/Users/me/Library/Application Support/NotchBuddy/nb-hook",
+                                     home: "/Users/me")
+        // The user's own hooks, one of them under a path that says "klayer", one sharing a group
+        // with an entry an earlier Klayer Island wrote, an empty group of their own, an event
+        // shape we do not know, and the old 110 s permission hook.
+        let before = try ClaudeSettingsFile.hooks(in: object(#"""
+        {"hooks":{
+          "SessionStart":[
+            {"hooks":[{"type":"command","command":"$HOME/tools/klayer-lint.sh"}]},
+            {"matcher":"startup","hooks":[
+              {"type":"command","command":"/bin/sh \"/Users/me/.claude/klayer/nb-hook\""},
+              {"type":"command","command":"~/bin/log-session.sh"}]}],
+          "Stop":[{"hooks":[]}],
+          "PermissionRequest":[{"hooks":[
+            {"type":"command","command":"\"/Users/me/Library/Application Support/NotchBuddy/nb-hook\"","timeout":110}]}],
+          "PreCompact":[{"hooks":[{"type":"command","command":"$HOME/.claude/klayer/nb-hook"}]}],
+          "CustomEvent":"left as it is"}}
+        """#), name: name)
+
+        // Uninstall: only our entries go; a group goes only once it is empty, an event too.
+        let removed = try ClaudeSettingsFile.replacingHooks(in: before, with: [], where: ours.isOurs, name: name)
+        precondition(commands(removed, "SessionStart") == ["$HOME/tools/klayer-lint.sh", "~/bin/log-session.sh"],
+                     "the user's hooks, and only theirs, stay: \(commands(removed, "SessionStart"))")
+        let startGroups = removed["SessionStart"] as? [[String: Any]] ?? []
+        precondition(startGroups.count == 2 && startGroups[1]["matcher"] as? String == "startup",
+                     "a group that still has the user's hook keeps its matcher")
+        precondition(removed["PermissionRequest"] == nil && removed["PreCompact"] == nil,
+                     "an event left with no group is dropped")
+        precondition((removed["Stop"] as? [[String: Any]])?.count == 1, "a group that was already empty is the user's")
+        precondition(removed["CustomEvent"] as? String == "left as it is", "an unknown shape is left as it is")
+
+        // The preview of the uninstall lists our three entries, removed, and nothing else.
+        let uninstallDiff = ClaudeSettingsFile.hooksDiff(before: before, after: removed)
+        precondition(uninstallDiff.added.isEmpty && uninstallDiff.removed.count == 3, "\(uninstallDiff.text)")
+        precondition(!uninstallDiff.text.contains("klayer-lint") && !uninstallDiff.text.contains("log-session"),
+                     "the user's hooks never show in the diff")
+        precondition(uninstallDiff.text.split(separator: "\n").allSatisfy { $0.hasPrefix("- ") })
+        precondition(uninstallDiff.text.contains(#"- PermissionRequest  {"command":"\"/Users/me/Library/Application Support/NotchBuddy/nb-hook\"","timeout":110,"type":"command"}"#),
+                     "an entry reads as its event and its hook, slashes unescaped: \(uninstallDiff.text)")
+        precondition(uninstallDiff.text.contains(#"- SessionStart [startup]  {"command":"/bin/sh \"/Users/me/.claude/klayer/nb-hook\"","type":"command"}"#),
+                     "a matcher shows in brackets: \(uninstallDiff.text)")
+
+        // Install: our entries are replaced by today's, the user's hooks stay where they were.
+        let installed = try ClaudeSettingsFile.replacingHooks(in: before, with: ours.installGroups,
+                                                              where: ours.isOurs, name: name)
+        precondition(commands(installed, "SessionStart") == ["$HOME/tools/klayer-lint.sh", "~/bin/log-session.sh", ours.written])
+        precondition(commands(installed, "PreToolUse") == [ours.written, ours.written + " --ask"])
+        precondition(installed["PreCompact"] == nil, "an entry of an earlier build in an event we no longer use goes")
+        precondition(installed["CustomEvent"] as? String == "left as it is")
+        let installDiff = ClaudeSettingsFile.hooksDiff(before: before, after: installed)
+        precondition(installDiff.removed.count == 3)
+        precondition(installDiff.added.count == ours.installGroups.count, "\(installDiff.text)")
+        precondition(installDiff.text.contains(#"+ PermissionRequest  {"command":"\"/Users/me/Library/Application Support/NotchBuddy/nb-hook\"","timeout":120,"type":"command"}"#))
+        precondition(installDiff.text.contains(#"+ PreToolUse [AskUserQuestion]  {"command":"\"/Users/me/Library/Application Support/NotchBuddy/nb-hook\" --ask","timeout":130,"type":"command"}"#))
+        precondition(!installDiff.text.contains("klayer-lint") && !installDiff.text.contains("log-session"))
+        // Removed lines of an event come before its added lines, events in alphabetical order.
+        let lines = installDiff.text.split(separator: "\n").map(String.init)
+        let permissionLines = lines.filter { $0.dropFirst(2).hasPrefix("PermissionRequest ") }
+        precondition(permissionLines.count == 2 && permissionLines[0].hasPrefix("- ") && permissionLines[1].hasPrefix("+ "))
+        let events = lines.map { String($0.dropFirst(2).prefix { $0 != " " }) }
+        precondition(events == events.sorted(), "events in order: \(events)")
+
+        // Installing again changes nothing: the diff is empty and there is nothing to confirm.
+        let again = try ClaudeSettingsFile.replacingHooks(in: installed, with: ours.installGroups,
+                                                          where: ours.isOurs, name: name)
+        let againDiff = ClaudeSettingsFile.hooksDiff(before: installed, after: again)
+        precondition(againDiff.isEmpty && againDiff.text.isEmpty, "\(againDiff.text)")
+
+        // Nothing of ours to remove: an empty diff too.
+        let clean = ClaudeSettingsFile.hooksDiff(before: removed, after: try ClaudeSettingsFile.replacingHooks(
+            in: removed, with: [], where: ours.isOurs, name: name))
+        precondition(clean.isEmpty)
+
+        // An event of ours in a shape we do not know is refused on install, never replaced.
+        let odd = object(#"{"hooks":{"Stop":"x"}}"#)["hooks"] as? [String: Any] ?? [:]
+        var refused: ClaudeSettingsFile.Failure? = nil
+        do { _ = try ClaudeSettingsFile.replacingHooks(in: odd, with: ours.installGroups, where: ours.isOurs, name: name) }
+        catch let error as ClaudeSettingsFile.Failure { refused = error }
+        precondition(refused == .unexpectedHooks(name))
+        // ...and kept as it is on uninstall.
+        let oddRemoved = try ClaudeSettingsFile.replacingHooks(in: odd, with: [], where: ours.isOurs, name: name)
+        precondition(oddRemoved["Stop"] as? String == "x")
     }
 }

@@ -19,17 +19,17 @@ enum ClaudeSettingsFile {
         var errorDescription: String? {
             switch self {
             case .unreadable(let name):
-                return "\(name) cannot be read — Klayer Island has not touched it."
+                return "\(name) cannot be read. Klayer Island has not touched it."
             case .invalid(let name):
-                return "\(name) is not valid JSON — Klayer Island has not touched it."
+                return "\(name) is not valid JSON. Klayer Island has not touched it."
             case .changed(let name):
-                return "\(name) changed since the preview. Nothing was written — review it again."
+                return "\(name) changed since the preview. Nothing was written: review it again."
             case .backupFailed(let name):
                 return "Could not back up \(name). Nothing was written."
             case .writeFailed(let name):
                 return "Could not write \(name). The original is untouched."
             case .unexpectedHooks(let name):
-                return "\(name): \"hooks\" has an unexpected type — Klayer Island has not touched it."
+                return "\(name): \"hooks\" has an unexpected type. Klayer Island has not touched it."
             }
         }
     }
@@ -48,6 +48,98 @@ enum ClaudeSettingsFile {
         guard let value = hooks[event] else { return [] }
         guard let groups = value as? [[String: Any]] else { throw Failure.unexpectedHooks(name) }
         return groups
+    }
+
+    // MARK: - Klayer Island's entries in the "hooks" object
+
+    /// `hooks` with every hook entry whose command `isOurs` taken out, then `groups` appended to
+    /// their events: the install passes the groups it writes, the uninstall none.
+    ///
+    /// Only matching entries go: a group that still holds another hook stays with its matcher, a
+    /// group or an event is dropped only when our entries were all it had (one the user left
+    /// empty stays), and any shape we do not know is kept as it is. Appending to an event of an
+    /// unknown shape throws, so it is never replaced.
+    static func replacingHooks(in hooks: [String: Any], with groups: [(event: String, group: [String: Any])],
+                               where isOurs: (String) -> Bool, name: String) throws -> [String: Any] {
+        var result = hooks
+        for (event, value) in hooks {
+            guard let eventGroups = value as? [[String: Any]] else { continue }
+            var kept: [[String: Any]] = []
+            for group in eventGroups {
+                guard let entries = group["hooks"] as? [[String: Any]] else { kept.append(group); continue }
+                let others = entries.filter { !isOurs($0["command"] as? String ?? "") }
+                if others.count == entries.count { kept.append(group); continue }
+                if others.isEmpty { continue }
+                var trimmed = group
+                trimmed["hooks"] = others
+                kept.append(trimmed)
+            }
+            if kept.isEmpty && !eventGroups.isEmpty { result.removeValue(forKey: event) } else { result[event] = kept }
+        }
+        for (event, group) in groups {
+            var eventGroups = try hookGroups(in: result, event: event, name: name)
+            eventGroups.append(group)
+            result[event] = eventGroups
+        }
+        return result
+    }
+
+    /// What a change to the "hooks" object does, entry by entry: the preview shown before any
+    /// write. An entry is its event, its group's matcher and its hook; entries found on both
+    /// sides (the user's hooks, ours when unchanged) are not listed.
+    struct HooksDiff: Equatable {
+        var removed: [String]
+        var added: [String]
+        var isEmpty: Bool { removed.isEmpty && added.isEmpty }
+        /// One line per entry, « - » removed and « + » added, events in alphabetical order and,
+        /// within an event, removed lines first. Empty when nothing changes.
+        let text: String
+    }
+
+    static func hooksDiff(before: [String: Any], after: [String: Any]) -> HooksDiff {
+        var removedLines: [String] = []
+        var addedLines: [String] = []
+        var text: [String] = []
+        for event in Set(before.keys).union(after.keys).sorted() {
+            let old = entries(of: event, in: before)
+            let new = entries(of: event, in: after)
+            let removed = subtracting(new, from: old)
+            let added = subtracting(old, from: new)
+            removedLines += removed
+            addedLines += added
+            text += removed.map { "- " + $0 } + added.map { "+ " + $0 }
+        }
+        return HooksDiff(removed: removedLines, added: addedLines, text: text.joined(separator: "\n"))
+    }
+
+    /// The entries of one event as diff lines: « Event [matcher]  {hook as compact JSON} ».
+    private static func entries(of event: String, in hooks: [String: Any]) -> [String] {
+        guard let groups = hooks[event] as? [[String: Any]] else {
+            guard let value = hooks[event] else { return [] }
+            return ["\(event)  \(compact(value))"]
+        }
+        return groups.flatMap { group -> [String] in
+            let matcher = (group["matcher"] as? String).flatMap { $0.isEmpty ? nil : " [\($0)]" } ?? ""
+            guard let list = group["hooks"] as? [Any] else { return ["\(event)\(matcher)  \(compact(group))"] }
+            return list.map { "\(event)\(matcher)  \(compact($0))" }
+        }
+    }
+
+    /// `items` without one occurrence of each element of `other`.
+    private static func subtracting(_ other: [String], from items: [String]) -> [String] {
+        var left = other
+        return items.filter { item in
+            guard let i = left.firstIndex(of: item) else { return true }
+            left.remove(at: i)
+            return false
+        }
+    }
+
+    private static func compact(_ value: Any) -> String {
+        guard JSONSerialization.isValidJSONObject([value]),
+              let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys, .withoutEscapingSlashes]),
+              let text = String(data: data, encoding: .utf8) else { return String(describing: value) }
+        return String(text.dropFirst().dropLast())
     }
 
     /// The settings object and the bytes it was parsed from.
@@ -70,7 +162,7 @@ enum ClaudeSettingsFile {
     /// Replaces the file with `data`, after a dated backup.
     ///
     /// `original` is what `read` returned when `data` was computed. If the file
-    /// holds anything else by now — another tool, the user's own editor — nothing
+    /// holds anything else by now (another tool, the user's own editor), nothing
     /// is written. Returns the backup, or nil when there was no file to back up.
     @discardableResult
     static func write(_ data: Data, to url: URL, expecting original: Data?) throws -> URL? {

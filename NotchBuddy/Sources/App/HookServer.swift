@@ -1335,6 +1335,13 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - Outdated hook detection
 
+    /// Klayer Island's own hook commands, for this user: never a hook of theirs whose path
+    /// happens to say "klayer" or "NotchBuddy" (`KlayerHookCommand`).
+    static var ownHooks: KlayerHookCommand {
+        KlayerHookCommand(scriptPath: hookScriptPath,
+                          home: FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+
     /// Returns true if settings.json has a Klayer Island hook that needs updating:
     /// either a PermissionRequest hook with timeout < 120s, or the AskUserQuestion
     /// PreToolUse matcher is missing (requires Claude Code 2.1.85+).
@@ -1342,40 +1349,10 @@ final class HookServer: @unchecked Sendable {
         let settingsURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
         guard let data = try? Data(contentsOf: settingsURL),
-              let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = settings["hooks"] as? [String: Any] else {
+              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             return false
         }
-        // Track whether any Klayer Island hook is installed at all
-        var hasKlayerIslandHooks = false
-
-        if let permReqHooks = hooks["PermissionRequest"] as? [[String: Any]] {
-            for matcher in permReqHooks {
-                if let hookList = matcher["hooks"] as? [[String: Any]] {
-                    for hook in hookList {
-                        if let cmd = hook["command"] as? String,
-                           cmd.contains("NotchBuddy") || cmd.contains("klayer") {
-                            hasKlayerIslandHooks = true
-                            if let timeout = hook["timeout"] as? Int, timeout < 120 { return true }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Check that the AskUserQuestion PreToolUse entry exists
-        if hasKlayerIslandHooks {
-            let preToolHooks = hooks["PreToolUse"] as? [[String: Any]] ?? []
-            let hasAskEntry = preToolHooks.contains { m in
-                (m["matcher"] as? String) == "AskUserQuestion"
-                && (m["hooks"] as? [[String: Any]])?.contains {
-                    let cmd = $0["command"] as? String ?? ""
-                    return cmd.contains("NotchBuddy") || cmd.contains("klayer")
-                } ?? false
-            }
-            if !hasAskEntry { return true }
-        }
-        return false
+        return klayerHooksNeedUpdate(inSettings: settings, ours: ownHooks)
     }
 
     // MARK: - Claude Code settings.json hook installer
@@ -1384,15 +1361,34 @@ final class HookServer: @unchecked Sendable {
     /// The bytes of settings.json the pending preview was computed from.
     private var _pendingHooksOriginal: Data?
 
-    /// Returns preview JSON without writing — call writeClaudeHooks() to confirm.
-    func previewClaudeHooks() throws -> String {
-        let (data, original) = try buildHooksData()
-        _pendingHooksData = data
-        _pendingHooksOriginal = original
-        return String(data: data, encoding: .utf8) ?? ""
+    /// What installing (or, with `install` false, uninstalling) Klayer Island's hooks would change
+    /// in the "hooks" block of ~/.claude/settings.json, without writing anything. Call
+    /// writeClaudeHooks() once the user confirmed. An empty diff means there is nothing to write,
+    /// and nothing is kept pending.
+    func previewClaudeHooks(install: Bool) throws -> ClaudeSettingsFile.HooksDiff {
+        _pendingHooksData = nil
+        _pendingHooksOriginal = nil
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json")
+        // Unreadable or invalid settings must stop here, never count as empty.
+        let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
+        var settings = snapshot.object
+        // "hooks" in a shape we do not know is refused, never replaced.
+        let before = try ClaudeSettingsFile.hooks(in: settings, name: "settings.json")
+        let ours = Self.ownHooks
+        // Only Klayer Island's own entries are removed (a group goes when it has none left),
+        // then, to install, today's are added.
+        let after = try ClaudeSettingsFile.replacingHooks(in: before, with: install ? ours.installGroups : [],
+                                                          where: ours.isOurs, name: "settings.json")
+        let diff = ClaudeSettingsFile.hooksDiff(before: before, after: after)
+        guard !diff.isEmpty else { return diff }
+        if settings["hooks"] != nil || !after.isEmpty { settings["hooks"] = after }
+        _pendingHooksData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+        _pendingHooksOriginal = snapshot.bytes
+        return diff
     }
 
-    /// Writes the hooks to disk (call after user confirms preview).
+    /// Writes the previewed change to disk (call after user confirms preview), after a dated backup.
     /// Refused if settings.json changed since the preview, or cannot be backed up.
     func writeClaudeHooks() throws {
         guard let data = _pendingHooksData else { return }
@@ -1401,67 +1397,6 @@ final class HookServer: @unchecked Sendable {
         try ClaudeSettingsFile.write(data, to: settingsURL, expecting: _pendingHooksOriginal)
         _pendingHooksData = nil
         _pendingHooksOriginal = nil
-    }
-
-    private func buildHooksData() throws -> (data: Data, original: Data?) {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
-        // Unreadable or invalid settings must stop here, never count as empty.
-        let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
-        var settings = snapshot.object
-        let hookPath = Self.hookScriptPath
-        let quotedCmd = "\"\(hookPath.replacingOccurrences(of: "\"", with: "\\\""))\""
-        let events: [(String, Int)] = [
-            ("SessionStart", 10), ("SessionEnd", 10),
-            ("UserPromptSubmit", 10),
-            ("PreToolUse", 10), ("PostToolUse", 10), ("PostToolUseFailure", 10),
-            ("PermissionRequest", 120),
-            ("Notification", 10),
-            ("Stop", 10), ("StopFailure", 10),
-            ("SubagentStart", 10), ("SubagentStop", 10),
-        ]
-        // "hooks" in a shape we do not know is refused, never replaced.
-        var hooks = try ClaudeSettingsFile.hooks(in: settings, name: "settings.json")
-        for (event, timeout) in events {
-            var existing = try ClaudeSettingsFile.hookGroups(in: hooks, event: event, name: "settings.json")
-            existing.removeAll { ($0["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("NotchBuddy") == true || ($0["command"] as? String)?.contains("klayer") == true } ?? false }
-            existing.append(["hooks": [["type": "command", "command": quotedCmd, "timeout": timeout]]])
-            hooks[event] = existing
-        }
-        // Dedicated AskUserQuestion PreToolUse hook (Claude Code 2.1.85+, timeout 130s)
-        var preToolUse = hooks["PreToolUse"] as? [[String: Any]] ?? []
-        preToolUse.append([
-            "matcher": "AskUserQuestion",
-            "hooks": [["type": "command", "command": "\(quotedCmd) --ask", "timeout": 130]],
-        ])
-        hooks["PreToolUse"] = preToolUse
-        settings["hooks"] = hooks
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        return (data, snapshot.bytes)
-    }
-
-    func uninstallClaudeHooks() throws {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
-        let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
-        var settings = snapshot.object
-        guard var hooks = settings["hooks"] as? [String: Any] else { return }
-
-        for key in hooks.keys {
-            if var matchers = hooks[key] as? [[String: Any]] {
-                matchers.removeAll { matcher in
-                    (matcher["hooks"] as? [[String: Any]])?.contains {
-                        ($0["command"] as? String)?.contains("NotchBuddy") == true ||
-                        ($0["command"] as? String)?.contains("klayer") == true
-                    } ?? false
-                }
-                if matchers.isEmpty { hooks.removeValue(forKey: key) }
-                else { hooks[key] = matchers }
-            }
-        }
-        settings["hooks"] = hooks
-        let newData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try ClaudeSettingsFile.write(newData, to: settingsURL, expecting: snapshot.bytes)
     }
 
     // MARK: - Claude plan status line installer
@@ -1604,7 +1539,7 @@ final class HookServer: @unchecked Sendable {
         guard let data = try? Data(contentsOf: url),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return false }
-        return klayerHooksPresent(inSettings: json)
+        return klayerHooksPresent(inSettings: json, ours: ownHooks)
     }
 }
 
