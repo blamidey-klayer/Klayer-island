@@ -518,8 +518,16 @@ final class HookServer: @unchecked Sendable {
         case "StopFailure":
             state.updateTask(id: agentId, state: .error)
             SoundEngine.shared.play("error")
-            // Read now: an approval card this event resolved has given the focus back to another pill.
-            if state.focusId == agentId {
+            // Same rule as the end of a session: the error opens the island unless a card waits or the
+            // user is using it (then the pill is only badged). Read now, after an approval card this
+            // event resolved was dismissed and gave the focus back to another pill.
+            let presentation = FinishPresentation.decide(
+                expanded: state.mode == .expanded, view: state.view.rawValue, pinned: state.isPinned,
+                requestPending: state.pendingApproval != nil || state.pendingQuestion != nil)
+            if presentation == .open, state.tasks.contains(where: { $0.id == agentId }) {
+                if state.focusId != agentId {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
+                }
                 expandIfNeeded(to: .error)
             } else {
                 setPillBadge(id: agentId, badge: .error)

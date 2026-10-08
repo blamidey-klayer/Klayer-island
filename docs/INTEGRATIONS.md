@@ -32,7 +32,7 @@ claude (terminal, VS Code, app Claude)
 | `PermissionRequest` | alerte `approval` (voir plus bas) |
 | `Notification` | selon le type : attente d'entrée → `question` si une question est posée, sinon rien ; limite d'usage → `ratelimit` |
 | `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette session, que sa pastille ait le focus ou non. Sauf si une autorisation ou une question attend, ou si l'île déjà ouverte sert à autre chose (chat, mail, envoi de fichier, résultat, réglages) ou est épinglée avec ⌘P : la pastille reçoit alors seulement un badge et la ligne du registre est mise à jour (`FinishPresentation`) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
-| `StopFailure` (si présent dans la doc) | alerte `error` |
+| `StopFailure` (si présent dans la doc) | alerte `error`, même règle d'ouverture que `Stop` (badge seul si une carte attend, si l'île sert à autre chose ou est épinglée) |
 | `SubagentStart` / `SubagentStop` | afficher « + sous-agent » dans le défilé |
 | `SessionEnd` | retire la tâche |
 

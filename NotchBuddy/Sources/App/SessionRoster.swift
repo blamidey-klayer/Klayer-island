@@ -96,9 +96,9 @@ struct SessionRoster {
 }
 
 // MARK: - What a finished session does to the island
-// Spec §4: when Claude finishes a session the island opens on its end. It must not take over
-// what the user is doing, so the decision is made here, in plain values (tested), and
-// HookServer applies it.
+// Spec §4: when Claude finishes a session the island opens on its end, and on an error (Stop and
+// StopFailure). It must not take over what the user is doing, so the decision is made here, in
+// plain values (tested), and HookServer applies it.
 
 enum FinishPresentation: Equatable {
     /// The island opens, or switches, on the finished view of the pill.
