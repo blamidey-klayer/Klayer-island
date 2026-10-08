@@ -191,6 +191,23 @@ Jumelles, en unités du glyphe (origine au moyeu) : deux fûts arrondis `#071B20
 - [ ] **Step 3:** Mettre à jour `docs/media/klay-sheet.png` avec la nouvelle capture et le tableau §7 de `docs/SPEC.md`.
 - [ ] **Step 4:** Commit, push, CI verte.
 
+### Task 8c: Animation de Klay au niveau de Mochi
+
+Demande de Baptiste (8 octobre) : animations fluides et très vivantes, Klay suit ce qu'on fait avec les yeux, au même niveau que le personnage de l'app d'origine.
+
+**Files:**
+- Modify: `tools/klay-preview/src/engine.ts`, `NotchBuddy/Sources/KlayerIslandKit/BotEngine.swift`, `KlayPaint.swift`, `NotchBuddy/Sources/App/BotCanvasView.swift` (cadence), `docs/SPEC.md` §7
+- Create: `docs/klay-animation-parity.md` (tableau de parité)
+- Reference (lecture seule) : le moteur d'origine, `git show a7bd575:NotchBuddy/Sources/App/BotEngine.swift` dans le clone `/home/user/louis-cfm/coucou`, et `windows/src/mochi/engine.ts` du même commit
+
+**Interfaces:**
+- Produces: mêmes API publiques de `BotEngine` (TS et Swift) ; nouveaux états internes seulement.
+
+- [ ] **Step 1:** Établir le tableau de parité : chaque comportement animé du moteur d'origine (respiration, clignements simples et doubles, regard qui suit le pointeur avec retard, rotation de tête et perspective, réaction au survol, écrasement et rebond, ressorts des parties souples, roulades, émotes, particules, salut, danse sur la musique, ennui et bâillement, mini-personnages qui regardent ailleurs) avec son équivalent chez Klay : présent, à renforcer, absent.
+- [ ] **Step 2:** Combler chaque ligne « à renforcer » ou « absent », sans reprendre le dessin de Mochi : regard plus ample (yeux, pupilles et léger pivot du corps vers le pointeur), ressorts amortis sur mains et pieds (inertie quand le corps bouge, au lieu d'un simple lissage), petites occupations au repos (tapote du pied, regarde autour quand la souris ne bouge plus, s'étire), corps qui se penche vers le pointeur au survol. Tout calcul dépend de `dt` : aucune animation ne dépend de la cadence d'affichage.
+- [ ] **Step 3:** Vérifier sur le banc : séquence de captures Playwright (pointeur déplacé de gauche à droite, survol, repos 10 s) ; le regard suit, les mouvements restent continus d'une image à l'autre.
+- [ ] **Step 4:** Porter en Swift à l'identique ; `swiftc -parse` ; CI verte.
+
 ## Lot 3 : contenu
 
 ### Task 9: Historique des choix demandés par Claude
