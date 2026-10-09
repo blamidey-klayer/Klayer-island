@@ -25,14 +25,6 @@ struct BotCanvasView: View {
                 engine.lookX = lookX(state: state, size: size)
                 engine.lookY = lookY(state: state, size: size)
                 engine.particleOverhang = particleOverhang
-                // Widen slot when file is hovering over the mailbox (morph > 0.5)
-                // Open mouth (hover=0.20R) when file dragged over box; close when not
-                if engine.morph > 0.3 {
-                    engine.slotHTarget = state.fileDragOver ? 0.20 : 0
-                } else {
-                    engine.slotHTarget = 0
-                    if engine.morph < 0.05 { engine.slotH = 0; engine.slotHVel = 0 }
-                }
                 // Integration pills have a fixed brand color → use it as bodyColor.
                 // Claude Code tasks use state-based gradient (working=blue, thinking=purple, etc.).
                 if state.showingPlanDetail {
@@ -60,7 +52,7 @@ struct BotCanvasView: View {
                 engine.update(dt: dt)
                 var ctx = context
                 engine.applyDance(&ctx, size: size)
-                // Klay (glow, limbs, glyph, eyes, mailbox) spins as a whole on a roll;
+                // Klay (glow, limbs, glyph, eyes) spins as a whole on a roll;
                 // the badge and particles are drawn on top and do not spin.
                 engine.draw(context: ctx, size: size)
                 engine.drawHandsAndExtras(context: ctx, size: size)
@@ -68,23 +60,6 @@ struct BotCanvasView: View {
         }
         .onChange(of: state.effectiveState) { _, newState in
             engine.setState(newState)
-        }
-        .onChange(of: state.view) { _, newView in
-            // Morph up when upload view is active
-            if state.mode == .expanded && newView == .upload {
-                engine.anim("morph", keys: [TweenKey(target: 1, duration: 550, ease: Ease.inOut)])
-            } else if newView != .upload && newView != .uploading && engine.morph > 0.01 {
-                // Any other view (not mid-gulp): morph back
-                engine.anim("morph", keys: [TweenKey(target: 0, duration: 550, ease: Ease.inOut)])
-            }
-        }
-        .onChange(of: state.mode) { _, newMode in
-            // Hard-reset morph when island collapses
-            if newMode != .expanded {
-                engine.tweens.removeValue(forKey: "morph")
-                engine.locks.remove("morph")
-                engine.morph = 0
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .triggerEmote)) { notif in
             if let emote = notif.object as? BotEmote {
@@ -100,15 +75,6 @@ struct BotCanvasView: View {
         .onReceive(NotificationCenter.default.publisher(for: .botSetTgEs)) { notif in
             if let v = notif.object as? CGFloat {
                 engine.tgEs = v
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .botGulp)) { _ in
-            engine.gulp()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .botMorphTo)) { notif in
-            if let target = notif.object as? CGFloat {
-                let dur: CGFloat = target > 0.5 ? 550 : 650
-                engine.anim("morph", keys: [TweenKey(target: target, duration: dur, ease: Ease.inOut)])
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .botGreet)) { _ in

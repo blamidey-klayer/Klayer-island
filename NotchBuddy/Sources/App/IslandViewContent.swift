@@ -860,25 +860,16 @@ struct UploadView: View {
                     colors: [Color(hex: "#22C55E").opacity(state.fileDragOver ? 0.13 : 0), Color.clear],
                     center: .bottom, startRadius: 0, endRadius: 200
                 ))
-            // The invitation: Klay himself, arms open, then the text (same figure as the
-            // drag-over canvas, UploadCanvasView, drawn smaller). This view gets the 98 pt
-            // content frame, not the canvas' 124 pt card: figure 56 pt in a 64 pt frame
-            // (4 pt of room each side for the bob), 6 pt gap, ~16 pt of text = ~86 pt, so
-            // about 6 pt of margin above and below inside the dashed border.
-            VStack(spacing: 6) {
-                // Paused while another view is on screen: every view stays in the tree (opacity 0).
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: state.view != .upload)) { tl in
-                    Canvas { ctx, size in
-                        KlayPaint.drawDropInvite(ctx, center: CGPoint(x: size.width / 2, y: size.height / 2),
-                                                 height: 56, time: tl.date.timeIntervalSinceReferenceDate)
-                    }
-                }
-                .frame(width: 140, height: 64)
-                Text("Dépose ton fichier")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(state.fileDragOver ? Color(hex: "#34D399") : Color(hex: "#D5D7DB"))
-            }
-            .frame(maxWidth: .infinity)
+            // The invitation under Klay. Klay is the island's own, placed in the middle of this
+            // card by IslandConst.viewLayouts[.upload] (y 92); no second figure here. This view
+            // gets the 98 pt content frame (island y 55 to 153): the text's centre sits 78 pt
+            // down, at island y 133, where the drag-over canvas draws it (USC.TEXT_Y).
+            Text("Dépose ton fichier")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(state.fileDragOver ? Color(hex: "#34D399") : Color(hex: "#D5D7DB"))
+                .frame(height: 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 12)
         }
         .onChange(of: state.view) { _, newView in
             newView == .upload ? startTimer() : stopTimer()

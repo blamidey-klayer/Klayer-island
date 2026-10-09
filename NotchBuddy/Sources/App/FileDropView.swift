@@ -75,11 +75,9 @@ enum FileDropHandler {
             }
         }
 
-        // Drop feedback
-        NotificationCenter.default.post(name: .botGulp, object: nil)
+        // Drop feedback. Klay's gulp is drawn by the drop canvas (UploadCanvasView).
         SoundEngine.shared.play("approve")
         NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
-        NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
 
         state.uploadDuration = dur
         state.uploadStartTime = Date()

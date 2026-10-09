@@ -1,5 +1,5 @@
 // Render bench: Klay's character sheet. Every state, the emotes, the hello
-// wave, the dance, the mailbox and the mini Klays, side by side, drawn by
+// wave, the dance, the drop sequence's poses and the mini Klays, side by side, drawn by
 // src/engine.ts. Not part of the app. ?freeze=<seconds> stops every engine after
 // that long, for screenshots; ?size=<px> changes the cell size.
 //
@@ -66,15 +66,11 @@ function buildSheet() {
   setInterval(() => wave.greet(), 2600);
   const dance = cell("dance");
   dance.setDancing(true);
-  const box = cell("mailbox");
-  box.morph = 1;
-  box.slotH = 0.35;
-  box.slotHTarget = 0.35;
 
-  // The drop zone: Klay with wide eyes and both arms open, welcoming the file.
-  // First the pose in a sheet cell, then at real size in the island's drop card
-  // (620 × 124), with the mailbox that follows the cursor and the text, as the Mac
-  // app lays them out (UploadCanvasView, drag over the island).
+  // The drop sequence (UploadCanvasView on the Mac): one Klay, the island's own. His arms open
+  // and his eyes widen for the file, then he swallows it, squashed, eyes shut (the deepest
+  // squash of the gulp, 0.07 s after the file went in, his arms coming down). Drawn at the
+  // size of the island's Klay in a cell (diameter 0.6 × the cell).
   function drawerCell(label: string, w: number, h: number, draw: (x: CanvasRenderingContext2D, t: number) => void, host: HTMLElement = grid) {
     const d = document.createElement("div");
     d.className = "cell";
@@ -88,20 +84,20 @@ function buildSheet() {
     drawers.push({ c, w, h, draw });
   }
 
-  drawerCell("dépôt", SIZE, SIZE, (x, t) => {
-    drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.7, t);
+  drawerCell("dépôt : bras ouverts", SIZE, SIZE, (x, t) => {
+    drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.6, t, { arms: 1, eye: "wide", look: { yaw: 0.4, pitch: -0.6 } });
+  });
+  drawerCell("dépôt : avale", SIZE, SIZE, (x, t) => {
+    drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.6, t, { arms: 0.41, eye: "closed", sx: 1.14, sy: 0.82 });
   });
 
-  // The card as the Mac lays it out: the drag-over canvas has a 124 pt card (figure 72 pt,
-  // text 13 pt under it); the Déposer tab gets the 98 pt content frame (figure 56 pt in a
-  // 64 pt canvas, 6 pt gap, ~16 pt of text, centred). Same dashed border, same mailbox at
-  // its resting place (140, 104 on the island).
+  // The drop card as the Mac lays it out, Klay in its middle (island 320, 92; diameter 62),
+  // « Dépose ton fichier » under him (island y 133). The Déposer tab (98 pt card, island
+  // y 55…153) shows the island's own Klay, at rest; when a file comes, the drag-over canvas
+  // (124 pt card, island y 42…166) takes over at the same spot and opens his arms.
   const CARD_W = 620;
-  function dropCard(h: number, figH: number, figCY: number, textY: number, actorCY: number) {
-    const actor = new BotEngine();
-    actor.morph = 1;
-    actor.slotH = 0.2;
-    actor.slotHTarget = 0.2;
+  const KLAY = { x: 320 - 10, y: 92, d: 62 };
+  function dropCard(h: number, top: number, draw: (x: CanvasRenderingContext2D, cy: number, t: number) => void) {
     return (x: CanvasRenderingContext2D, t: number) => {
       x.fillStyle = "#0D0E10";
       x.beginPath();
@@ -114,24 +110,28 @@ function buildSheet() {
       x.roundRect(0.75, 0.75, CARD_W - 1.5, h - 1.5, 19.5);
       x.stroke();
       x.setLineDash([]);
-      const W = 99.4;
-      x.save();
-      x.translate(130 - W / 2, actorCY - W / 2);
-      actor.update(0.016);
-      actor.draw(x, W, W);
-      x.restore();
-      drawKlayDrop(x, CARD_W / 2, figCY, figH, t);
+      draw(x, KLAY.y - top, t);
       x.fillStyle = "#D5D7DB";
       x.font = `500 13px system-ui, sans-serif`;
       x.textAlign = "center";
       x.textBaseline = "middle";
-      x.fillText("Dépose ton fichier", CARD_W / 2, textY);
+      x.fillText("Dépose ton fichier", CARD_W / 2, 133 - top);
     };
   }
-  // Drag-over canvas: figure 14 pt under the card's top edge, text 14 pt above the bottom.
-  drawerCell("dépôt, glisser (carte 620 × 124)", CARD_W, 124, dropCard(124, 72, 50, 102, 62), minis);
-  // Déposer tab: 98 pt card, stack of 86 pt centred: 6 pt of margin, canvas 64 + gap 6 + text 16.
-  drawerCell("dépôt, onglet Déposer (carte 620 × 98)", CARD_W, 98, dropCard(98, 56, 6 + 32, 6 + 64 + 6 + 8, 49), minis);
+  // Déposer tab: the island's Klay (BotEngine), idle, in a canvas d / 0.6 wide as BotPlacement draws him.
+  const resting = new BotEngine();
+  const W = KLAY.d / 0.6;
+  drawerCell("dépôt, onglet Déposer (carte 620 × 98)", CARD_W, 98, dropCard(98, 55, (x, cy) => {
+    x.save();
+    x.translate(KLAY.x - W / 2, cy - W / 2);
+    resting.update(0.016);
+    resting.draw(x, W, W);
+    x.restore();
+  }), minis);
+  // A file over the island: the same Klay, arms open, eyes on the file.
+  drawerCell("dépôt, glisser (carte 620 × 124)", CARD_W, 124, dropCard(124, 42, (x, cy, t) => {
+    drawKlayDrop(x, KLAY.x, cy, KLAY.d, t, { arms: 1, eye: "wide", look: { yaw: 0.5, pitch: -0.4 } });
+  }), minis);
 
   for (const [state, color] of [
     ["working", "#D97757"], ["approval", "#635BFF"], ["finished", "#24292F"], ["idle", "#10323B"], ["sleeping", "#3E7280"],

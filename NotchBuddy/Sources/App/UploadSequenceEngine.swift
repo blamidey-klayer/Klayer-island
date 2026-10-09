@@ -1,8 +1,10 @@
 import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 // ============================================================
-// CONSTANTS — exact mirror of upload-sequence.html
+// CONSTANTS — the drop sequence, from upload-sequence.html
 // All values in island-coordinate points (island = 640 × 176)
 // ============================================================
 
@@ -11,23 +13,24 @@ enum USC {
     static let ISL_H: Double = 176
     static let CARD_X: Double = 10;  static let CARD_Y: Double = 42
     static let CARD_W: Double = 620; static let CARD_H: Double = 124; static let CARD_R: Double = 20
-    static let REST_X: Double = 140; static let REST_Y: Double = 104
-    static let D_BOX:  Double = 62
+    /// Klay's resting place and size: those of the island's Klay in the Déposer tab
+    /// (IslandConst.viewLayouts[.upload]). The canvas takes over from him there when a file comes:
+    /// one Klay, at the same spot and size, drawn the same way.
+    static let REST_X: Double = Double(uploadLayout.botX)
+    static let REST_Y: Double = Double(uploadLayout.botY ?? 92)
+    static let D_KLAY: Double = Double(uploadLayout.botDiameter)
     static let FOLLOW_MIN: Double = 60    // CARD_X + 50
     static let FOLLOW_MAX: Double = 580   // CARD_X + CARD_W - 50
-    static let TEXT_X: Double = 196;  static let TEXT_Y: Double = 94
+    /// « Dépose ton fichier », centred on the card under Klay; UploadView sets it at this height too.
+    static let TEXT_Y: Double = 133
     static let BAR_X0: Double = 46;   static let BAR_X1: Double = 520;  static let BAR_Y: Double = 118
     static let CHOOSE_X: Double = 60; static let CHOOSE_Y: Double = 101; static let CHOOSE_D: Double = 62
     static let LOCK_IN:  Double = 60
     static let LOCK_OUT: Double = 90
-    static let MOUTH_AJAR: Double = 0.20
-    static let MOUTH_OPEN: Double = 0.42
-    static let MOUTH_MAX:  Double = 0.50
     // Phase timestamps (t_ref, drop = 1.95)
     static let T_DROP:       Double = 1.95
     static let T_SUCK_START: Double = 2.03
     static let T_SUCK_END:   Double = 2.33
-    static let T_CLOSE_END:  Double = 2.42
     static let T_CHEW1:      Double = 2.60
     static let T_CHEW_END:   Double = 2.88
     static let T_SHRINK_END: Double = 3.23
@@ -36,6 +39,8 @@ enum USC {
     static let DT: Double = 1.0 / 240.0
     // Entry offset: gives 0.40 s of following before drop
     static let ENTRY_T_REF: Double = T_DROP - 0.40  // = 1.55
+
+    private static var uploadLayout: ViewLayout { IslandConst.viewLayouts[.upload]! }
 }
 
 // ============================================================
@@ -101,7 +106,6 @@ struct USSimState {
     var bx:      USSpring = USSpring(v: USC.REST_X)
     var by:      USSpring = USSpring(v: USC.REST_Y)
     var tilt:    Double = 0
-    var mouth:   USSpring = USSpring(v: 0)
     var locked:  Bool = false
     var lockAt:  Double = -9
     var entered: Double = -9  // t_ref of zone entry; -9 = not entered
@@ -114,19 +118,19 @@ struct USSimState {
 // FRAME DATA — output of frame(), read by UploadCanvasView
 // ============================================================
 
-enum USEyeShape { case pill, cup, content }
-
-struct USMouthRect { var x,y,w,h: Double }
+/// Klay's eyes in the drop sequence: wide for the file, shut while he swallows it.
+enum USEyeShape { case pill, wide, closed }
 
 struct USFrame {
     var t: Double = 0
     var cursorX: Double = 600; var cursorY: Double = 280
-    var morph: Double = 0
-    var x: Double = USC.REST_X; var y: Double = USC.REST_Y; var d: Double = USC.D_BOX
+    /// Klay's hands: 0 at rest, 1 open for the file (a little over while the pose overshoots).
+    var arms: Double = 0
+    var x: Double = USC.REST_X; var y: Double = USC.REST_Y; var d: Double = USC.D_KLAY
     var sx: Double = 1; var sy: Double = 1; var tilt: Double = 0; var hop: Double = 0
-    var mouth: Double = 0
-    var mouthRect = USMouthRect(x:0,y:0,w:0,h:0)
     var eye: USEyeShape = .pill
+    /// Eyelids: 1 open, towards 0 in a blink.
+    var open: Double = 1
     var lookX: Double = 0; var lookY: Double = 0
     var fileVisible: Bool = true; var suck: Double = 0
     var zoneOver:    Bool   = false
@@ -274,20 +278,6 @@ final class UploadSequenceEngine {
         // Tilt
         let tiltTarget = isDragging ? max(-0.18, min(0.18, sim.bx.vel * 0.0015)) : 0.0
         sim.tilt = usLerp(sim.tilt, tiltTarget, 1 - pow(0.0005, dt))
-
-        // Mouth — post-drop close only after drop has actually happened
-        let t = sim.t
-        if !isDragging && t >= USC.T_SUCK_END {
-            sim.mouth.v = max(0, usLerp(USC.MOUTH_MAX, 0, usEIn(usSeg(t, USC.T_SUCK_END, USC.T_CLOSE_END))))
-        } else {
-            var mt = 0.0
-            if sim.entered >= 0 {
-                mt = (sim.locked || !isDragging) ? USC.MOUTH_OPEN : USC.MOUTH_AJAR
-            }
-            if !isDragging && t < USC.T_SUCK_END { mt = USC.MOUTH_MAX }
-            sim.mouth.step(target: mt, response:0.25, damping:0.60, dt:dt)
-            if sim.mouth.v < 0 { sim.mouth.v = 0 }
-        }
     }
 
     // MARK: - Frame computation (mirrors reference frame(t))
@@ -307,25 +297,19 @@ final class UploadSequenceEngine {
         // so long hovers don't accidentally trigger post-drop visuals.
         let pt = isDragging ? min(t, USC.T_DROP - USC.DT) : t
 
-        // Morph: 0→1 (entry), 1→0 (shrink to ball), 0→1 (grow back to box at choose)
-        var morph: Double
-        if pt < USC.T_CHEW_END {
-            morph = usEBack(usSeg(pt, entered, entered + 0.38))
-        } else if pt < growStart {
-            morph = 1 - usEOut(usSeg(pt, USC.T_CHEW_END, USC.T_SHRINK_END))
-        } else {
-            morph = usEBack(usSeg(pt, growStart, growEnd))
-        }
-        morph = max(0, min(morph, 1.08))
-        f.morph = morph
+        // Arms: open as the file comes (0 → 1 in 0.38 s, a little overshoot), back down to rest
+        // while he swallows it; at rest on the bar and back at the choice.
+        var arms = usEBack(usSeg(pt, entered, entered + 0.38))
+        if pt >= USC.T_SUCK_END { arms *= 1 - usEOut(usSeg(pt, USC.T_SUCK_END, USC.T_CHEW1)) }
+        f.arms = max(0, min(arms, 1.08))
 
         // Position / diameter
-        var x = sim.bx.v, y = sim.by.v, d = USC.D_BOX
+        var x = sim.bx.v, y = sim.by.v, d = USC.D_KLAY
         if pt >= USC.T_CHEW_END && pt < USC.T_PROG_START {
             let k = usEInOut(usSeg(pt, USC.T_CHEW_END, USC.T_SHRINK_END))
             x = usLerp(sim.bx.v, USC.BAR_X0, k)
             y = usLerp(sim.by.v, USC.BAR_Y,  k)
-            d = usLerp(USC.D_BOX, 14, k)
+            d = usLerp(USC.D_KLAY, 14, k)
         }
         if pt >= USC.T_PROG_START {
             let p = usProgressAt(pt, progStart: USC.T_PROG_START, progEnd: progEnd)
@@ -376,14 +360,18 @@ final class UploadSequenceEngine {
         f.hop = (sim.lockAt > 0 && isDragging)
             ? -5 * sin(.pi * usSeg(pt, sim.lockAt, sim.lockAt + 0.15)) : 0
 
-        f.mouth = sim.mouth.v
-
-        // Eyes
+        // Eyes: wide once his arms are up for the file, shut while he swallows it (the gulp),
+        // shut again, content, when the upload is done. A blink every 3.6 s while the file
+        // hovers (t, not pt: pt stops just before the drop while the file hovers).
         var eye: USEyeShape = .pill
-        if sim.locked && pt < USC.T_SUCK_END { eye = .cup }
-        if pt >= USC.T_SUCK_END && pt < USC.T_CHEW_END + 0.10 { eye = .content }
-        if pt >= progEnd && pt < growEnd + 0.30 { eye = .content }
+        if pt < USC.T_SUCK_END && f.arms > 0.5 { eye = .wide }
+        if pt >= USC.T_SUCK_END && pt < USC.T_CHEW_END + 0.10 { eye = .closed }
+        if pt >= progEnd && pt < growEnd + 0.30 { eye = .closed }
         f.eye = eye
+        if isDragging && sim.entered >= 0 {
+            let phase = max(0, t - sim.entered).truncatingRemainder(dividingBy: 3.6)
+            f.open = phase > 3.46 ? abs((phase - 3.46) / 0.07 - 1) : 1
+        }
 
         let lkx = pt < USC.T_SUCK_END ? cursorX - x : (pt < USC.T_PROG_START ? 0.0 : 40.0)
         let lky = pt < USC.T_SUCK_END ? (cursorY+10) - y : 0.0
@@ -395,7 +383,7 @@ final class UploadSequenceEngine {
         // Content alpha values
         f.zoneOver   = sim.entered >= 0 && pt < USC.T_CHEW_END
         f.zoneAlpha  = 1 - usSeg(pt, USC.T_CHEW_END, USC.T_CHEW_END + 0.20)
-        f.textAlpha  = f.zoneAlpha * ((x > USC.TEXT_X-40 && isDragging) ? 0.25 : 1.0)
+        f.textAlpha  = f.zoneAlpha
         f.barReveal  = usEOut(usSeg(pt, USC.T_BAR_IN, USC.T_BAR_IN+0.25))
                      * (1 - usSeg(pt, growStart, growStart+0.20))
         f.barAlpha   = usSeg(pt, USC.T_BAR_IN+0.05, USC.T_BAR_IN+0.25)
@@ -417,21 +405,6 @@ final class UploadSequenceEngine {
         f.greenWash = max(hoverGreen, uploadGreen)
         f.chooseAlpha = usSeg(pt, growStart+0.15, growEnd)
 
-        // Mouth rect in island coords (used by drawFile for clipping)
-        let R  = d / 2 / 1.04
-        let mc = max(0, min(morph, 1.0))
-        let rx = R * (1.04 - 0.04*mc)
-        let ry = R * (0.97 - 0.03*mc)
-        let mh = f.mouth * R * mc
-        let mw = 2*rx - 0.24*R
-        let mxOff = -mw/2
-        let myOff = -ry + 0.10*R
-        f.mouthRect = USMouthRect(
-            x: x + mxOff * sx,
-            y: y + f.hop + myOff * sy,
-            w: mw * sx,
-            h: mh * sy
-        )
         return f
     }
 }

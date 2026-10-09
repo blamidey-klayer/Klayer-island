@@ -1,9 +1,9 @@
 import SwiftUI
 import AppKit
-import QuartzCore
 
-// Full 640×176 canvas that drives the upload sequence animation.
-// Replaces the header + content area when the upload engine is active.
+// Full 640×176 canvas that drives the drop sequence: a file dragged over the island, Klay who
+// swallows it, the upload bar, the choice. Replaces the content area while the engine is active;
+// its Klay takes over from the island's (hidden meanwhile) at the same spot and size.
 
 struct UploadCanvasView: View {
     @ObservedObject var state: AppState
@@ -135,9 +135,9 @@ struct UploadCanvasView: View {
                              style: StrokeStyle(lineWidth:1.5, dash:[6,5], dashPhase: dashPhase))
         }
 
-        // ── Drop zone: Klay, arms open, and the invitation ─────────
+        // ── Drop zone: the invitation under Klay ───────────────────
         if f.zoneAlpha > 0 && f.textAlpha > 0 {
-            drawDropZone(ctx: &c, f: f, wallTime: wallTime)
+            drawDropText(ctx: &c, f: f)
         }
 
         // ── Progress bar ──────────────────────────────────────────
@@ -151,46 +151,23 @@ struct UploadCanvasView: View {
         }
 
         // ── Klay ─────────────────────────────────────────────────
-        drawKlay(ctx: &c, f: f)
+        drawKlay(ctx: &c, f: f, wallTime: wallTime)
 
         // ── File / suction ────────────────────────────────────────
         if f.fileVisible { drawFile(ctx: &c, f: f) }
     }
 
-    // MARK: - Drop zone (Klay with open arms)
+    // MARK: - Drop zone text
 
-    /// The invitation: Klay himself, arms open, centred on the card with « Dépose ton
-    /// fichier » under him. He is drawn by KlayPaint.drawDropInvite (same recipe as the
-    /// "dépôt" cell of tools/klay-preview) and looks at the file being dragged. Like the
-    /// text it replaces, he fades with the zone and dims while the mailbox passes over him
-    /// (f.textAlpha). The mailbox sequence that follows is not touched.
-    private func drawDropZone(ctx: inout GraphicsContext, f: USFrame, wallTime: Double) {
+    /// « Dépose ton fichier », centred on the card under Klay, where the Déposer tab (UploadView)
+    /// shows it. It fades with the zone.
+    private func drawDropText(ctx: inout GraphicsContext, f: USFrame) {
         var tCtx = ctx
         tCtx.opacity = f.textAlpha
-
-        let cx = CGFloat(USC.CARD_X + USC.CARD_W / 2)
-        let klayCY = CGFloat(USC.CARD_Y + 50)      // 72 px figure: 14 px under the card's top edge
-        let textY  = CGFloat(USC.CARD_Y + 102)
-
-        // Gaze: towards the cursor, with the same reach as the mailbox's.
-        let lx = max(-1, min(1, (f.cursorX - Double(cx)) / 200))
-        let ly = max(-1, min(1, (f.cursorY + 10 - Double(klayCY)) / 150))
-        let look = CGPoint(x: CGFloat(lx) * 14, y: CGFloat(ly) * 12)
-
-        // The figure is several overlapping shapes (white eyes over the white hub, legs behind
-        // the glyph, arms over their rim): it is composited as one layer so the dim and the
-        // fade apply to the whole figure, not shape by shape. Inside the layer everything is
-        // opaque; the outer opacity is applied once, when the layer is composited.
-        tCtx.drawLayer { layer in
-            layer.opacity = 1
-            KlayPaint.drawDropInvite(layer, center: CGPoint(x: cx, y: klayCY), height: 72,
-                                     look: look, time: wallTime)
-        }
-
         let label = Text("Dépose ton fichier")
             .font(.system(size: 13, weight: .medium))
             .foregroundColor(Color(hex: "#D5D7DB"))
-        tCtx.draw(label, at: CGPoint(x: cx, y: textY), anchor: .center)
+        tCtx.draw(label, at: CGPoint(x: USC.CARD_X + USC.CARD_W / 2, y: USC.TEXT_Y), anchor: .center)
     }
 
     // MARK: - Progress bar
@@ -305,64 +282,50 @@ struct UploadCanvasView: View {
         cCtx.draw(btn2, at: CGPoint(x:350, y:126), anchor: .center)
     }
 
-    // MARK: - Klay (glyph ↔ mailbox, eyes, slot)
+    // MARK: - Klay
 
-    /// Klay in the upload sequence: the white glyph (KlayPaint) shrinks and fades as the
-    /// white → brume mailbox grows in, like BotEngine's morph. The slot uses the same
-    /// geometry as USFrame.mouthRect, which clips the file being swallowed.
-    private func drawKlay(ctx: inout GraphicsContext, f: USFrame) {
-        let R  = f.d / 2 / 1.04
-        let mc = max(0, min(f.morph, 1.0))
+    /// Points per glyph unit of Klay at diameter `d`: BotEngine's size rule (BotPlacement draws
+    /// the island's Klay in a canvas of width d / 0.6, the glyph spans glyphSpan of it), so the
+    /// canvas Klay matches the island's at the hand-over.
+    private static func glyphScale(_ d: Double) -> CGFloat {
+        CGFloat(d / 0.6) * KlayPaint.glyphSpan / KlayGlyph.width
+    }
 
+    /// Klay in the drop sequence, drawn like the island's Klay (KlayPaint, the glyph untouched):
+    /// (x, y) is the middle of his full height. His arms open for the file, his eyes follow it,
+    /// then he swallows it: squashed, eyes shut. Tilt and squash turn about his middle.
+    private func drawKlay(ctx: inout GraphicsContext, f: USFrame, wallTime: Double) {
+        let s = Self.glyphScale(f.d)
         var c = ctx
-        c.concatenate(CGAffineTransform(translationX: CGFloat(f.x), y: CGFloat(f.y + f.hop)))
-        c.concatenate(CGAffineTransform(rotationAngle: CGFloat(f.tilt)))
-        c.concatenate(CGAffineTransform(scaleX: CGFloat(f.sx), y: CGFloat(f.sy)))
+        c.translateBy(x: CGFloat(f.x), y: CGFloat(f.y + f.hop))
+        c.rotate(by: .radians(f.tilt))
+        c.scaleBy(x: CGFloat(f.sx), y: CGFloat(f.sy))
+        // Klay's frame: origin on the hub, glyph units.
+        c.translateBy(x: 0, y: -KlayPaint.centerY * s)
+        c.scaleBy(x: s, y: s)
+
+        let limbs = KlayPaint.dropLimbs(arms: CGFloat(f.arms), time: wallTime)
+        KlayPaint.drawFigure(c, limbs: KlayGlyph.width * s >= KlayPaint.limbsMinPx ? limbs : nil)
 
         let shape: EyeShape
         switch f.eye {
-        case .pill:    shape = .pill
-        case .cup:     shape = .cup
-        case .content: shape = .closed
+        case .pill:   shape = .pill
+        case .wide:   shape = .wide
+        case .closed: shape = .closed
         }
-        let look = CGPoint(x: CGFloat(f.lookX) * 14, y: CGFloat(f.lookY) * 12)
-        let time = CGFloat(CACurrentMediaTime())
+        KlayPaint.drawEyes(c, shape: shape, mult: 1,
+                           look: CGPoint(x: CGFloat(f.lookX) * 14, y: CGFloat(f.lookY) * 12),
+                           open: CGFloat(f.open), time: CGFloat(wallTime))
+    }
 
-        // ── Klay: the glyph, its limbs and eyes, centred on (x, y) ──
-        if mc < 0.999 {
-            let W = CGFloat(R / 0.3)                      // BotEngine's canvas width for this R
-            let s = W * KlayPaint.glyphSpan / KlayGlyph.width
-            let k = 1 - 0.35 * CGFloat(mc)
-            var g = c
-            g.opacity *= 1 - mc
-            g.translateBy(x: 0, y: -KlayPaint.centerY * s)
-            g.scaleBy(x: s * k, y: s * k)
-            KlayPaint.drawFigure(g, limbs: W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx ? KlayPaint.Limbs.rest : nil)
-            KlayPaint.drawEyes(g, shape: shape, mult: 1, look: look, time: time)
-        }
-
-        // ── Mailbox: rounded box, slot, eyes ──
-        if mc > 0.001 {
-            var b = c
-            b.opacity *= min(1, mc * 1.4)
-            let kb = CGFloat(0.55 + 0.45 * mc)
-            let rx = CGFloat(R * (1.04 - 0.04 * mc))
-            let ry = CGFloat(R * (0.97 - 0.03 * mc))
-            KlayPaint.drawBoxBody(b, hw: rx * kb, hh: ry * kb, corner: CGFloat(R) * 0.42 * kb)
-
-            let mh = CGFloat(f.mouth * R * mc)
-            if mh > 0.3 {
-                let mw = 2 * rx - 0.24 * CGFloat(R)
-                KlayPaint.drawSlot(b, rect: CGRect(x: -mw / 2, y: -ry + 0.10 * CGFloat(R),
-                                                   width: mw, height: mh))
-            }
-
-            var e = b
-            let u = CGFloat(R / 100)
-            e.scaleBy(x: u, y: u)
-            KlayPaint.drawEyes(e, shape: shape, mult: 0.62, center: CGPoint(x: 0, y: 12),
-                               look: look, time: time)
-        }
+    /// Where the file goes in, in island coordinates: a short line across the top of Klay's eyes,
+    /// as wide as their spacing. The file funnels down to it and disappears under it. It follows
+    /// Klay's hop and squash (not his small tilt).
+    private func gulpRect(_ f: USFrame) -> (x: Double, y: Double, w: Double, h: Double) {
+        let s = Double(Self.glyphScale(f.d))
+        let below = Double(-KlayPaint.centerY + KlayPaint.eyeDY - KlayPaint.eyeR) * s
+        let w = Double(2 * KlayPaint.eyeDX) * s * f.sx
+        return (x: f.x - w / 2, y: f.y + f.hop + below * f.sy, w: w, h: 2)
     }
 
     // MARK: - File / suction (drawFile port)
@@ -375,7 +338,7 @@ struct UploadCanvasView: View {
             return
         }
 
-        let m   = f.mouthRect
+        let m   = gulpRect(f)
         let W0  = 34.0, H0 = 42.0
         let p   = usEIn(f.suck)
         let topY = usLerp(cy - H0/2, m.y - 2, usEInOut(f.suck))
@@ -390,7 +353,7 @@ struct UploadCanvasView: View {
         // Use withCGContext for the complex strip clipping
         ctx.withCGContext { cg in
             cg.saveGState()
-            // Outer clip: above mouth
+            // Outer clip: above the line where Klay takes the file in
             cg.clip(to: CGRect(x:0, y:0, width:640, height:clipY))
 
             for i in 0..<28 {

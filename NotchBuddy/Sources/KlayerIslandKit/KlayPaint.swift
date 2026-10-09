@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Klay's look, shared by every surface that draws him: BotEngine (the island, the
-/// mini Klays, the desktop Klay), the launch greeting and the upload
-/// sequence.
+/// mini Klays, the desktop Klay), the launch greeting and the drop sequence
+/// (UploadCanvasView).
 ///
 /// The body is the Klayer glyph (KlayGlyph), white on the dark island and never
 /// reshaped. Klay's character comes from what is added around it: two round white eyes
@@ -105,7 +105,7 @@ enum KlayPaint {
     static let body = Color.white
     /// Eyes, pupils and slot: Klayer teal-deep #071B20.
     static let ink = Color(red: 7 / 255, green: 27 / 255, blue: 32 / 255)
-    /// Klayer brume #ECEDE7, the bottom of the mailbox gradient and the rim of the binocular lenses.
+    /// Klayer brume #ECEDE7, the rings and the rim of the binocular lenses.
     static let brume = Color(red: 236 / 255, green: 237 / 255, blue: 231 / 255)
     /// Binocular lenses: Klayer teal-light #3E7280.
     static let lensColor = Color(red: 62 / 255, green: 114 / 255, blue: 128 / 255)
@@ -206,6 +206,19 @@ enum KlayPaint {
     /// welcoming the file. In Klay's frame (glyph units).
     static func armsOpenTargets() -> (lh: CGPoint, rh: CGPoint) {
         (lh: CGPoint(x: -200, y: -40), rh: CGPoint(x: 200, y: -40))
+    }
+
+    /// Hands and feet of Klay in the drop sequence (UploadCanvasView): `arms` (0…1, a little
+    /// over 1 while the pose overshoots) raises both hands from rest to the open pose
+    /// (armsOpenTargets), where they sway a little with `time` (seconds); the feet stay at rest.
+    /// Port of dropLimbs in tools/klay-preview/src/engine.ts.
+    static func dropLimbs(arms: CGFloat, time: Double) -> Limbs {
+        let t = CGFloat(time)
+        let open = armsOpenTargets()
+        var l = Limbs.rest
+        l.lh = blend(l.lh, CGPoint(x: open.lh.x, y: open.lh.y + sin(t * 1.8 - 1) * 6), arms)
+        l.rh = blend(l.rh, CGPoint(x: open.rh.x, y: open.rh.y + sin(t * 1.8 + 1) * 6), arms)
+        return l
     }
 
     // MARK: - Body parts (all in Klay's frame, glyph units)
@@ -338,31 +351,6 @@ enum KlayPaint {
                with: .color(brume))
     }
 
-    /// Klay in the drop zone: the glyph, wide eyes, legs at rest and both arms open
-    /// (armsOpenTargets), centred on `center` in the context's coordinates. `height` is
-    /// the figure's height, from the top of the glyph to the soles. `time` (seconds)
-    /// drives the idle motion: a slow bob, hands that sway, a blink every 3.6 s. `look` is
-    /// the gaze offset in glyph units, as in drawEyes. Port of drawKlayDrop in
-    /// tools/klay-preview/src/engine.ts.
-    static func drawDropInvite(_ ctx: GraphicsContext, center: CGPoint, height: CGFloat,
-                               look: CGPoint = .zero, time: Double) {
-        let s = height / (bottom - top)
-        let t = CGFloat(time)
-        let bob = sin(t * 1.8) * 8
-        let pose = armsOpenTargets()
-        let lh = CGPoint(x: pose.lh.x, y: pose.lh.y + sin(t * 1.8 - 1) * 6)
-        let rh = CGPoint(x: pose.rh.x, y: pose.rh.y + sin(t * 1.8 + 1) * 6)
-        let phase = time.truncatingRemainder(dividingBy: 3.6)
-        let eyeOpen: CGFloat = phase < 0.14 ? CGFloat(abs(phase / 0.07 - 1)) : 1
-
-        var c = ctx
-        c.translateBy(x: center.x, y: center.y - centerY * s)
-        c.scaleBy(x: s, y: s)
-        c.translateBy(x: 0, y: bob)
-        drawFigure(c, limbs: Limbs(lh: lh, rh: rh, lf: Limbs.rest.lf, rf: Limbs.rest.rf))
-        drawEyes(c, shape: .wide, mult: 1, look: look, open: eyeOpen, time: t)
-    }
-
     /// Pink cheeks under the eyes, `amount` 0…1, shifted by `dx` with the eyes.
     static func drawBlush(_ ctx: GraphicsContext, amount b: CGFloat, dx: CGFloat = 0) {
         guard b > 0.01 else { return }
@@ -387,26 +375,12 @@ enum KlayPaint {
                                                    startRadius: 0, endRadius: radius))
     }
 
-    /// The mailbox body: a white → brume rounded box of half-size (hw, hh), centred on the origin.
-    static func drawBoxBody(_ ctx: GraphicsContext, hw: CGFloat, hh: CGFloat, corner: CGFloat) {
-        let box = roundedRect(CGRect(x: -hw, y: -hh, width: hw * 2, height: hh * 2), corner)
-        ctx.fill(box, with: .linearGradient(Gradient(colors: [body, brume]),
-                                            startPoint: CGPoint(x: 0, y: -hh),
-                                            endPoint: CGPoint(x: 0, y: hh)))
-    }
-
-    /// The mailbox slot, teal-deep, fully rounded.
-    static func drawSlot(_ ctx: GraphicsContext, rect: CGRect) {
-        guard rect.width > 0, rect.height > 0 else { return }
-        ctx.fill(roundedRect(rect, min(rect.width / 2, rect.height / 2)), with: .color(ink))
-    }
-
     // MARK: - Eyes
 
     /// Both eyes, in Klay's frame around `center`, for the scripted figures (launch greeting,
-    /// upload, drop zone; the engine uses drawEyes(gaze:)). `look` is the gaze offset in glyph
+    /// drop sequence; the engine uses drawEyes(gaze:)). `look` is the gaze offset in glyph
     /// units (x within ±14, y within ±12, y down): the eye follows it by 40 %, the pupil
-    /// by 80 %. `mult` scales the eyes (minis and the mailbox use their own size).
+    /// by 80 %. `mult` scales the eyes.
     static func drawEyes(_ ctx: GraphicsContext, shape: EyeShape, mult: CGFloat,
                          center: CGPoint = .zero, look: CGPoint = .zero,
                          scale es: CGFloat = 1, open: CGFloat = 1, time: CGFloat) {
@@ -520,20 +494,6 @@ enum KlayPaint {
                 ctx.stroke(happyArc(w: w, h: h), with: .color(ink),
                            style: StrokeStyle(lineWidth: w * 0.42, lineCap: .round))
             }
-
-        case .cup:
-            // Flat top, rounded bottom corners (U shape): the eyes while the slot is open.
-            let hh = max(h * open, w * 0.3)
-            let cr = min(w / 2, hh / 2)
-            var p = Path()
-            p.move(to: CGPoint(x: -w / 2, y: -hh / 2))
-            p.addLine(to: CGPoint(x: w / 2, y: -hh / 2))
-            p.addLine(to: CGPoint(x: w / 2, y: hh / 2 - cr))
-            p.addQuadCurve(to: CGPoint(x: w / 2 - cr, y: hh / 2), control: CGPoint(x: w / 2, y: hh / 2))
-            p.addLine(to: CGPoint(x: -w / 2 + cr, y: hh / 2))
-            p.addQuadCurve(to: CGPoint(x: -w / 2, y: hh / 2 - cr), control: CGPoint(x: -w / 2, y: hh / 2))
-            p.closeSubpath()
-            ctx.fill(p, with: .color(ink))
         }
     }
 

@@ -121,7 +121,6 @@ final class IslandWindowController: NSWindowController {
                 // so IslandContainer sees isActive=true when state.view becomes .upload.
                 UploadSequenceEngine.shared.enterZone(x: iLoc.x, y: iLoc.y)
                 NotificationCenter.default.post(name: .hookExpand, object: IslandView.upload)
-                NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(1))
             }
         }
         dropView.onDragUpdated = { [weak self] loc in
@@ -134,7 +133,6 @@ final class IslandWindowController: NSWindowController {
             Task { @MainActor in
                 AppState.shared.fileDragOver = false
                 // Do NOT collapse: drag session still active; island stays open.
-                NotificationCenter.default.post(name: .botMorphTo, object: CGFloat(0))
                 UploadSequenceEngine.shared.exitZone()
             }
         }
@@ -1359,8 +1357,6 @@ extension Notification.Name {
     static let botGreet         = Notification.Name("notchBuddy.botGreet")
     static let botBlink         = Notification.Name("notchBuddy.botBlink")
     static let botSetTgEs       = Notification.Name("notchBuddy.botSetTgEs")
-    static let botGulp          = Notification.Name("notchBuddy.botGulp")
-    static let botMorphTo       = Notification.Name("notchBuddy.botMorphTo")
     static let islandAction     = Notification.Name("notchBuddy.islandAction")
     static let islandCollapse      = Notification.Name("notchBuddy.islandCollapse")
     static let islandSendMessage   = Notification.Name("notchBuddy.islandSendMessage")

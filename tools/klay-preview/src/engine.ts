@@ -22,7 +22,7 @@ import {
 
 export type EyeShape =
   | "pill" | "wide" | "dot" | "line" | "flat" | "happy" | "closed"
-  | "spiral" | "heart" | "star" | "tired" | "wink" | "cup";
+  | "spiral" | "heart" | "star" | "tired" | "wink";
 
 export type BadgeKind = "dots" | "bang" | "question" | "dot";
 
@@ -46,7 +46,7 @@ interface Tween {
 
 type PropKey =
   | "yaw" | "pitch" | "roll" | "tilt" | "open" | "sx" | "sy"
-  | "oy" | "ox" | "tint" | "morph" | "hands" | "blush" | "es" | "badgeS";
+  | "oy" | "ox" | "tint" | "hands" | "blush" | "es" | "badgeS";
 
 interface BotStateCfg {
   color: RGB;
@@ -148,7 +148,7 @@ const BODY = "#FFFFFF";
 /** Eyes: Klayer teal-deep. */
 export const INK = "rgb(7,27,32)"; // #071B20
 const MINI_INK = "rgb(7,27,32)";
-/** Klayer brume, the bottom of the mailbox gradient and the rim of the binocular lenses. */
+/** Klayer brume, the rings and the rim of the binocular lenses. */
 const BRUME = "#ECEDE7";
 /** Binocular lenses: Klayer teal-light. */
 const LENS = "#3E7280";
@@ -494,31 +494,59 @@ export function drawKlayBinoculars(x: CanvasRenderingContext2D, look: number) {
 }
 
 /**
- * Klay in the drop zone: the glyph, wide eyes, legs at rest and both arms open
- * (armsOpenTargets), centred on (cx, cy) in canvas px. `height` is the figure's
- * height, from the top of the glyph to the soles. `t` (seconds) drives the idle
- * motion: a slow bob, hands that sway, a blink every 3.6 s. `look` is where he
- * looks, −1…1 each way. Mirror of KlayPaint.drawDropInvite on the Mac.
+ * Hands and feet of Klay in the drop sequence: `arms` (0…1, a little over 1 while the pose
+ * overshoots) raises both hands from rest to the open pose (armsOpenTargets), where they sway
+ * a little with `t` (seconds); the feet stay at rest. Mirror of KlayPaint.dropLimbs on the Mac.
+ */
+export function dropLimbs(arms: number, t: number): { lh: P; rh: P; lf: P; rf: P } {
+  const open = armsOpenTargets();
+  const lhOpen = { x: open.lh.x, y: open.lh.y + Math.sin(t * 1.8 - 1) * 6 };
+  const rhOpen = { x: open.rh.x, y: open.rh.y + Math.sin(t * 1.8 + 1) * 6 };
+  return {
+    lh: { x: lerp(-HAND_REST.x, lhOpen.x, arms), y: lerp(HAND_REST.y, lhOpen.y, arms) },
+    rh: { x: lerp(HAND_REST.x, rhOpen.x, arms), y: lerp(HAND_REST.y, rhOpen.y, arms) },
+    lf: { x: -FOOT_REST.x, y: FOOT_REST.y },
+    rf: FOOT_REST,
+  };
+}
+
+/** A pose of Klay in the drop sequence (a frame of UploadSequenceEngine on the Mac). */
+export interface DropPose {
+  /** Hands: 0 at rest, 1 open for the file. */
+  arms: number;
+  /** pill at rest, wide for the file, closed while he swallows it. */
+  eye: EyeShape;
+  /** Eyelids: 1 open, towards 0 in a blink. */
+  open?: number;
+  /** Where he looks, −1…1 each way, y down. */
+  look?: { yaw: number; pitch: number };
+  /** The gulp's squash, about the middle of his height. */
+  sx?: number;
+  sy?: number;
+}
+
+/**
+ * Klay in the drop sequence, drawn like the island's Klay of diameter `d` (BotPlacement's
+ * canvas is d / 0.6 wide, the glyph spans GLYPH_SPAN of it), centred on (cx, cy), the middle
+ * of his full height: the island's Klay hands over to him there without a jump. `t` (seconds)
+ * sways the open hands. Mirror of UploadCanvasView.drawKlay on the Mac.
  */
 export function drawKlayDrop(
-  x: CanvasRenderingContext2D, cx: number, cy: number, height: number, t: number,
-  look: { yaw: number; pitch: number } = { yaw: 0, pitch: 0 },
+  x: CanvasRenderingContext2D, cx: number, cy: number, d: number, t: number, pose: DropPose,
 ) {
-  const s = height / (BOTTOM - TOP); // px per glyph unit
-  const bob = Math.sin(t * 1.8) * 8;
-  const arms = armsOpenTargets();
-  const lh = { x: arms.lh.x, y: arms.lh.y + Math.sin(t * 1.8 - 1) * 6 };
-  const rh = { x: arms.rh.x, y: arms.rh.y + Math.sin(t * 1.8 + 1) * 6 };
-  const ph = t % 3.6;
-  const open = ph < 0.14 ? Math.abs(ph / 0.07 - 1) : 1;
+  const s = ((d / 0.6) * GLYPH_SPAN) / GLYPH_W; // px per glyph unit
+  const l = dropLimbs(pose.arms, t);
+  const look = pose.look ?? { yaw: 0, pitch: 0 };
   x.save();
-  x.translate(cx, cy - CENTER_Y * s);
+  x.translate(cx, cy);
+  x.scale(pose.sx ?? 1, pose.sy ?? 1);
+  x.translate(0, -CENTER_Y * s);
   x.scale(s, s);
-  x.translate(0, bob);
-  drawKlayLegs(x, { x: -FOOT_REST.x, y: FOOT_REST.y }, FOOT_REST);
+  const limbs = GLYPH_W * s >= LIMBS_MIN_PX;
+  if (limbs) drawKlayLegs(x, l.lf, l.rf);
   drawKlayGlyph(x);
-  drawKlayArms(x, lh, rh);
-  drawKlayEyes(x, { shape: "wide", open, es: 1, yaw: look.yaw, pitch: look.pitch, ink: INK }, 1, 0, 0);
+  if (limbs) drawKlayArms(x, l.lh, l.rh);
+  drawKlayEyes(x, { shape: pose.eye, open: pose.open ?? 1, es: 1, yaw: look.yaw, pitch: look.pitch, ink: INK }, 1, 0, 0);
   x.restore();
 }
 
@@ -710,21 +738,6 @@ w: number, h: number, sd: number, open: number,
         x.stroke();
       }
       break;
-    case "cup": {
-      // Flat top, rounded bottom corners (U shape) — used while the box is open
-      const hh = Math.max(h * open, w * 0.3);
-      const cr = Math.min(w / 2, hh / 2);
-      x.beginPath();
-      x.moveTo(-w / 2, -hh / 2);
-      x.lineTo(w / 2, -hh / 2);
-      x.lineTo(w / 2, hh / 2 - cr);
-      x.quadraticCurveTo(w / 2, hh / 2, w / 2 - cr, hh / 2);
-      x.lineTo(-w / 2 + cr, hh / 2);
-      x.quadraticCurveTo(-w / 2, hh / 2, -w / 2, hh / 2 - cr);
-      x.closePath();
-      x.fill();
-      break;
-    }
   }
 }
 
@@ -739,16 +752,13 @@ export class BotEngine {
   // Animated state
   yaw = 0; pitch = 0; roll = 0; tilt = 0; open = 1;
   sx = 1; sy = 1; oy = 0; ox = 0;
-  tint = 0; morph = 0; hands = 0; blush = 0; es = 1; badgeS = 0;
+  tint = 0; hands = 0; blush = 0; es = 1; badgeS = 0;
 
   // Targets
   tgYaw = 0; tgPitch = 0; tgTilt = 0; tgSy = 1; tgSx = 1; tgEs = 1;
 
   /** Extra canvas height above the body so hearts can fly out without clipping. */
   particleOverhang = 0;
-
-  // Mouth spring (fraction of R)
-  slotH = 0; slotHTarget = 0; slotHVel = 0; isChewing = false;
 
   col: RGB = C.idle;
   colT: RGB = C.idle;
@@ -887,19 +897,6 @@ export class BotEngine {
     // The hands carry on down as the body squashes.
     this.lh.vy += MOTION.kick.squash;
     this.rh.vy += MOTION.kick.squash;
-  }
-
-  /** Mailbox swallow — opens the slot, chews, then closes. */
-  gulp() {
-    this.slotHTarget = 0.42;
-    setTimeout(() => {
-      this.slotHTarget = 0;
-      this.isChewing = true;
-      setTimeout(() => { this.isChewing = false; }, 800);
-    }, 460);
-    this.anim("sy", [[0.78, 80, Ease.out], [1.18, 130, Ease.out], [1, 220, Ease.back]]);
-    this.anim("sx", [[1.28, 80, Ease.out], [0.92, 130, Ease.out], [1, 220, Ease.back]]);
-    this.blink();
   }
 
   slap() {
@@ -1070,17 +1067,6 @@ export class BotEngine {
         size: 0.15 + Math.random() * 0.08,
       });
     }
-  }
-
-  animateMorph(target: number, durationMs?: number) {
-    const dur = durationMs ?? (target > 0.5 ? 550 : 650);
-    this.anim("morph", [[target, dur, Ease.inOut]]);
-  }
-
-  resetMorph() {
-    this.tweens.delete("morph");
-    this.locks.delete("morph");
-    this.morph = 0;
   }
 
   /**
@@ -1288,13 +1274,6 @@ export class BotEngine {
     for (const p of this.particles) p.age += dt;
     this.particles = this.particles.filter((p) => p.age < p.life);
 
-    // Mouth slot spring — ω₀ = 2π/0.25, ζ = 0.6
-    const omega = (2 * Math.PI) / 0.25;
-    const zeta = 0.6;
-    const acc = omega * omega * (this.slotHTarget - this.slotH) - 2 * zeta * omega * this.slotHVel;
-    this.slotHVel += acc * dt;
-    this.slotH = Math.max(0, this.slotH + this.slotHVel * dt);
-
     this.lastTime = n;
   }
 
@@ -1309,7 +1288,7 @@ export class BotEngine {
       return;
     }
     const calm = !this.isMini && this.state === "idle" && !this.hovered && this.dancingLevel < 0.01 &&
-      n >= this.waveUntil && this.morph < 0.01 && !this.eyeOverride && !this.locks.has("sy");
+      n >= this.waveUntil && !this.eyeOverride && !this.locks.has("sy");
     if (!calm) {
       this.nextFidget = Math.max(this.nextFidget, n + 2);
       return;
@@ -1425,7 +1404,7 @@ export class BotEngine {
   // ── Draw ────────────────────────────────────────────────────────────────────
 
   /**
-   * Draws Klay — glow, limbs, glyph, eyes, mailbox, badge and particles — into a
+   * Draws Klay — glow, limbs, glyph, eyes, badge and particles — into a
    * canvas of `W`×`H` CSS pixels (the caller has already applied the DPR transform).
    */
   draw(x: CanvasRenderingContext2D, W: number, H: number) {
@@ -1436,9 +1415,9 @@ export class BotEngine {
     x.save();
     this.applyDance(x, W, H);
     if (this.isMini) this.drawMini(x, R, cx, cy);
-    else this.drawMain(x, W, R, cx, cy);
+    else this.drawMain(x, W, cx, cy);
 
-    if (this.badge && this.badgeS > 0.01 && this.morph < 0.25) {
+    if (this.badge && this.badgeS > 0.01) {
       this.drawBadge(x, this.badge, R, cx, cy);
     }
     this.drawParticles(x, R, cx, cy);
@@ -1463,14 +1442,13 @@ export class BotEngine {
     x.translate(-px, -py);
   }
 
-  private drawMain(x: CanvasRenderingContext2D, W: number, R: number, cx: number, cy: number) {
-    const m = this.morph;
+  private drawMain(x: CanvasRenderingContext2D, W: number, cx: number, cy: number) {
     const s = (W * GLYPH_SPAN) / GLYPH_W; // px per glyph unit
     const ox = cx;
     const oy = cy - CENTER_Y * s; // the hub, in canvas px
 
     // Glow of the state colour behind the rays.
-    const glow = this.tint * (1 - m);
+    const glow = this.tint;
     if (glow > 0.01) {
       const gx = ox;
       const gy = oy - 70 * s;
@@ -1502,25 +1480,16 @@ export class BotEngine {
     if (this.tilt !== 0) x.rotate(this.tilt);
     x.scale(this.sx * s, this.sy * s);
 
-    if (m < 0.999) {
-      x.save();
-      x.globalAlpha = 1 - m;
-      const k = 1 - 0.35 * m;
-      x.scale(k, k);
-      const limbs = W * GLYPH_SPAN >= LIMBS_MIN_PX;
-      // Searching: binoculars up in front of the eyes, held by both hands.
-      const binoculars = this.state === "searching";
-      if (limbs) drawKlayLegs(x, this.lf, this.rf);
-      drawKlayGlyph(x);
-      if (binoculars) drawKlayBinoculars(x, this.yaw);
-      if (limbs) drawKlayArms(x, this.lh, this.rh);
-      drawKlayBlush(x, this.blush * (1 - m), klayGaze(this.yaw, this.pitch).eyeX * 0.8);
-      if (!binoculars) this.drawEyes(x, 1, 0, 0);
-      x.restore();
-    }
+    const limbs = W * GLYPH_SPAN >= LIMBS_MIN_PX;
+    // Searching: binoculars up in front of the eyes, held by both hands.
+    const binoculars = this.state === "searching";
+    if (limbs) drawKlayLegs(x, this.lf, this.rf);
+    drawKlayGlyph(x);
+    if (binoculars) drawKlayBinoculars(x, this.yaw);
+    if (limbs) drawKlayArms(x, this.lh, this.rh);
+    drawKlayBlush(x, this.blush, klayGaze(this.yaw, this.pitch).eyeX * 0.8);
+    if (!binoculars) this.drawEyes(x, 1, 0, 0);
     x.restore();
-
-    if (m > 0.001) this.drawBox(x, R, cx, cy);
   }
 
   /** Mini Klay: the white glyph and eyes on a disc of the agent's or service's colour. */
@@ -1548,7 +1517,7 @@ export class BotEngine {
     x.restore();
   }
 
-  /** Eye shape now: the state's, an emote's, or the mailbox's while it eats. */
+  /** Eye shape now: the state's or an emote's, happy while dancing, shut mid-stretch. */
   private eyeShape(): EyeShape {
     let shape: EyeShape = this.eyeOverride ?? this.cfg.eye;
     // Dance: happy eyes in the calm states.
@@ -1560,10 +1529,6 @@ export class BotEngine {
       const ft = now() - this.fidget.start;
       if (ft > MOTION.stretch.eyesFrom && ft < MOTION.stretch.eyesTo) shape = "closed";
     }
-    if (this.morph > 0.5) {
-      if (this.isChewing) shape = "happy";
-      else if (this.slotHTarget > 0.05 || this.slotH > 0.1) shape = "cup";
-    }
     return shape;
   }
 
@@ -1571,45 +1536,6 @@ export class BotEngine {
     drawKlayEyesGaze(x, {
       shape: this.eyeShape(), open: this.open, es: this.es, ink: this.isMini ? MINI_INK : INK,
     }, klayGaze(this.yaw, this.pitch), mult, cxu, cyu);
-  }
-
-  /**
-   * The mailbox Klay turns into when a file is dropped: a white rounded box with
-   * a slot on top and the same eyes. It grows in as the glyph shrinks away.
-   */
-  private drawBox(x: CanvasRenderingContext2D, R: number, cx: number, cy: number) {
-    const m = this.morph;
-    const k = 0.55 + 0.45 * m;
-    const bw = R * 1.0 * k;
-    const bh = R * 0.94 * k;
-    x.save();
-    x.translate(cx, cy);
-    if (this.tilt !== 0) x.rotate(this.tilt);
-    x.scale(this.sx, this.sy);
-    x.globalAlpha = Math.min(1, m * 1.4);
-    roundRectPath(x, -bw, -bh, bw * 2, bh * 2, R * 0.42 * k);
-    const g = x.createLinearGradient(0, -bh, 0, bh);
-    g.addColorStop(0, "#FFFFFF");
-    g.addColorStop(1, BRUME);
-    x.fillStyle = g;
-    x.fill();
-
-    // Slot
-    const hW = R * 1.8 * m * k * 0.9;
-    const hH = this.slotH * R * m;
-    const hY = -bh + R * 0.1 * m;
-    if (hH > 0.8) {
-      const hR = Math.min(hW / 2, hH / 2);
-      roundRectPath(x, -hW / 2, hY, hW, hH, hR);
-      x.fillStyle = "rgb(7,27,32)";
-      x.fill();
-    }
-
-    // Eyes on the box face (box units → glyph units: the eye shapes are sized in glyph units).
-    const u = R / 100;
-    x.scale(u, u);
-    this.drawEyes(x, 0.62, 0, 12);
-    x.restore();
   }
 
   private drawBadge(x: CanvasRenderingContext2D, badge: Badge, R: number, cx: number, cy: number) {

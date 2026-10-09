@@ -67,7 +67,7 @@ struct BotStateCfg {
 }
 
 enum EyeShape: String {
-    case pill, wide, dot, line, flat, happy, closed, spiral, heart, star, tired, wink, cup
+    case pill, wide, dot, line, flat, happy, closed, spiral, heart, star, tired, wink
 }
 
 enum BadgeType {
@@ -226,7 +226,6 @@ final class BotEngine: ObservableObject {
     var oy:     CGFloat = 0          // offset Y (bounce)
     var ox:     CGFloat = 0          // offset X (shake)
     var tint:   CGFloat = 0          // glow strength
-    var morph:  CGFloat = 0          // morph to the mailbox (upload)
     var hands:  CGFloat = 0          // hello wave amount
     var blush:  CGFloat = 0
     var es:     CGFloat = 1          // eye scale
@@ -289,12 +288,6 @@ final class BotEngine: ObservableObject {
 
     // Particle canvas overhang (extra canvas height at top for hearts to fly into)
     var particleOverhang: CGFloat = 0
-
-    // Mouth spring (fraction of R: 0=closed, 0.20=hover, 0.42=open, 0.50=overopen)
-    var slotH: CGFloat = 0           // current height (fraction of R)
-    var slotHTarget: CGFloat = 0     // spring target
-    var slotHVel: CGFloat = 0        // spring velocity (fraction of R / s)
-    var isChewing: Bool = false       // true for ~800ms after gulp swallow
 
     // Color (animated)
     var col:  (CGFloat, CGFloat, CGFloat) = (0.243, 0.447, 0.502)  // idle
@@ -433,31 +426,6 @@ final class BotEngine: ObservableObject {
         springRH.y.velocity += KlayMotion.Kick.squash
     }
 
-    // MARK: - Gulp (mailbox swallow)
-
-    func gulp() {
-        // Open mouth wide for the swallow, then close during chewing
-        slotHTarget = 0.42
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.46) { [weak self] in
-            self?.slotHTarget = 0
-            self?.isChewing = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.80) { [weak self] in
-                self?.isChewing = false
-            }
-        }
-        anim("sy", keys: [
-            TweenKey(target: 0.78, duration: 80,  ease: Ease.out),
-            TweenKey(target: 1.18, duration: 130, ease: Ease.out),
-            TweenKey(target: 1,    duration: 220, ease: Ease.back),
-        ])
-        anim("sx", keys: [
-            TweenKey(target: 1.28, duration: 80,  ease: Ease.out),
-            TweenKey(target: 0.92, duration: 130, ease: Ease.out),
-            TweenKey(target: 1,    duration: 220, ease: Ease.back),
-        ])
-        blink()
-    }
-
     // MARK: - Slap (dizzy mechanic)
 
     func slap() {
@@ -590,16 +558,6 @@ final class BotEngine: ObservableObject {
             self?.roll = 0
             self?.squash()
         }
-    }
-
-    func animateMorph(_ target: CGFloat, duration: CGFloat? = nil) {
-        anim("morph", keys: [TweenKey(target: target, duration: duration ?? (target > 0.5 ? 550 : 650), ease: Ease.inOut)])
-    }
-
-    func resetMorph() {
-        tweens.removeValue(forKey: "morph")
-        locks.remove("morph")
-        morph = 0
     }
 
     func greet() {
@@ -989,14 +947,6 @@ final class BotEngine: ObservableObject {
         for i in particles.indices { particles[i].age += dt }
         particles.removeAll { $0.age >= $0.life }
 
-        // Mouth slot spring — ω₀ ≈ 25 rad/s (T=0.25s), ζ=0.6 (underdamped, slight clack)
-        let slotOmega: CGFloat = 2 * .pi / 0.25
-        let slotZeta: CGFloat = 0.6
-        let slotAcc = slotOmega * slotOmega * (slotHTarget - slotH)
-                    - 2 * slotZeta * slotOmega * slotHVel
-        slotHVel += slotAcc * dtCG
-        slotH = max(0, slotH + slotHVel * dtCG)
-
         lastTime = now
     }
 
@@ -1009,7 +959,7 @@ final class BotEngine: ObservableObject {
             return
         }
         let calm = !isMini && state == .idle && !hovered && dancingLevel < 0.01
-            && now >= waveUntil && morph < 0.01 && eyeOverride == nil && !locks.contains("sy")
+            && now >= waveUntil && eyeOverride == nil && !locks.contains("sy")
         guard calm else {
             nextFidget = max(nextFidget, now + 2)
             return
@@ -1132,9 +1082,9 @@ final class BotEngine: ObservableObject {
 
     // MARK: - Draw
 
-    /// Draws Klay: the glow of the state's colour, legs, glyph, arms, eyes (binoculars
-    /// while searching) and the mailbox morph (or, for a mini Klay, the white glyph and
-    /// eyes on a disc of its colour).
+    /// Draws Klay: the glow of the state's colour, legs, glyph, arms and eyes (binoculars
+    /// while searching), or, for a mini Klay, the white glyph and eyes on a disc of its
+    /// colour.
     /// The badge and particles are drawn by drawHandsAndExtras, on top.
     func draw(context: GraphicsContext, size: CGSize) {
         let W = size.width
@@ -1143,7 +1093,7 @@ final class BotEngine: ObservableObject {
         if isMini {
             drawMini(context, R: R, cx: c.x, cy: c.y)
         } else {
-            drawMain(context, W: W, R: R, cx: c.x, cy: c.y)
+            drawMain(context, W: W, cx: c.x, cy: c.y)
         }
     }
 
@@ -1152,8 +1102,8 @@ final class BotEngine: ObservableObject {
         let R = size.width * 0.3
         let c = bodyCenter(size: size)
 
-        // Badge — hidden while morphing to mailbox
-        if let badge = badge, badgeS > 0.01, morph < 0.25 {
+        // Badge
+        if let badge = badge, badgeS > 0.01 {
             drawBadge(context: context, badge: badge, R: R, cx: c.x, cy: c.y)
         }
 
@@ -1163,54 +1113,45 @@ final class BotEngine: ObservableObject {
 
     // MARK: - Private draw helpers
 
-    private func drawMain(_ context: GraphicsContext, W: CGFloat, R: CGFloat, cx: CGFloat, cy: CGFloat) {
-        let m = morph
+    private func drawMain(_ context: GraphicsContext, W: CGFloat, cx: CGFloat, cy: CGFloat) {
         let s = glyphScale(W)              // canvas points per glyph unit
         let hubX = cx
         let hubY = cy - KlayPaint.centerY * s
 
         // Glow of the state colour behind the rays.
-        let glow = tint * (1 - m)
-        if glow > 0.01 {
+        if tint > 0.01 {
             KlayPaint.drawGlow(context, center: CGPoint(x: hubX, y: hubY - 70 * s),
-                               radius: 380 * s, color: colorFromTuple(col), amount: glow)
+                               radius: 380 * s, color: colorFromTuple(col), amount: tint)
         }
 
-        if m < 0.999 {
-            var ctx = context
-            ctx.translateBy(x: hubX, y: hubY)
-            // Lean: the whole figure turns towards where Klay looks, about the soles; looking
-            // up lifts and stretches him a little, and he rises towards a pointer on him.
-            let L = KlayMotion.Lean.self
-            let soles = KlayPaint.bottom * s
-            ctx.translateBy(x: lean.x.value * L.shift * s,
-                            y: -(lean.y.value * L.rise + hoverLift * KlayMotion.Hover.rise) * s)
-            ctx.translateBy(x: 0, y: soles)
-            ctx.rotate(by: .radians(Double(lean.x.value * L.tilt)))
-            ctx.scaleBy(x: 1, y: 1 + lean.y.value * L.stretch)
-            ctx.translateBy(x: 0, y: -soles)
-            if abs(roll) > 0.001 {
-                // Spins turn the whole of Klay around the middle of its height.
-                ctx.translateBy(x: 0, y: KlayPaint.centerY * s)
-                ctx.rotate(by: .radians(Double(roll)))
-                ctx.translateBy(x: 0, y: -KlayPaint.centerY * s)
-            }
-            if tilt != 0 { ctx.rotate(by: .radians(Double(tilt))) }
-            ctx.scaleBy(x: sx * s, y: sy * s)
-            ctx.opacity *= Double(1 - m)
-            let k = 1 - 0.35 * m
-            ctx.scaleBy(x: k, y: k)
-            let showLimbs = W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx
-            // Searching: binoculars up in front of the eyes, held by both hands.
-            let binoculars = state == .searching
-            KlayPaint.drawFigure(ctx, limbs: showLimbs ? limbs : nil,
-                                 binoculars: binoculars ? yaw : nil)
-            KlayPaint.drawBlush(ctx, amount: blush * (1 - m),
-                                dx: KlayMotion.gaze(yaw: yaw, pitch: pitch).eye.x * 0.8)
-            if !binoculars { drawEyes(ctx, mult: 1, center: .zero) }
+        var ctx = context
+        ctx.translateBy(x: hubX, y: hubY)
+        // Lean: the whole figure turns towards where Klay looks, about the soles; looking
+        // up lifts and stretches him a little, and he rises towards a pointer on him.
+        let L = KlayMotion.Lean.self
+        let soles = KlayPaint.bottom * s
+        ctx.translateBy(x: lean.x.value * L.shift * s,
+                        y: -(lean.y.value * L.rise + hoverLift * KlayMotion.Hover.rise) * s)
+        ctx.translateBy(x: 0, y: soles)
+        ctx.rotate(by: .radians(Double(lean.x.value * L.tilt)))
+        ctx.scaleBy(x: 1, y: 1 + lean.y.value * L.stretch)
+        ctx.translateBy(x: 0, y: -soles)
+        if abs(roll) > 0.001 {
+            // Spins turn the whole of Klay around the middle of its height.
+            ctx.translateBy(x: 0, y: KlayPaint.centerY * s)
+            ctx.rotate(by: .radians(Double(roll)))
+            ctx.translateBy(x: 0, y: -KlayPaint.centerY * s)
         }
-
-        if m > 0.001 { drawBox(context, R: R, cx: cx, cy: cy) }
+        if tilt != 0 { ctx.rotate(by: .radians(Double(tilt))) }
+        ctx.scaleBy(x: sx * s, y: sy * s)
+        let showLimbs = W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx
+        // Searching: binoculars up in front of the eyes, held by both hands.
+        let binoculars = state == .searching
+        KlayPaint.drawFigure(ctx, limbs: showLimbs ? limbs : nil,
+                             binoculars: binoculars ? yaw : nil)
+        KlayPaint.drawBlush(ctx, amount: blush,
+                            dx: KlayMotion.gaze(yaw: yaw, pitch: pitch).eye.x * 0.8)
+        if !binoculars { drawEyes(ctx, mult: 1, center: .zero) }
     }
 
     /// Mini Klay: the white glyph and eyes on a disc of the agent's or service's colour.
@@ -1230,35 +1171,7 @@ final class BotEngine: ObservableObject {
         drawEyes(ctx, mult: 1.1, center: .zero)
     }
 
-    /// The mailbox Klay turns into when a file is dropped: a white rounded box with a
-    /// slot on top and the same eyes. It grows in as the glyph shrinks away.
-    private func drawBox(_ context: GraphicsContext, R: CGFloat, cx: CGFloat, cy: CGFloat) {
-        let m = morph
-        let k = 0.55 + 0.45 * m
-        let bw = R * k
-        let bh = R * 0.94 * k
-        var ctx = context
-        ctx.translateBy(x: cx, y: cy)
-        if tilt != 0 { ctx.rotate(by: .radians(Double(tilt))) }
-        ctx.scaleBy(x: sx, y: sy)
-        ctx.opacity *= Double(min(1, m * 1.4))
-        KlayPaint.drawBoxBody(ctx, hw: bw, hh: bh, corner: R * 0.42 * k)
-
-        // Slot
-        let hW = R * 1.8 * m * k * 0.9
-        let hH = slotH * R * m
-        let hY = -bh + R * 0.1 * m
-        if hH > 0.8 {
-            KlayPaint.drawSlot(ctx, rect: CGRect(x: -hW / 2, y: hY, width: hW, height: hH))
-        }
-
-        // Eyes on the box face (box units → glyph units: the eye shapes are sized in glyph units).
-        let u = R / 100
-        ctx.scaleBy(x: u, y: u)
-        drawEyes(ctx, mult: 0.62, center: CGPoint(x: 0, y: 12))
-    }
-
-    /// The eye shape for this frame: emote or state, happy while dancing, cup/happy in the mailbox.
+    /// The eye shape for this frame: emote or state, happy while dancing, shut mid-stretch.
     private func currentEyeShape() -> EyeShape {
         var shape = eyeOverride ?? cfg.eye
         // Dance: happy eyes in calm states
@@ -1269,11 +1182,6 @@ final class BotEngine: ObservableObject {
         if let f = fidget, f.kind == .stretch, eyeOverride == nil {
             let ft = CACurrentMediaTime() - f.start
             if ft > KlayMotion.Stretch.eyesFrom && ft < KlayMotion.Stretch.eyesTo { shape = .closed }
-        }
-        // In box mode: cup eyes when file over box (slotHTarget set), happy arcs while chewing
-        if morph > 0.5 {
-            if isChewing { shape = .happy }
-            else if slotHTarget > 0.05 || slotH > 0.10 { shape = .cup }
         }
         return shape
     }
@@ -1412,7 +1320,6 @@ final class BotEngine: ObservableObject {
         case "oy":            oy            = value
         case "ox":            ox            = value
         case "tint":          tint          = value
-        case "morph":         morph         = value
         case "hands":         hands         = value
         case "blush":         blush         = value
         case "es":            es            = value
@@ -1433,7 +1340,6 @@ final class BotEngine: ObservableObject {
         case "oy":            return oy
         case "ox":            return ox
         case "tint":          return tint
-        case "morph":         return morph
         case "hands":         return hands
         case "blush":         return blush
         case "es":            return es

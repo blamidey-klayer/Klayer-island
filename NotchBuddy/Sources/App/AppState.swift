@@ -59,7 +59,7 @@ final class AppState: ObservableObject {
     var uploadStartTime: Date?
     var uploadDuration: Double = 2.4
 
-    // File drag-over state (mailbox morph glow + mouth spring)
+    // A file is dragged over the island (the drop card's green border and glow)
     @Published var fileDragOver: Bool = false
 
     // Sound enabled: persisted
