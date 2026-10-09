@@ -234,8 +234,8 @@ struct GmailDraftAnswer: Equatable {
                 if !gmailToolSeen && !isError {
                     end = .gmailMissing
                 } else if isError {
-                    // A known CLI error is said in French.
-                    end = .failed(Self.shortMessage(message).map(ClaudeErrorText.french) ?? Self.noDraftMessage)
+                    // A known CLI error is said in French, read whole before the cut.
+                    end = .failed(Self.shortMessage(message.map(ClaudeErrorText.french)) ?? Self.noDraftMessage)
                 } else {
                     // What the model said, as it said it.
                     end = .failed(Self.shortMessage(message) ?? Self.noDraftMessage)
@@ -249,7 +249,7 @@ struct GmailDraftAnswer: Equatable {
     /// The process ended before its turn did (crash, or killed outside the island).
     mutating func processEnded(lastErrorLine: String?) {
         guard end == nil else { return }
-        end = .failed(Self.shortMessage(lastErrorLine).map(ClaudeErrorText.french) ?? Self.stoppedMessage)
+        end = .failed(Self.shortMessage(lastErrorLine.map(ClaudeErrorText.french)) ?? Self.stoppedMessage)
     }
 
     /// The 90 s are over.

@@ -223,14 +223,16 @@ extension ClaudeCLI {
         return joined.count > limit ? Data(joined.suffix(limit)) : joined
     }
 
-    /// The last non-blank line of what the process wrote on stderr, cut to 200 characters:
-    /// what the user sees when the process dies during an answer. Nil when there is none.
+    /// The last non-blank line of what the process wrote on stderr, in French when it is a known
+    /// error (`ClaudeErrorText`, which reads the whole line), then cut to 200 characters: what the
+    /// user sees when the process dies during an answer. Nil when there is none.
     static func lastErrorLine(_ stderr: Data) -> String? {
         guard let line = String(decoding: stderr, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
             .map({ $0.trimmingCharacters(in: .whitespaces) })
             .last(where: { !$0.isEmpty }) else { return nil }
-        return line.count > 200 ? String(line.prefix(199)) + "…" : line
+        let shown = ClaudeErrorText.french(line)
+        return shown.count > 200 ? String(shown.prefix(199)) + "…" : shown
     }
 }
 
@@ -254,16 +256,16 @@ enum ClaudeErrorText {
         if text.contains("authentication_error") || text.contains("authentication failed")
             || text.contains("invalid api key") || text.contains("invalid bearer token")
             || text.contains("oauth token") || text.contains("please run /login")
-            || text.contains("not logged in") || (isError && text.contains("401")) {
+            || text.contains("not logged in") || (isError && hasStatus(401, in: text)) {
             return loggedOut
         }
-        if text.contains("usage limit") || text.contains("hit your limit") || text.contains("limit reached") {
+        if text.contains("usage limit") || text.contains("hit your limit") || isUsageWindowLimit(text) {
             return usageLimit
         }
-        if text.contains("rate limit") || text.contains("rate_limit") || (isError && text.contains("429")) {
+        if text.contains("rate limit") || text.contains("rate_limit") || (isError && hasStatus(429, in: text)) {
             return rateLimited
         }
-        if text.contains("overloaded") || (isError && text.contains("529")) {
+        if text.contains("overloaded") || (isError && hasStatus(529, in: text)) {
             return overloaded
         }
         if text.contains("error_max_turns") || text.contains("max turns") || text.contains("maximum number of turns") {
@@ -273,6 +275,20 @@ enum ClaudeErrorText {
             return duringExecution
         }
         return message
+    }
+
+    /// True when the HTTP status `code` stands in `text` as a whole number: « API Error: 401 »,
+    /// never the 401 inside « 14010 » or « error_4011 ».
+    private static func hasStatus(_ code: Int, in text: String) -> Bool {
+        text.range(of: "\\b\(code)\\b", options: .regularExpression) != nil
+    }
+
+    /// « limit reached » for a usage window of the plan (« 5-hour limit reached », « Weekly limit
+    /// reached », « Opus weekly limit reached »). A context or token limit is not a usage limit:
+    /// it passes through as Claude Code says it; a rate limit has its own rule.
+    private static func isUsageWindowLimit(_ text: String) -> Bool {
+        guard text.contains("limit reached"), !text.contains("context"), !text.contains("token") else { return false }
+        return ["5-hour", "hourly", "daily", "weekly", "session", "opus", "sonnet"].contains { text.contains($0) }
     }
 }
 

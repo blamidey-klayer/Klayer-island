@@ -339,8 +339,8 @@ final class ChatSession: ObservableObject {
         case .failed(let message):
             scheduleIdleStop()
             // The CLI's message is already in French when it is a known error (ChatAnswer); the
-            // last stderr line goes through the same words.
-            showError(current, message: message ?? process?.lastErrorLine.map(ClaudeErrorText.french) ?? Self.genericError)
+            // last stderr line goes through the same words (ClaudeCLI.lastErrorLine).
+            showError(current, message: message ?? process?.lastErrorLine ?? Self.genericError)
         case .empty:
             scheduleIdleStop()
             showError(current, message: ChatAnswer.emptyMessage)
@@ -382,7 +382,8 @@ final class ChatSession: ObservableObject {
         guard let interrupted else { return }
         turn = nil
         isAnswering = false
-        showError(interrupted, message: errorLine.map(ClaudeErrorText.french) ?? Self.genericError)
+        // Already in French when it is a known error (ClaudeCLI.lastErrorLine).
+        showError(interrupted, message: errorLine ?? Self.genericError)
     }
 
     /// Stops the live process, if any, and moves to a new generation so that nothing it still
@@ -587,7 +588,8 @@ final class ClaudeProcess: @unchecked Sendable {
         RunningProcess(process).terminate(waitingUpTo: atQuit ? 0.5 : nil)
     }
 
-    /// The last line the process wrote on stderr, if any.
+    /// The last line the process wrote on stderr, if any: in French when it is a known error,
+    /// cut to 200 characters (`ClaudeCLI.lastErrorLine`).
     var lastErrorLine: String? {
         lock.lock()
         defer { lock.unlock() }

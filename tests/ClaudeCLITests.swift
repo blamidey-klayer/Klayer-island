@@ -674,11 +674,14 @@ enum ClaudeCLITests {
         precondition(tail.count == ClaudeCLI.stderrTailBytes, "only the last 4 KB are kept")
         precondition(String(decoding: tail, as: UTF8.self).hasSuffix("fatal: boom\n"))
         precondition(ClaudeCLI.lastErrorLine(tail) == "fatal: boom")
-        precondition(ClaudeCLI.lastErrorLine(Data("Error: Invalid API key\n\n  \n".utf8)) == "Error: Invalid API key")
+        // A known error is said in French (ClaudeErrorText), read whole before the cut.
+        precondition(ClaudeCLI.lastErrorLine(Data("Error: Invalid API key\n\n  \n".utf8)) == ClaudeErrorText.loggedOut)
         precondition(ClaudeCLI.lastErrorLine(Data()) == nil)
         precondition(ClaudeCLI.lastErrorLine(Data(" \n\n".utf8)) == nil)
         let long = ClaudeCLI.lastErrorLine(Data(String(repeating: "z", count: 1_000).utf8)) ?? ""
         precondition(long.count == 200 && long.hasSuffix("…"), "a short error, cut at 200 characters")
+        let lateWords = ClaudeCLI.lastErrorLine(Data((String(repeating: "z", count: 300) + " API Error: overloaded\n").utf8))
+        precondition(lateWords == ClaudeErrorText.overloaded, "the whole line is read before the cut: \(lateWords ?? "nil")")
     }
 
     // MARK: - The chat's answer (Task 14 review)
@@ -1189,12 +1192,33 @@ enum ClaudeCLITests {
             ("Invalid API key · Please run /login", login),
             ("OAuth token has expired. Please obtain a new token or refresh your existing token.", login),
             ("API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}", login),
+            // A status code is a whole number next to « error »
+            ("API Error: 401", login),
+            ("Error: 429 Too Many Requests", rate),
+            ("API Error: 529", overloaded),
+            // « limit reached » is a usage limit when a usage window is named, a rate limit when it says so
+            ("5-hour limit reached ∙ resets 3pm", usage),
+            ("Weekly limit reached ∙ resets Oct 9, 5pm", usage),
+            ("Opus weekly limit reached", usage),
+            ("Rate limit reached for requests", rate),
         ]
         for (raw, french) in cases {
             precondition(ClaudeErrorText.french(raw) == french, "\(raw) -> \(ClaudeErrorText.french(raw))")
         }
-        for unknown in ["fatal: boom", "Something odd", "Le brouillon n'a pas pu être préparé.", "Compte 401 euros", ""] {
-            precondition(ClaudeErrorText.french(unknown) == unknown, "\(unknown) passes through")
+        for unknown in ["fatal: boom", "Something odd", "Le brouillon n'a pas pu être préparé.", "Compte 401 euros", "",
+                        // A code inside a longer number is not a status code
+                        "Error: request 14010 failed", "Error: build 15290 failed", "error at offset 4290",
+                        "Error: 4010", "error_4011",
+                        // A context limit is not a usage limit: it stays as Claude Code says it
+                        "Context limit reached · /compact or /clear to continue",
+                        "Error: context window limit reached",
+                        "Prompt is too long: context limit reached",
+                        "Opus context limit reached", "Opus output token limit reached"] {
+            precondition(ClaudeErrorText.french(unknown) == unknown, "\(unknown) passes through, got \(ClaudeErrorText.french(unknown))")
+        }
+        // Each French text passes through unchanged: the translation is read once or twice alike.
+        for french in [overloaded, rate, usage, login, maxTurns, execution] {
+            precondition(ClaudeErrorText.french(french) == french, "\(french) stays")
         }
         for french in [overloaded, rate, usage, login, maxTurns, execution] {
             precondition(!french.contains("\u{2014}") && !french.contains("\u{2013}"), "no em or en dash")
@@ -1211,5 +1235,20 @@ enum ClaudeCLITests {
         var said = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         said.read([.initialized(tools: [draftTool]), .turnEnded(isError: false, message: "Le serveur est overloaded, désolé.")])
         precondition(said.end == .failed("Le serveur est overloaded, désolé."), "the model's own words are not rewritten")
+
+        // The whole message is translated, then cut at 200 characters: the words that say which
+        // error it is may come after the cut.
+        let padding = String(repeating: "x", count: 250) + " "
+        var lateTurn = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        lateTurn.read([.initialized(tools: [draftTool]), .turnEnded(isError: true, message: padding + "API Error: overloaded")])
+        precondition(lateTurn.end == .failed(overloaded), "the turn's error, read whole: \(String(describing: lateTurn.end))")
+        var lateCrash = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        lateCrash.processEnded(lastErrorLine: padding + "Invalid API key · Please run /login")
+        precondition(lateCrash.end == .failed(login), "the crash line, read whole: \(String(describing: lateCrash.end))")
+        var longUnknown = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        longUnknown.read([.initialized(tools: [draftTool]), .turnEnded(isError: true, message: padding + "boom")])
+        guard case .failed(let cut) = longUnknown.end, cut.count == 200, cut.hasSuffix("…") else {
+            preconditionFailure("an unknown long error is still cut at 200 characters: \(String(describing: longUnknown.end))")
+        }
     }
 }
