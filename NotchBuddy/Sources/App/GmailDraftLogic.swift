@@ -16,6 +16,14 @@ enum GmailDraftOutcome: Equatable {
     case gmailMissing
     /// No draft, with what to tell the user.
     case failed(String)
+
+    /// Whether the form the user filled is kept once the run ended. A draft ready in Gmail is done
+    /// with: the same file opens a blank form next time. Without a draft, « Réessayer » or the
+    /// same file dropped again brings the form back as the user left it.
+    var keepsTheForm: Bool {
+        if case .ready = self { return false }
+        return true
+    }
 }
 
 // MARK: - « À »

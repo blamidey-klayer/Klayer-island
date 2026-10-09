@@ -220,8 +220,8 @@ final class GmailDraftFlow: ObservableObject {
     var canPrepare: Bool { GmailDraftRequest.canPrepare(to: to, intent: intent) }
 
     /// « Préparer un email » for a dropped file: the form. Still filled for the same file (back
-    /// from the Claude Code notice, or after « Annuler »), empty for another one. A run in progress
-    /// is kept.
+    /// from the Claude Code notice, or after « Annuler »), empty for another one, and empty once a
+    /// draft is ready (`GmailDraftOutcome.keepsTheForm`). A run in progress is kept.
     func startOver(for dropped: DroppedFile?) {
         guard phase != .working else { return }
         phase = .editing
@@ -229,6 +229,16 @@ final class GmailDraftFlow: ObservableObject {
         guard key != formFileKey else { return }
         formFileKey = key
         file = nil
+        to = ""
+        subject = ""
+        intent = ""
+    }
+
+    /// The draft is ready in Gmail: the fields empty and the form belongs to no file, so the same
+    /// file opens a blank form. The ready card does not show the fields; `file` stays for
+    /// « Montrer le fichier ».
+    private func clearForm() {
+        formFileKey = nil
         to = ""
         subject = ""
         intent = ""
@@ -281,6 +291,7 @@ final class GmailDraftFlow: ObservableObject {
                 return
             }
             phase = .done(outcome)
+            if !outcome.keepsTheForm { clearForm() }
             if case .ready = outcome {
                 NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
             }

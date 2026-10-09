@@ -42,6 +42,7 @@ enum ClaudeCLITests {
             ("draft_answer_checks_the_call_against_the_request", draftAnswerChecksTheCallAgainstTheRequest),
             ("draft_answer_flags_more_than_one_draft", draftAnswerFlagsMoreThanOneDraft),
             ("cli_errors_in_french", cliErrorsInFrench),
+            ("draft_form_is_kept_until_a_draft_is_ready", draftFormIsKeptUntilADraftIsReady),
         ]
         for (name, run) in cases {
             run()
@@ -1170,6 +1171,17 @@ enum ClaudeCLITests {
         retry.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: "Error: quota"),
                     .toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: draftResult)])
         guard case .ready? = retry.end else { preconditionFailure("a retry after a failed call: ready, got \(String(describing: retry.end))") }
+    }
+
+    static func draftFormIsKeptUntilADraftIsReady() {
+        // A draft ready in Gmail is done with: the same file opens a blank form next time.
+        guard let draft = GmailDraft.parse(toolResult: draftResult) else { preconditionFailure("the fixture is a draft") }
+        precondition(!GmailDraftOutcome.ready(draft, nil).keepsTheForm)
+        precondition(!GmailDraftOutcome.ready(draft, GmailDraftPreview(to: ["a@b.fr"], subject: "Devis", body: "Bonjour")).keepsTheForm)
+        // No draft: « Réessayer », or the same file dropped again, brings the form back as it was.
+        precondition(GmailDraftOutcome.gmailMissing.keepsTheForm)
+        precondition(GmailDraftOutcome.failed(GmailDraftAnswer.noDraftMessage).keepsTheForm)
+        precondition(GmailDraftOutcome.failed(GmailDraftAnswer.timeoutMessage).keepsTheForm)
     }
 
     static func cliErrorsInFrench() {
