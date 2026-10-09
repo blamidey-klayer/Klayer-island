@@ -4510,7 +4510,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks obsolètes — mets-les à jour pour répondre aux questions de Claude depuis l'encoche"
+            "value": "Hooks obsolètes : mets-les à jour pour répondre aux questions de Claude depuis l'encoche"
           }
         },
         "hi": {
@@ -10522,6 +10522,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dans l'app Claude"
+          }
+        }
+      }
+    },
+    "Quitter Klayer Island": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Klayer Island"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter Klayer Island"
+          }
+        }
+      }
+    },
+    "Answer questions and permissions from terminal sessions in the notch": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre dans l'encoche aux questions et autorisations des sessions de terminal"
+          }
+        }
+      }
+    },
+    "Off: sessions in Warp, Terminal, iTerm… show in the notch, but their questions and permission requests are asked in the terminal. On: the notch shows them first, and the terminal waits until you answer there or close the island (up to 2 min).": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : les sessions de Warp, Terminal, iTerm… s'affichent dans l'encoche, mais leurs questions et demandes d'autorisation se posent dans le terminal. Activé : l'encoche les montre d'abord, et le terminal attend que tu y répondes ou que tu fermes l'île (2 min au plus)."
           }
         }
       }

@@ -46,6 +46,9 @@ final class HookServer: @unchecked Sendable {
     /// permission buttons in the Claude app too, and its hooks already tell the island
     /// (ClaudeAppWatchRules.suppressedByCodeHook).
     @MainActor private(set) var lastDesktopHookAt: Date? = nil
+    /// The sessions whose last end of turn opened the finished or error view: an idle prompt after a
+    /// finish that was only badged opens the note (CodeNotification.shouldOpen, final fix wave I1).
+    @MainActor private var shownFinishes = ShownFinishes()
 
     private init() {}
 
@@ -125,7 +128,11 @@ final class HookServer: @unchecked Sendable {
         case .keepView:        break
         case .note:            showNote(note)
         case .show(let next):  showHeldRequest(next)
-        case .home:            state.view = state.tasks.isEmpty ? .empty : .overview
+        case .home:
+            let home: IslandView = state.tasks.isEmpty ? .empty : .overview
+            // A Claude app alert held while the card was up shows in place of the home, the way an
+            // alert opens the island (ClaudeAppAlertHold).
+            if !state.showHeldClaudeAppAlert(inPlaceOf: home, announce: true) { state.view = home }
         }
     }
 
@@ -483,6 +490,16 @@ final class HookServer: @unchecked Sendable {
         // What a Notification asks of the user, read once, before `trackSession` moves the row: an
         // idle prompt after a finish that was shown asks nothing new, and the row's phase says so.
         let asked = name == "Notification" ? askedRequest(in: payload, sessionId: sessionId) : nil
+        if name == "Notification", validAgent != nil {
+            // Every notification of a Claude app session, opened or not: its type and what the island
+            // reads from it, never its text (TEST-MAC 5.5).
+            nbLog("Notification \(Self.loggedType(payload["notification_type"])) [\(rawAgent)] "
+                  + "(\(sessionId.prefix(8))): \(asked.map { "asks \($0)" } ?? "asks nothing new")")
+        }
+        // The latest end of turn of a session counts as not shown until its finished or error view
+        // opens below; a session that left needs no record.
+        if name == "Stop" || name == "StopFailure" { shownFinishes.ended(sessionId, shown: false) }
+        if name == "SessionEnd" { shownFinishes.forget(sessionId) }
 
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
@@ -512,6 +529,8 @@ final class HookServer: @unchecked Sendable {
                 if sessionId != pending.sessionId {
                     trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
                                  host: sessionHost, asked: asked)
+                    // What it asks plays its sound and is held for when the card leaves; never over the card.
+                    if let asked { alertClaudeApp(asked, projectName: projectName, sessionId: sessionId) }
                 }
                 return
             }
@@ -532,6 +551,8 @@ final class HookServer: @unchecked Sendable {
                 SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
                 setPillBadge(id: agentId, badge: name == "Stop" ? .finished : .error)
             }
+            // What a notification asks plays its sound and is held for when the card leaves (M7).
+            if let asked { alertClaudeApp(asked, projectName: projectName, sessionId: sessionId) }
             return
         }
 
@@ -610,17 +631,7 @@ final class HookServer: @unchecked Sendable {
                    let pose = BotState(rawValue: row.phase.rawValue) {
                     state.updateTask(id: agentId, state: pose)
                 }
-                let title = String(localized: "Claude attend ta réponse")
-                let detail: String
-                switch kind {
-                case .permission: detail = String(localized: "Une autorisation t'attend dans l'app Claude : \(projectName)")
-                case .waiting, .idle:
-                    detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(projectName)")
-                }
-                nbLog("Notification \(kind) from the Claude app (\(sessionId.prefix(8)))")
-                // A permission has the approval sound, Claude waiting (idle, or an MCP form) the question one.
-                state.showClaudeAppAlert(title: title, message: detail,
-                                         sound: kind == .permission ? "approval" : "question")
+                alertClaudeApp(kind, projectName: projectName, sessionId: sessionId)
             } else if message.hasSuffix("?") {
                 state.updateTask(id: agentId, state: .question)
                 appendStep(id: agentId, step: message)
@@ -653,6 +664,7 @@ final class HookServer: @unchecked Sendable {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
                 }
                 expandIfNeeded(to: .finished)
+                recordShownFinish(sessionId)
             } else {
                 setPillBadge(id: agentId, badge: .finished)
             }
@@ -679,6 +691,7 @@ final class HookServer: @unchecked Sendable {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
                 }
                 expandIfNeeded(to: .error)
+                recordShownFinish(sessionId)
             } else {
                 setPillBadge(id: agentId, badge: .error)
             }
@@ -1144,9 +1157,12 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - Badge helpers
 
+    /// A badge on a pill, for what the island could not show at once. The Claude app pill is drawn
+    /// nowhere: its badge goes to the house tab of the header, even once the pill is gone (AppState).
     @MainActor
     private func setPillBadge(id: String, badge: PillBadge) {
         let state = AppState.shared
+        if id == HookRouting.desktopPillId { state.claudeAppPillBadged(badge) }
         guard let idx = state.tasks.firstIndex(where: { $0.id == id }) else { return }
         state.tasks[idx].pillBadge = badge
     }
@@ -1291,16 +1307,50 @@ final class HookServer: @unchecked Sendable {
     /// The request a Notification hook of a session of the Claude app carries when the island has
     /// to show it (`CodeNotification`): nil for the terminal, for a notification that asks nothing,
     /// for a session whose card is held, and for an idle prompt after a finish that was shown (the
-    /// session's row is finished or failed). Read before the row moves.
+    /// session's row is finished or failed, and its finished or error view opened). Read before the
+    /// row moves.
     @MainActor
     private func askedRequest(in payload: [String: Any], sessionId: String) -> CodeNotification.Kind? {
         guard let kind = CodeNotification.alert(message: payload["message"] as? String ?? "",
                                                 notificationType: payload["notification_type"] as? String),
               CodeNotification.shouldOpen(kind: kind, sessionHasCard: sessionHoldsCard(sessionId),
                                           agent: payload["klayer_agent"] as? String ?? "",
-                                          currentPhase: rowPhase(of: sessionId))
+                                          currentPhase: rowPhase(of: sessionId),
+                                          finishShown: shownFinishes.wasShown(sessionId))
         else { return nil }
         return kind
+    }
+
+    /// The note of a Claude app notification that asks something (`kind`), through the one entry of
+    /// Claude app alerts: shown, or, the island busy, its sound and the alert held for when it frees.
+    /// A permission has the approval sound, Claude waiting (idle, or an MCP form) the question one.
+    @MainActor
+    private func alertClaudeApp(_ kind: CodeNotification.Kind, projectName: String, sessionId: String) {
+        let title = String(localized: "Claude attend ta réponse")
+        let detail: String
+        switch kind {
+        case .permission: detail = String(localized: "Une autorisation t'attend dans l'app Claude : \(projectName)")
+        case .waiting, .idle:
+            detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(projectName)")
+        }
+        let shown = AppState.shared.showClaudeAppAlert(title: title, message: detail,
+                                                       sound: kind == .permission ? "approval" : "question")
+        nbLog("Notification \(kind) from the Claude app (\(sessionId.prefix(8))): "
+              + (shown ? "shown" : "held, the island is busy"))
+    }
+
+    /// The finished or error view of session `sessionId` opened: its idle prompt asks nothing new.
+    @MainActor
+    private func recordShownFinish(_ sessionId: String) {
+        shownFinishes.ended(sessionId, shown: true)
+        shownFinishes.keep(only: Set(AppState.shared.sessions.map(\.id)))
+    }
+
+    /// A `notification_type` as the log writes it: letters, digits and underscores, 40 at most;
+    /// « (none) » when absent or blank. Never the notification's message.
+    private static func loggedType(_ raw: Any?) -> String {
+        let type = String(((raw as? String) ?? "").filter { $0.isLetter || $0.isNumber || $0 == "_" }.prefix(40))
+        return type.isEmpty ? "(none)" : type
     }
 
     /// The phase of the session's row in the home's list, nil when the island has no row for it.

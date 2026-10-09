@@ -469,10 +469,15 @@ struct IslandHeader: View {
         HStack(spacing: 0) {
             // Left: tab capsules
             HStack(spacing: 5) {
-                // The house brings the conversations back when a GitHub or Spotify card replaced them
+                // The house brings the conversations back when a GitHub or Spotify card replaced them.
+                // It carries the badge of a Claude app alert held while the island was busy, or of the
+                // Claude app pill not seen yet, and a click shows that held alert in place of the home
+                // (ClaudeAppAlertHold).
                 TabButton(icon: "house.fill", view: .overview, state: state, preAction: {
                     state.showHomeList()
-                })
+                }, destination: {
+                    state.showHeldClaudeAppAlert(inPlaceOf: .overview, announce: false) ? .note : .overview
+                }, badge: state.houseTabBadge)
                 // The chat opens without capturing the previous app's window (lot 6 spec §3).
                 TabButton(icon: "bubble.left.fill", view: .prompt, state: state)
                 TabButton(icon: "plus", view: .upload, state: state)
@@ -504,6 +509,18 @@ struct IslandHeader: View {
                             .foregroundColor(Color(hex: "#8E939C"))
                     }
                     .buttonStyle(.plain)
+
+                    // Quits the app from the island: the menu bar item is often hidden behind the
+                    // notch on a full menu bar. Like the menu's Quit, no confirmation; terminate lets
+                    // applicationWillTerminate restore the Claude app's accessibility tree.
+                    Button(action: { NSApp.terminate(nil) }) {
+                        Image(systemName: "power")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(hex: "#8E939C"))
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "Quitter Klayer Island"))
+                    .accessibilityLabel(String(localized: "Quitter Klayer Island"))
                 }
             }
             .padding(.trailing, 16)
@@ -517,6 +534,10 @@ struct TabButton: View {
     let view: IslandView
     @ObservedObject var state: AppState
     var preAction: (() -> Void)? = nil
+    /// The view a click shows, read at the click: `view` when nil.
+    var destination: (() -> IslandView)? = nil
+    /// The badge drawn on the tab, as on the rail's icons (the house: ClaudeAppAlertHold).
+    var badge: PillBadge? = nil
     @State private var isHovered = false
 
     private var isOn: Bool {
@@ -527,8 +548,9 @@ struct TabButton: View {
     var body: some View {
         Button(action: {
             preAction?()
+            let target = destination?() ?? view
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                state.view = view
+                state.view = target
             }
         }) {
             Image(systemName: icon)
@@ -540,6 +562,14 @@ struct TabButton: View {
                     isHovered ? Color.white.opacity(0.07) : Color.clear
                 )
                 .clipShape(Capsule())
+                // The same badge, size and place as on the rail's icons (HomeRailButton)
+                .overlay(alignment: .topTrailing) {
+                    if let badge {
+                        PillBadgeView(badge: badge, taskColor: "#8E939C")
+                            .scaleEffect(0.75)
+                            .offset(x: 3, y: -3)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

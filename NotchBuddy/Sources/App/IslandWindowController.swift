@@ -558,10 +558,15 @@ final class IslandWindowController: NSWindowController {
     /// Opens the island on `defaultView()` (hover, toggle hot key, go to alert). With a request
     /// pending, the card it opens on (the permission first) may not be the one on screen when the
     /// island folded: it is shown as a held request is, so its pill takes the focus, Klay the
-    /// request's pose, and the pill's badge goes (`HookServer.showHeldRequest`).
+    /// request's pose, and the pill's badge goes (`HookServer.showHeldRequest`). With none, a Claude
+    /// app alert held while the island was busy opens in place of the home (ClaudeAppAlertHold); the
+    /// island then folds the way it opened.
     private func expandOnDefaultView() {
         if let request = Self.pendingRequest {
             HookServer.shared.showHeldRequest(request)
+        } else if state.showHeldClaudeAppAlert(inPlaceOf: defaultView(), announce: false) {
+            expand(to: .note)
+            return
         }
         expand(to: defaultView())
     }
@@ -968,6 +973,17 @@ final class IslandWindowController: NSWindowController {
         }
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
             finishDrag()
+        }
+
+        // The user went to the Claude app: a Claude app alert held while the island was busy is
+        // dropped, and the house tab loses its badge (ClaudeAppAlertHold).
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main
+        ) { note in
+            let bundleId = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            guard bundleId == HookRouting.desktopBundleId else { return }
+            MainActor.assumeIsolated { AppState.shared.claudeAppCameToFront() }
         }
 
         // Track last external app for window context capture

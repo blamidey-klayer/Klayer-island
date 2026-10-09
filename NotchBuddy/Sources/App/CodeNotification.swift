@@ -26,8 +26,8 @@ enum CodeNotification {
         /// An MCP server waits for the user's answer (its form, or a URL to open).
         case waiting
         /// Claude finished its turn and waits for the next message (`idle_prompt`, about 60 s later).
-        /// Told apart from `waiting` because the end of the turn was already shown by the finished
-        /// view: the island does not open a second time for it (`shouldOpen`).
+        /// Told apart from `waiting` because the end of the turn may already have been shown by the
+        /// finished view: the island then does not open a second time for it (`shouldOpen`).
         case idle
     }
 
@@ -61,12 +61,15 @@ enum CodeNotification {
     /// session is held (`sessionHasCard`: its permission or its question is already on screen, or
     /// waits for the pointer). Never for the terminal, which sends no `klayer_agent`. An idle prompt
     /// after a finish that was shown (`currentPhase`, the phase the session's row has before the
-    /// notification, is finished or failed) opens nothing: the finished view was the notification. A
-    /// session with no row yet, or still running, was shown nothing, so it opens; so does a
-    /// permission or an MCP server's form, whatever the row.
-    static func shouldOpen(kind: Kind, sessionHasCard: Bool, agent: String, currentPhase: SessionPhase?) -> Bool {
+    /// notification, is finished or failed, and `finishShown`: its finished or error view opened,
+    /// `ShownFinishes`) opens nothing: the finished view was the notification. A finish that was only
+    /// badged (the island was busy) was not shown: the idle prompt is its second chance and opens. A
+    /// session with no row yet, or still running, was shown nothing, so it opens; so does a permission
+    /// or an MCP server's form, whatever the row.
+    static func shouldOpen(kind: Kind, sessionHasCard: Bool, agent: String, currentPhase: SessionPhase?,
+                           finishShown: Bool) -> Bool {
         guard validateAgent(agent) != nil, !sessionHasCard else { return false }
-        if kind == .idle, let currentPhase, currentPhase.isEnded { return false }
+        if kind == .idle, let currentPhase, currentPhase.isEnded, finishShown { return false }
         return true
     }
 
@@ -92,5 +95,36 @@ enum CodeNotification {
             if let current, current.isEnded { return nil }
             return .question
         }
+    }
+}
+
+
+/// The sessions whose last end of turn the island showed: a Stop that opened the finished view, or a
+/// StopFailure that opened the error view. A finish that was only badged (a card waited, the chat or
+/// a mail draft was open, the island was pinned) was not shown, so the idle prompt that follows it
+/// about 60 s later opens the note (`CodeNotification.shouldOpen`). The latest end of a session
+/// decides. HookServer fills it; Foundation only, tested by scripts/test-code-notification.sh.
+struct ShownFinishes: Equatable, Sendable {
+    private(set) var sessions: Set<String> = []
+
+    init() {}
+
+    /// Session `sessionId` ended its turn; `shown`: its finished (or error) view opened.
+    mutating func ended(_ sessionId: String, shown: Bool) {
+        if shown { sessions.insert(sessionId) } else { sessions.remove(sessionId) }
+    }
+
+    /// The session left (SessionEnd): no idle prompt follows.
+    mutating func forget(_ sessionId: String) {
+        sessions.remove(sessionId)
+    }
+
+    /// Only the sessions the roster still has a row for (`ids`): the set never outgrows the day.
+    mutating func keep(only ids: Set<String>) {
+        sessions.formIntersection(ids)
+    }
+
+    func wasShown(_ sessionId: String) -> Bool {
+        sessions.contains(sessionId)
     }
 }

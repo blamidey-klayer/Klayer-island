@@ -8,15 +8,22 @@ final class AppState: ObservableObject {
     static let shared = AppState()
 
     // Island state
-    @Published var mode: IslandMode = .hidden
+    @Published var mode: IslandMode = .hidden {
+        didSet { noteHomeListShown() }
+    }
     @Published var view: IslandView = .overview {
         // A permission or question card that comes on screen takes Klay's pose back.
-        didSet { if showsRequestCard { dropBusyPose() } }
+        didSet {
+            if showsRequestCard { dropBusyPose() }
+            noteHomeListShown()
+        }
     }
 
     // Tasks
     @Published var tasks: [AgentTask] = []
-    @Published var focusId: String? = nil
+    @Published var focusId: String? = nil {
+        didSet { noteHomeListShown() }
+    }
 
     // Bot state override
     @Published var stateOverride: BotState? = nil
@@ -130,6 +137,10 @@ final class AppState: ObservableObject {
     /// The alert the note view shows while the app asks something of the user: a title, a line,
     /// and « Ouvrir Claude ». Set by `showClaudeAppAlert` only; nil for every other note.
     @Published private(set) var claudeAppAlert: ClaudeAppAlert? = nil
+
+    /// The Claude app alert held while the island was busy (the latest one), and the Claude app pill's
+    /// badge not seen yet: what the house tab's badge shows (ClaudeAppAlertHold, tested).
+    @Published private(set) var claudeAppAlertHold = ClaudeAppAlertHold()
 
     // Auto-close delay: persisted
     @Published var autoCloseInterval: TimeInterval = 15 {
@@ -432,13 +443,15 @@ final class AppState: ObservableObject {
     // MARK: - The Claude app waits for the user (lot 6 spec §5 and §6)
 
     /// The one entry that tells the user the Claude app waits for them (a permission or a question
-    /// of the Code tab, and later Chat and Cowork): the note view shows `title` and `message` with
+    /// of the Code tab, and Chat and Cowork): the note view shows `title` and `message` with
     /// « Ouvrir Claude », which opens the Claude app, then folds the island. The island opens the
     /// way a finished session's does (`.hookExpand`): the state machine holds it until the pointer
     /// has been on it and left, and `FinishPresentation` decides whether it may open at all: it
     /// never covers a draft of the chat or of a mail, a card that waits, or a pinned island. Then
-    /// only the Claude app pill is badged and the sound plays. Nothing here clicks in the Claude
-    /// app, answers, or approves. Returns true when the note is on its way to the screen.
+    /// the sound plays, the Claude app pill is badged and the alert is held, the latest one only:
+    /// it shows in place of the home once the island frees (`showHeldClaudeAppAlert`), and the house
+    /// tab carries its badge meanwhile (ClaudeAppAlertHold). Nothing here clicks in the Claude app,
+    /// answers, or approves. Returns true when the note is on its way to the screen.
     /// `sound`: the sound that plays, `question` for Claude waiting (the default), `approval` for a
     /// permission, `finish` for a finished answer.
     @discardableResult
@@ -450,19 +463,75 @@ final class AppState: ObservableObject {
         let presentation = FinishPresentation.decide(
             expanded: mode == .expanded, view: view.rawValue, pinned: isPinned,
             requestPending: pendingApproval != nil || pendingQuestion != nil)
+        // Blocked, it is held for when the island frees; shown, it replaces the one held.
+        claudeAppAlertHold.alertCame(HeldClaudeAppAlert(title: title, message: message, sound: sound, heldAt: Date()),
+                                     presentation: presentation)
         guard presentation == .open else {
             setPillBadge(.approval, for: HookRouting.desktopPillId)
             return false
         }
-        noteMessage = message        // first: a note that was showing loses its own alert
+        putClaudeAppAlertOnNote(alert)
+        NotificationCenter.default.post(name: .hookExpand, object: IslandView.note)
+        return true
+    }
+
+    /// The island is about to show its home (`home`): a request left with nothing else waiting
+    /// (HookServer.requestLeft), the island opens on its default view, or the house tab is clicked.
+    /// The Claude app alert held while it was busy takes the note view instead, under the same rule
+    /// as when it came (`FinishPresentation` for that home), with its sound. Returns true when it
+    /// did: the note is set. `announce` posts it the way an alert opens the island (the state machine
+    /// holds it until the pointer has been on it and left); otherwise the caller puts the island on
+    /// `.note` itself, and it folds the way it opened (a hover, the toggle hot key, a click).
+    @discardableResult
+    func showHeldClaudeAppAlert(inPlaceOf home: IslandView, announce: Bool) -> Bool {
+        guard claudeAppAlertHold.held != nil else { return false }
+        let presentation = FinishPresentation.decide(
+            expanded: mode == .expanded, view: home.rawValue, pinned: isPinned,
+            requestPending: pendingApproval != nil || pendingQuestion != nil)
+        guard let held = claudeAppAlertHold.takeForHome(presentation: presentation, now: Date()) else { return false }
+        SoundEngine.shared.play(held.sound)
+        putClaudeAppAlertOnNote(ClaudeAppAlert(title: held.title, message: held.message))
+        if announce { NotificationCenter.default.post(name: .hookExpand, object: IslandView.note) }
+        return true
+    }
+
+    /// The note view's content for a Claude app alert. The Claude app pill, when it is loaded, takes
+    /// Klay's pose and colour, as for a finish.
+    private func putClaudeAppAlertOnNote(_ alert: ClaudeAppAlert) {
+        noteMessage = alert.message        // first: a note that was showing loses its own alert
         claudeAppAlert = alert
-        // The Claude app pill, when it is loaded, takes Klay's pose and colour, as for a finish.
         let pill = HookRouting.desktopPillId
         if focusId != pill, tasks.contains(where: { $0.id == pill }) {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { setFocus(pill) }
         }
-        NotificationCenter.default.post(name: .hookExpand, object: IslandView.note)
-        return true
+    }
+
+    /// The Claude app came in front: the user is there. The held alert is dropped and the house tab
+    /// loses its badge.
+    func claudeAppCameToFront() {
+        guard claudeAppAlertHold != ClaudeAppAlertHold() else { return }
+        claudeAppAlertHold.claudeAppCameToFront()
+    }
+
+    /// The Claude app pill was badged by a hook while the island could not show why (a finish or an
+    /// error only badged, a request waiting behind a card): the house tab carries the badge until the
+    /// home's list is on screen. The pill itself is drawn nowhere, and may go before then.
+    func claudeAppPillBadged(_ badge: PillBadge) {
+        claudeAppAlertHold.pillBadged(badge)
+        noteHomeListShown()
+    }
+
+    /// The badge of the house tab of the header, nil for none (ClaudeAppAlertHold.houseBadge).
+    var houseTabBadge: PillBadge? {
+        claudeAppAlertHold.houseBadge(now: Date())
+    }
+
+    /// The home's list is on screen (the island open on the home, no GitHub or Spotify card in its
+    /// place): its rows say what the Claude app pill's badge said, the house tab loses it.
+    private func noteHomeListShown() {
+        guard claudeAppAlertHold.unseenBadge != nil, mode == .expanded, view == .overview,
+              !HomeRail.showsCard(focusId: focusTask?.id) else { return }
+        claudeAppAlertHold.homeListShown()
     }
 
     /// Called on main thread after each GitHub pulse poll. Fires badge + sound based on events.
