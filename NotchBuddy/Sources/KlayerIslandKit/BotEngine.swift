@@ -1082,9 +1082,10 @@ final class BotEngine: ObservableObject {
 
     // MARK: - Draw
 
-    /// Draws Klay: the glow of the state's colour, legs, glyph, arms and eyes (binoculars
-    /// while searching), or, for a mini Klay, the white glyph and eyes on a disc of its
-    /// colour.
+    /// Draws Klay: the glow of the state's colour, legs, glyph, arms, then his eyes and blush;
+    /// while searching, the binoculars instead: two round lenses around his eyes, which show
+    /// magnified inside them, over the arms and the cheeks, the hands gripping their sides in
+    /// front. For a mini Klay, the white glyph and eyes on a disc of its colour.
     /// The badge and particles are drawn by drawHandsAndExtras, on top.
     func draw(context: GraphicsContext, size: CGSize) {
         let W = size.width

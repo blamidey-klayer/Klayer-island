@@ -263,9 +263,10 @@ enum KlayPaint {
 
     /// Noodle arms with round hands, in front of the glyph and rimmed in teal-deep like
     /// the eyes, so a raised hand still reads over the white rays. A white disc over each
-    /// shoulder hides where the rim starts, inside the hub. Port of drawKlayArms in
-    /// tools/klay-preview/src/engine.ts.
-    static func drawArms(_ ctx: GraphicsContext, lh: CGPoint, rh: CGPoint) {
+    /// shoulder hides where the rim starts, inside the hub; not while the binoculars are up
+    /// (`shoulders` false): the lenses cover the shoulders, and at the scan's ends the disc
+    /// would peek out under the ring. Port of drawKlayArms in tools/klay-preview/src/engine.ts.
+    static func drawArms(_ ctx: GraphicsContext, lh: CGPoint, rh: CGPoint, shoulders: Bool = true) {
         let style = StrokeStyle(lineWidth: limbW, lineCap: .round, lineJoin: .round)
         let rimStyle = StrokeStyle(lineWidth: limbW + 2 * limbRim, lineCap: .round, lineJoin: .round)
         let arms: [(CGFloat, CGPoint)] = [(-1, lh), (1, rh)]
@@ -275,8 +276,10 @@ enum KlayPaint {
             ctx.fill(circle(hand, handR + limbRim), with: .color(ink))
             ctx.stroke(arm, with: .color(body), style: style)
             ctx.fill(circle(hand, handR), with: .color(body))
-            ctx.fill(circle(CGPoint(x: sd * shoulder.x, y: shoulder.y), limbW / 2 + limbRim + 1),
-                     with: .color(body))
+            if shoulders {
+                ctx.fill(circle(CGPoint(x: sd * shoulder.x, y: shoulder.y), limbW / 2 + limbRim + 1),
+                         with: .color(body))
+            }
         }
     }
 
@@ -290,7 +293,7 @@ enum KlayPaint {
         discs.addPath(circle(rh, r))
         var c = ctx
         c.clip(to: discs)
-        drawArms(c, lh: lh, rh: rh)
+        drawArms(c, lh: lh, rh: rh, shoulders: false)
     }
 
     /// What the binoculars of the searching state show: the yaw they follow and the eye
@@ -313,7 +316,8 @@ enum KlayPaint {
     static func drawFigure(_ ctx: GraphicsContext, limbs: Limbs?, binoculars: Binoculars? = nil) {
         if let limbs { drawLegs(ctx, lf: limbs.lf, rf: limbs.rf) }
         drawGlyph(ctx)
-        if let limbs { drawArms(ctx, lh: limbs.lh, rh: limbs.rh) }
+        // Behind the binoculars the shoulder discs stay out (they would peek out under the rings).
+        if let limbs { drawArms(ctx, lh: limbs.lh, rh: limbs.rh, shoulders: binoculars == nil) }
         if let b = binoculars {
             drawBinoculars(in: ctx, look: b.look, shape: b.shape, gaze: b.gaze,
                            scale: b.scale, open: b.open, time: b.time)

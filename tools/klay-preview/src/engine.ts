@@ -388,9 +388,11 @@ export function drawKlayLegs(x: CanvasRenderingContext2D, lf: P, rf: P) {
 /**
  * Noodle arms with round hands, in front of the glyph and rimmed in ink like the
  * eyes, so a raised hand still reads over the white rays. A white disc over each
- * shoulder hides where the rim starts, inside the hub. In Klay's frame.
+ * shoulder hides where the rim starts, inside the hub; not while the binoculars are
+ * up (`shoulders` false): the lenses cover the shoulders, and at the scan's ends the
+ * disc would peek out under the ring. In Klay's frame.
  */
-export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: string = INK) {
+export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: string = INK, shoulders = true) {
   x.save();
   x.lineCap = "round";
   x.lineJoin = "round";
@@ -418,9 +420,11 @@ export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: str
     x.beginPath();
     x.arc(hand.x, hand.y, HAND_R, 0, Math.PI * 2);
     x.fill();
-    x.beginPath();
-    x.arc(sh.x, sh.y, LIMB_W / 2 + LIMB_RIM + 1, 0, Math.PI * 2);
-    x.fill();
+    if (shoulders) {
+      x.beginPath();
+      x.arc(sh.x, sh.y, LIMB_W / 2 + LIMB_RIM + 1, 0, Math.PI * 2);
+      x.fill();
+    }
   }
   x.restore();
 }
@@ -440,7 +444,7 @@ export function drawKlayHands(x: CanvasRenderingContext2D, lh: P, rh: P, ink: st
     x.arc(h.x, h.y, r, 0, Math.PI * 2);
   }
   x.clip();
-  drawKlayArms(x, lh, rh, ink);
+  drawKlayArms(x, lh, rh, ink, false);
   x.restore();
 }
 
@@ -1492,8 +1496,10 @@ export class BotEngine {
     const limbs = W * GLYPH_SPAN >= LIMBS_MIN_PX;
     if (limbs) drawKlayLegs(x, this.lf, this.rf);
     drawKlayGlyph(x);
-    if (limbs) drawKlayArms(x, this.lh, this.rh);
-    if (this.state === "searching") {
+    const binoculars = this.state === "searching";
+    // Behind the binoculars the shoulder discs stay out (they would peek out under the rings).
+    if (limbs) drawKlayArms(x, this.lh, this.rh, INK, !binoculars);
+    if (binoculars) {
       // Binoculars up around the eyes, which show magnified in them, over the arms and the
       // cheeks; the hands grip their sides in front.
       drawKlayBinoculars(x, this.yaw, this.eyeStyle(), klayGaze(this.yaw, this.pitch));
