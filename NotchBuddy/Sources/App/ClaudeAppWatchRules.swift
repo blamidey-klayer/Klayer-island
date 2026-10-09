@@ -41,9 +41,30 @@ struct ClaudeAppSnapshot: Equatable, Sendable {
     /// The title of the Claude app's main window, for the alert's line only (never the diagnostic).
     var windowTitle: String? = nil
     var milliseconds: Int = 0
+    /// How many nodes of each accessibility role the walk met: roles only, never a label.
+    var roleCounts: [String: Int] = [:]
+    /// Milliseconds since the island turned AXManualAccessibility on, when this read started; nil when
+    /// the island did not (it was on already, or setting it failed).
+    var millisecondsSinceTreeOn: Int? = nil
 
     var stopVisible: Bool { ClaudeAppWatchRules.stopVisible(buttons) }
     var permissionVisible: Bool { ClaudeAppWatchRules.hasPermissionPrompt(buttons) }
+    /// The web content areas the walk met (Chromium's page: where the messages and their buttons live).
+    var webAreas: Int { roleCounts[ClaudeAppWatchRules.webAreaRole] ?? 0 }
+    /// The read says something about the buttons: it is complete, and not a tree still being built
+    /// (`ClaudeAppWatchRules.isColdTree`). Otherwise the watch counts it as unreadable.
+    var readable: Bool {
+        complete && !ClaudeAppWatchRules.isColdTree(webAreas: webAreas, millisecondsSinceTreeOn: millisecondsSinceTreeOn)
+    }
+}
+
+/// How the diagnostic got the Claude app's tree: AXManualAccessibility already on, or set by the
+/// diagnostic (`setError`: the raw AXError of setting it, 0 when it worked, nil when nothing was
+/// tried), and how long it waited for the tree to fill.
+struct ClaudeAppTreeWarmUp: Equatable, Sendable {
+    var alreadyOn: Bool
+    var setError: Int32?
+    var milliseconds: Int
 }
 
 enum ClaudeAppWatchRules {
@@ -134,6 +155,49 @@ enum ClaudeAppWatchRules {
         }
     }
 
+    // MARK: The cold tree (Chromium builds the web content after AXManualAccessibility is set)
+
+    /// The role of Chromium's web content, where the messages and their buttons live.
+    static let webAreaRole = "AXWebArea"
+    /// Seconds after the island turned AXManualAccessibility on during which a read without any
+    /// AXWebArea is a tree still being built: unreadable, never « no stop button ».
+    static let coldTreeLimit: TimeInterval = 3
+
+    static func isColdTree(webAreas: Int, millisecondsSinceTreeOn: Int?) -> Bool {
+        guard let since = millisecondsSinceTreeOn, webAreas == 0 else { return false }
+        return since < Int(coldTreeLimit * 1_000)
+    }
+
+    /// The diagnostic reads again every 250 ms, for 3 s at most, until the tree is filled.
+    static let warmUpInterval: TimeInterval = 0.25
+    static let warmUpLimit: TimeInterval = 3
+
+    /// Whether the diagnostic's warm-up is over: an AXWebArea shows, or the node count stopped growing
+    /// after it started to grow (`firstCount` at the first read, `previousCount` at the read before,
+    /// nil at the first), or 3 s went by. A count that never grew is a tree not started yet, not filled.
+    static func warmUpDone(firstCount: Int, previousCount: Int?, count: Int, webAreas: Int,
+                           elapsed: TimeInterval) -> Bool {
+        if webAreas > 0 || elapsed >= warmUpLimit { return true }
+        guard let previousCount else { return false }
+        return count <= previousCount && count > firstCount
+    }
+
+    /// An AXError as the diagnostic writes it: « ok », else its name and raw value (ApplicationServices'
+    /// AXError cases), « erreur N » for a value it does not know.
+    static func axErrorName(_ raw: Int32) -> String {
+        let names: [Int32: String] = [
+            -25200: "failure", -25201: "illegalArgument", -25202: "invalidUIElement",
+            -25203: "invalidUIElementObserver", -25204: "cannotComplete", -25205: "attributeUnsupported",
+            -25206: "actionUnsupported", -25207: "notificationUnsupported", -25208: "notImplemented",
+            -25209: "notificationAlreadyRegistered", -25210: "notificationNotRegistered",
+            -25211: "apiDisabled", -25212: "noValue", -25213: "parameterizedAttributeUnsupported",
+            -25214: "notEnoughPrecision",
+        ]
+        if raw == 0 { return "ok" }
+        guard let name = names[raw] else { return "erreur \(raw)" }
+        return "\(name) (\(raw))"
+    }
+
     // MARK: The Code tab
 
     /// Seconds after a hook of a Claude app session (`klayer_agent: claude-desktop`) during which the
@@ -206,8 +270,11 @@ enum ClaudeAppWatchRules {
     }
 
     /// The text copied by « Copier le diagnostic de l'app Claude »: the Claude app's version, whether
-    /// access is granted, the counts, then the button lines. Never the window title, never a value.
-    static func diagnostic(appVersion: String?, running: Bool, trusted: Bool, snapshot: ClaudeAppSnapshot?) -> String {
+    /// access is granted, how the tree was turned on and warmed up (`warmUp`), the counts (with the web
+    /// areas and a count per role, never a label), then the button lines. Never the window title, never
+    /// a value.
+    static func diagnostic(appVersion: String?, running: Bool, trusted: Bool, snapshot: ClaudeAppSnapshot?,
+                           warmUp: ClaudeAppTreeWarmUp? = nil) -> String {
         func yes(_ b: Bool) -> String { b ? "oui" : "non" }
         var out = ["Diagnostic de l'app Claude (Klayer Island)"]
         if running {
@@ -219,10 +286,23 @@ enum ClaudeAppWatchRules {
         guard running, trusted, let s = snapshot else { return out.joined(separator: "\n") }
         let all = allDiagnosticLines(s.buttons)
         let lines = Array(all.prefix(diagnosticLineLimit))
+        if let warmUp {
+            if warmUp.alreadyOn {
+                out.append("AXManualAccessibility : déjà actif")
+            } else if let error = warmUp.setError {
+                out.append("AXManualAccessibility : mis par le diagnostic, résultat : \(axErrorName(error))")
+            } else {
+                out.append("AXManualAccessibility : non tenté")
+            }
+            out.append("Préchauffage : \(warmUp.milliseconds) ms")
+        }
         out.append("Fenêtres : \(s.windows), nœuds lus : \(s.nodesRead), "
                    + "limite de profondeur atteinte : \(yes(s.depthLimited)), "
                    + "limite de nœuds atteinte : \(yes(s.nodeLimited))")
         out.append("Lecture : \(s.milliseconds) ms, complète : \(yes(s.complete))")
+        out.append("Zones web (\(webAreaRole)) : \(s.webAreas)")
+        let roles = s.roleCounts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+        out.append("Rôles : " + (roles.isEmpty ? "aucun" : roles.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))
         out.append("Boutons : \(s.buttons.count), lignes : \(lines.count) sur \(all.count)")
         out.append("Bouton d'arrêt reconnu : \(yes(s.stopVisible)), autorisation reconnue : \(yes(s.permissionVisible))")
         out.append("")

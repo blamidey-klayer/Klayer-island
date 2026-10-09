@@ -57,6 +57,15 @@ enum ClaudeAppWatchTests {
             ("the_diagnostic_tells_which_bound_was_reached", theDiagnosticTellsWhichBoundWasReached),
             ("the_diagnostic_never_holds_the_window_title", theDiagnosticNeverHoldsTheWindowTitle),
             ("the_diagnostic_tells_when_nothing_can_be_read", theDiagnosticTellsWhenNothingCanBeRead),
+            // The cold tree: Chromium builds the web content after AXManualAccessibility (item 18)
+            ("a_read_without_web_area_just_after_the_tree_went_on_is_unreadable",
+             aReadWithoutWebAreaJustAfterTheTreeWentOnIsUnreadable),
+            ("a_cold_read_never_ends_an_answer", aColdReadNeverEndsAnAnswer),
+            ("the_diagnostic_warm_up_stops_on_a_web_area_a_filled_tree_or_3_s",
+             theDiagnosticWarmUpStopsOnAWebAreaAFilledTreeOr3S),
+            ("the_diagnostic_tells_how_the_tree_was_turned_on", theDiagnosticTellsHowTheTreeWasTurnedOn),
+            ("the_diagnostic_counts_roles_never_labels", theDiagnosticCountsRolesNeverLabels),
+            ("an_ax_error_is_written_by_its_name", anAXErrorIsWrittenByItsName),
         ]
         for (name, run) in cases {
             run()
@@ -633,5 +642,112 @@ enum ClaudeAppWatchTests {
         let denied = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: false, snapshot: nil)
         precondition(denied.components(separatedBy: "\n").contains("Accès Accessibilité : non"))
         precondition(!denied.contains(" | "), "no button line without access")
+    }
+
+    // MARK: - The cold tree (item 18)
+
+    // Baptiste's first diagnostic: « Fenêtres : 1, nœuds lus : 12 », « Bouton d'arrêt reconnu : non »:
+    // only the window frame, no web content. Chromium builds its tree after AXManualAccessibility is
+    // set; a read in the first 3 s that finds no AXWebArea says nothing, it is not « no stop button ».
+    static func aReadWithoutWebAreaJustAfterTheTreeWentOnIsUnreadable() {
+        precondition(ClaudeAppWatchRules.webAreaRole == "AXWebArea")
+        precondition(ClaudeAppWatchRules.coldTreeLimit == 3)
+        var cold = snapshot([])
+        cold.roleCounts = ["AXWindow": 1, "AXGroup": 8, "AXButton": 3]
+        for ms in [0, 250, 2_999] {
+            cold.millisecondsSinceTreeOn = ms
+            precondition(!cold.readable, "no web area \(ms) ms after the tree went on: unreadable")
+        }
+        cold.millisecondsSinceTreeOn = 3_000
+        precondition(cold.readable, "3 s after: a read like any other, web content exposed or not")
+        cold.millisecondsSinceTreeOn = nil
+        precondition(cold.readable, "the tree was on already (or the island could not set it): no warm-up to wait for")
+        var warm = cold
+        warm.roleCounts["AXWebArea"] = 1
+        warm.millisecondsSinceTreeOn = 100
+        precondition(warm.webAreas == 1 && warm.readable, "the web content is there: a real read")
+        var incomplete = warm
+        incomplete.complete = false
+        precondition(!incomplete.readable, "an incomplete read stays unreadable")
+    }
+
+    // The watch sends a cold read to observeUnreadable: an answer under way is not taken for finished.
+    static func aColdReadNeverEndsAnAnswer() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        var cold = snapshot([])
+        cold.millisecondsSinceTreeOn = 500
+        for _ in 0..<2 {
+            precondition(!cold.readable)
+            s.observeUnreadable(appFrontmost: false)
+        }
+        precondition(s.needsPolling, "still following the answer")
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(6)).isEmpty,
+                     "the warm read sees the stop button: no end was concluded from the cold ones")
+    }
+
+    // The diagnostic waits for the tree: a read every 250 ms until an AXWebArea shows, or the node count
+    // stops growing after it started to grow, or 3 s.
+    static func theDiagnosticWarmUpStopsOnAWebAreaAFilledTreeOr3S() {
+        precondition(ClaudeAppWatchRules.warmUpInterval == 0.25 && ClaudeAppWatchRules.warmUpLimit == 3)
+        precondition(ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: nil, count: 12, webAreas: 1, elapsed: 0),
+                     "a web area at the first read: done at once")
+        precondition(!ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: nil, count: 12, webAreas: 0, elapsed: 0),
+                     "one read, no web area: read again")
+        precondition(!ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: 12, count: 12, webAreas: 0, elapsed: 0.5),
+                     "a cold tree that has not started to grow is not filled")
+        precondition(!ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: 12, count: 400, webAreas: 0, elapsed: 0.75),
+                     "growing")
+        precondition(ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: 400, count: 400, webAreas: 0, elapsed: 1),
+                     "grown, then stable: filled")
+        precondition(!ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: 12, count: 12, webAreas: 0, elapsed: 2.99))
+        precondition(ClaudeAppWatchRules.warmUpDone(firstCount: 12, previousCount: 12, count: 12, webAreas: 0, elapsed: 3),
+                     "3 s at most")
+    }
+
+    static func theDiagnosticTellsHowTheTreeWasTurnedOn() {
+        var s = snapshot([button("Stop")])
+        s.roleCounts = ["AXWindow": 1, "AXWebArea": 1, "AXButton": 1]
+        let set = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: s,
+                                                  warmUp: ClaudeAppTreeWarmUp(alreadyOn: false, setError: 0,
+                                                                              milliseconds: 750))
+        let lines = set.components(separatedBy: "\n")
+        precondition(lines.contains("AXManualAccessibility : mis par le diagnostic, résultat : ok"))
+        precondition(lines.contains("Préchauffage : 750 ms"))
+        precondition(lines.contains("Zones web (AXWebArea) : 1"))
+        let failed = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: s,
+                                                     warmUp: ClaudeAppTreeWarmUp(alreadyOn: false, setError: -25205,
+                                                                                 milliseconds: 3_000))
+        precondition(failed.components(separatedBy: "\n")
+                        .contains("AXManualAccessibility : mis par le diagnostic, résultat : attributeUnsupported (-25205)"))
+        let already = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: s,
+                                                      warmUp: ClaudeAppTreeWarmUp(alreadyOn: true, setError: nil,
+                                                                                  milliseconds: 0))
+        precondition(already.components(separatedBy: "\n").contains("AXManualAccessibility : déjà actif"))
+        // Without the warm-up (a read that never ran), no such line.
+        let none = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: s)
+        precondition(!none.contains("AXManualAccessibility"))
+        precondition(none.contains("Zones web (AXWebArea) : 1"))
+    }
+
+    // A count per role, most frequent first: whether the web content is exposed at all. Roles only.
+    static func theDiagnosticCountsRolesNeverLabels() {
+        var s = snapshot([button("Mon projet secret")])
+        s.roleCounts = ["AXGroup": 8, "AXWindow": 1, "AXButton": 3, "AXStaticText": 3]
+        let text = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: s)
+        precondition(text.components(separatedBy: "\n")
+                        .contains("Rôles : AXGroup 8, AXButton 3, AXStaticText 3, AXWindow 1"),
+                     "by count, then by name")
+        precondition(text.components(separatedBy: "\n").contains("Zones web (AXWebArea) : 0"))
+        let rolesLine = text.components(separatedBy: "\n").first { $0.hasPrefix("Rôles : ") } ?? ""
+        precondition(!rolesLine.contains("secret"))
+    }
+
+    static func anAXErrorIsWrittenByItsName() {
+        precondition(ClaudeAppWatchRules.axErrorName(0) == "ok")
+        precondition(ClaudeAppWatchRules.axErrorName(-25204) == "cannotComplete (-25204)")
+        precondition(ClaudeAppWatchRules.axErrorName(-25211) == "apiDisabled (-25211)")
+        precondition(ClaudeAppWatchRules.axErrorName(-25200) == "failure (-25200)")
+        precondition(ClaudeAppWatchRules.axErrorName(-1) == "erreur -1")
     }
 }

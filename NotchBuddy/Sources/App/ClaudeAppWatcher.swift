@@ -296,14 +296,17 @@ final class ClaudeAppWatcher {
         // In front only if it was when the read was asked and still is after the walk: an app
         // switch during the walk counts the read as behind.
         let frontmost = askedInFront && Self.isFrontmost(pid)
-        if snapshot.complete {
+        // A read that says something: complete, and not a tree Chromium is still building (no web
+        // content within 3 s of turning it on, ClaudeAppSnapshot.readable).
+        if snapshot.readable {
             let events = state.observe(stopVisible: snapshot.stopVisible,
                                        permissionVisible: snapshot.permissionVisible,
                                        appFrontmost: frontmost, now: Date(),
                                        lastCodeHookAt: HookServer.shared.lastDesktopHookAt)
             present(events, windowTitle: snapshot.windowTitle)
         } else {
-            // A read that said nothing (no window, a timeout): the state decides whether to go on.
+            // A read that said nothing (no window, a timeout, a cold tree): the state decides whether
+            // to go on.
             state.observeUnreadable(appFrontmost: frontmost)
         }
         if paused {
@@ -370,23 +373,26 @@ final class ClaudeAppWatcher {
     // MARK: - Diagnostic
 
     /// « Copier le diagnostic de l'app Claude » (an explicit click): the Claude app's version, whether
-    /// access is granted, the counts, then the role and label of its buttons, to the clipboard.
-    /// Never a message's text, never the window title; nothing is written to disk.
+    /// access is granted, how its tree was turned on and warmed up, the counts (web areas, nodes per
+    /// role), then the role and label of its buttons, to the clipboard. Never a message's text, never
+    /// the window title; nothing is written to disk. Up to 3 s while Chromium builds its tree.
     func copyDiagnostic() async {
         let app = Self.runningClaudeApp()
         let trusted = Self.accessGranted
         let version = app?.bundleURL.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String }
         var snapshot: ClaudeAppSnapshot? = nil
+        var warmUp: ClaudeAppTreeWarmUp? = nil
         if let app, trusted {
             let pid = app.processIdentifier
             let reader = self.reader
-            let read: ClaudeAppSnapshot = await withCheckedContinuation { continuation in
+            let read: ClaudeAppDiagnosticRead = await withCheckedContinuation { continuation in
                 reader.diagnose(pid: pid) { continuation.resume(returning: $0) }
             }
-            snapshot = read
+            snapshot = read.snapshot
+            warmUp = read.warmUp
         }
         let text = ClaudeAppWatchRules.diagnostic(appVersion: version, running: app != nil, trusted: trusted,
-                                                  snapshot: snapshot)
+                                                  snapshot: snapshot, warmUp: warmUp)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -396,6 +402,12 @@ final class ClaudeAppWatcher {
     private func log(_ message: String) {
         appendAppLog("claude-app.log", "Claude app watch: \(message)")
     }
+}
+
+/// What the diagnostic's read returns: its last read, and how the tree was turned on and warmed up.
+struct ClaudeAppDiagnosticRead: Sendable {
+    let snapshot: ClaudeAppSnapshot
+    let warmUp: ClaudeAppTreeWarmUp
 }
 
 // MARK: - ClaudeAppReader: the Accessibility calls, on one serial queue
@@ -412,6 +424,9 @@ private final class ClaudeAppReader: @unchecked Sendable {
     private var treeHeld = false
     /// We set AXManualAccessibility to true (it was not on before): we set it back to false.
     private var treeOnByUs = false
+    /// When we set it (uptime nanoseconds): Chromium builds the web content after it, and a read in the
+    /// next 3 s without any of it is a cold tree (ClaudeAppSnapshot.readable).
+    private var treeOnAt: UInt64?
     /// Reads of the watch go on (from the first read to `endReading`).
     private var reading = false
     /// A diagnostic is waiting for the tree or walking it.
@@ -476,25 +491,47 @@ private final class ClaudeAppReader: @unchecked Sendable {
             pid = 0
             treeHeld = false
             treeOnByUs = false
+            treeOnAt = nil
             reading = false
         }
     }
 
-    /// One read for the diagnostic. When the tree had to be turned on for it, Chromium gets 1 s to
-    /// build it first; it goes back off afterwards unless the watch reads.
-    func diagnose(pid: pid_t, done: @escaping @Sendable (ClaudeAppSnapshot) -> Void) {
+    /// The diagnostic's read. It turns AXManualAccessibility on itself (noting whether it was on and
+    /// what setting it returned), then reads every 250 ms until the tree is filled
+    /// (ClaudeAppWatchRules.warmUpDone: an AXWebArea, a node count that grew then stopped, 3 s at most).
+    /// The tree goes back off afterwards only if it was set here and the watch does not read.
+    func diagnose(pid: pid_t, done: @escaping @Sendable (ClaudeAppDiagnosticRead) -> Void) {
         queue.async { [self] in
             diagnosing = true
-            let justTurnedOn = holdTree(element(for: pid))
-            let finish: @Sendable () -> Void = { [self] in
-                // The element is taken again here: it never leaves the queue's own properties.
-                let snapshot = app.map { walk($0) } ?? ClaudeAppSnapshot(complete: false)
-                diagnosing = false
-                if !reading { releaseTree() }
-                done(snapshot)
-            }
-            if justTurnedOn { queue.asyncAfter(deadline: .now() + 1, execute: finish) } else { finish() }
+            let started = DispatchTime.now().uptimeNanoseconds
+            let hold = holdTree(element(for: pid))
+            warmUp(started: started, hold: hold, firstCount: nil, previousCount: nil, done: done)
         }
+    }
+
+    /// One read of the diagnostic's warm-up, on the queue; the next one 250 ms later, or the result.
+    private func warmUp(started: UInt64, hold: TreeHold, firstCount: Int?, previousCount: Int?,
+                        done: @escaping @Sendable (ClaudeAppDiagnosticRead) -> Void) {
+        // The element is taken again at each read: it never leaves the queue's own properties.
+        let snapshot = app.map { walk($0) } ?? ClaudeAppSnapshot(complete: false)
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000_000
+        let first = firstCount ?? snapshot.nodesRead
+        let over = app == nil || isQuitting || !snapshot.trusted
+            || ClaudeAppWatchRules.warmUpDone(firstCount: first, previousCount: previousCount,
+                                              count: snapshot.nodesRead, webAreas: snapshot.webAreas,
+                                              elapsed: elapsed)
+        guard over else {
+            let count = snapshot.nodesRead
+            queue.asyncAfter(deadline: .now() + ClaudeAppWatchRules.warmUpInterval) { [self] in
+                warmUp(started: started, hold: hold, firstCount: first, previousCount: count, done: done)
+            }
+            return
+        }
+        diagnosing = false
+        if !reading { releaseTree() }
+        done(ClaudeAppDiagnosticRead(snapshot: snapshot,
+                                     warmUp: ClaudeAppTreeWarmUp(alreadyOn: hold.alreadyOn, setError: hold.setError,
+                                                                 milliseconds: Int(elapsed * 1_000))))
     }
 
     // MARK: Queue only
@@ -508,22 +545,33 @@ private final class ClaudeAppReader: @unchecked Sendable {
         self.pid = pid
         treeHeld = false
         treeOnByUs = false
+        treeOnAt = nil
         return created
     }
 
-    /// AXManualAccessibility on for this run of reads. Returns true when we just turned it on.
+    /// What holding the tree found: it was on already (held for the watch's reads, or on by VoiceOver
+    /// or another tool), else the raw AXError of setting it (0 when it worked; nil when not tried).
+    struct TreeHold: Sendable {
+        var alreadyOn: Bool
+        var setError: Int32?
+    }
+
+    /// AXManualAccessibility on for this run of reads.
     @discardableResult
-    private func holdTree(_ app: AXUIElement) -> Bool {
-        guard !treeHeld, !isQuitting else { return false }
+    private func holdTree(_ app: AXUIElement) -> TreeHold {
+        if treeHeld { return TreeHold(alreadyOn: true, setError: nil) }
+        guard !isQuitting else { return TreeHold(alreadyOn: false, setError: nil) }
         treeHeld = true
         let (error, value) = copy(app, Self.manualAccessibility)
         if error == .success, (value as? Bool) == true {
             treeOnByUs = false
-            return false
+            treeOnAt = nil
+            return TreeHold(alreadyOn: true, setError: nil)
         }
-        treeOnByUs = AXUIElementSetAttributeValue(app, Self.manualAccessibility as CFString,
-                                                  true as CFTypeRef) == .success
-        return treeOnByUs
+        let result = AXUIElementSetAttributeValue(app, Self.manualAccessibility as CFString, true as CFTypeRef)
+        treeOnByUs = result == .success
+        treeOnAt = treeOnByUs ? DispatchTime.now().uptimeNanoseconds : nil
+        return TreeHold(alreadyOn: false, setError: result.rawValue)
     }
 
     private func releaseTree() {
@@ -533,6 +581,7 @@ private final class ClaudeAppReader: @unchecked Sendable {
             _ = AXUIElementSetAttributeValue(app, Self.manualAccessibility as CFString, false as CFTypeRef)
         }
         treeOnByUs = false
+        treeOnAt = nil
     }
 
     /// The buttons of the Claude app's windows, depth-first, bounded. Children are taken last first:
@@ -541,6 +590,7 @@ private final class ClaudeAppReader: @unchecked Sendable {
     private func walk(_ app: AXUIElement) -> ClaudeAppSnapshot {
         let started = DispatchTime.now().uptimeNanoseconds
         var snapshot = ClaudeAppSnapshot()
+        snapshot.millisecondsSinceTreeOn = treeOnAt.map { Int((started &- $0) / 1_000_000) }
         guard !isQuitting else {
             snapshot.complete = false
             return snapshot
@@ -594,6 +644,7 @@ private final class ClaudeAppReader: @unchecked Sendable {
                 break
             }
             guard let roleName = role.value else { continue }
+            snapshot.roleCounts[roleName, default: 0] += 1
             if ClaudeAppWatchRules.buttonRoles.contains(roleName) {
                 let label = ClaudeAppWatchRules.label { attribute in self.string(element, attribute).value }
                 snapshot.buttons.append(AXNodeSummary(role: roleName, label: label))
