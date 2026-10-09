@@ -1,6 +1,6 @@
 # Klayer Island : liste de contrôle Mac
 
-Cette liste se parcourt de haut en bas : 10 minutes pour l'installation, 37 minutes pour le parcours de test (points facultatifs exclus), 10 minutes pour les trois spikes (S1, S3, S4), 45 minutes pour le lot 4 (chat Haiku et brouillon Gmail par Claude Code), puis 65 minutes pour le lot 6 (l'île au service de l'app Claude). Elle teste la build 0.3.0 (build 14), qui contient les lots 1 à 4 et le lot 6. Faites le spike S3 avant la section 4. Si vous avez déjà parcouru la liste avec la build des lots 1 à 4, faites la section 1 (installation), puis la section 5.
+Cette liste se parcourt de haut en bas : 10 minutes pour l'installation, 37 minutes pour le parcours de test (points facultatifs exclus), 10 minutes pour les trois spikes (S1, S3, S4), 45 minutes pour le lot 4 (chat Haiku et brouillon Gmail par Claude Code), puis 65 minutes pour le lot 6 (l'île au service de l'app Claude). Elle teste la build 0.3.1 (build 15), qui contient les lots 1 à 4 et le lot 6, avec les retouches qui ont suivi la build intermédiaire 0.3.0 (build 14). Faites le spike S3 avant la section 4. Si vous avez déjà parcouru la liste avec la build des lots 1 à 4, faites la section 1 (installation), puis la section 5.
 
 Ce que contient cette build :
 
@@ -415,7 +415,7 @@ Avant de commencer : les hooks installés (section 1), l'app Claude à jour, deu
 
 ### 5.1 Maison : bande d'icônes et largeurs (9 min)
 
-- [ ] Version. Ouvrez les Réglages (icône de la barre des menus, « Réglages… »). Attendu : « 0.3.0 » en haut de la barre latérale. La build des lots 1 à 4 affichait « 0.2.2 », un numéro hérité de Coucou.
+- [ ] Version. Ouvrez les Réglages (icône de la barre des menus, « Réglages… »). Attendu : « 0.3.1 » en haut de la barre latérale. La build intermédiaire affichait « 0.3.0 », celle des lots 1 à 4 « 0.2.2 », un numéro hérité de Coucou.
 - [ ] Granola seul. Coupez Spotify et GitHub dans Réglages, Onglets actifs (Active pills), puis ouvrez l'île sur la maison. Attendu : à gauche, sous l'onglet maison, une seule icône grise, le micro de Granola. Puis Klay, puis la liste, qui commence juste à droite de Klay et va jusqu'au bord droit de la carte : au moins les trois quarts de la largeur de l'île. Aucune pastille Claude Code ni Claude Desktop dans la maison.
 - [ ] (facultatif, Spotify et un jeton GitHub) Trois icônes. Réactivez Spotify et GitHub. Attendu : de haut en bas, une note de musique (Spotify), une flèche de pull request (GitHub), le micro (Granola). Klay et la liste ne bougent pas : la liste garde sa largeur avec une ou trois icônes.
 - [ ] Infobulles. Survolez chaque icône présente. Attendu : « Spotify », « GitHub », « Nouvelle note Granola ». L'icône survolée s'éclaircit. Spotify en lecture : sa note est verte.
@@ -528,4 +528,4 @@ Renvoyez-moi ces éléments dans le fil où vous avez reçu ce lien :
 - [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, CPU relevés, `CLAUDE.md` personnel dans le chat, dossier `~/.claude/projects`, délai du message « Gmail n'est pas connecté », texte de la note d'erreur de tour. Pour le lot 6 : libellés des raccourcis, fin pendant le chat (terminal), second Klay pendant le fondu de la zone de dépôt, notification d'autorisation sous la carte (5.5), attente après une fin montrée et non montrée, deux sessions de l'onglet Code, note restée après une réponse au clavier, ligne sous « Claude a fini de répondre », réponse quittée aussitôt, fenêtre masquée, demande d'accès Accessibilité (une fois, les deux fenêtres), carte de l'onglet Code laissée plus de 2 min, CPU de Klayer Island et de l'app Claude.
 - [ ] La note du diagnostic de l'app Claude (section 5.7), relue, avec les lignes « nœuds lus » et « Lecture » copiées au premier plan, et les lignes de `nb.log` demandées en 5.5.
 - [ ] Le nom exact de l'outil Gmail et le champ `tools` de l'événement `init` du chat et du brouillon, si S3 les montre.
-- [ ] Votre contexte : version de l'app (en haut de la barre latérale des Réglages, « 0.3.0 » pour cette build), version de macOS, modèle de Mac (avec ou sans encoche), versions de l'app Claude et de Claude Code.
+- [ ] Votre contexte : version de l'app (en haut de la barre latérale des Réglages, « 0.3.1 » pour cette build), version de macOS, modèle de Mac (avec ou sans encoche), versions de l'app Claude et de Claude Code.
