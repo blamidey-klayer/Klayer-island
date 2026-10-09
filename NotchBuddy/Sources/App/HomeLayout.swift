@@ -72,6 +72,41 @@ enum HomeRail {
         if let saved, loaded.contains(saved), !cardPillIds.contains(saved) { return saved }
         return main
     }
+
+    /// The focus a permission or a question gives back when it leaves: the pill it took the screen
+    /// from (`saved`), unless that pill showed a card: after a request the home shows the list, with
+    /// the focus the card had taken (`beforeCard`, as `listFocus`).
+    static func focusAfterRequest(saved: String, beforeCard: String?, loaded: [String], main: String) -> String {
+        showsCard(focusId: saved) ? listFocus(saved: beforeCard, loaded: loaded, main: main) : saved
+    }
+
+    // MARK: Pill shortcuts (⌃⌥] ⌃⌥[ ⌘→ ⌘←, ⌘1…9)
+
+    /// What the pill shortcuts walk through, as the home shows it: the list (nil), then the card of
+    /// each service icon of the rail, in the rail's order. Granola and the Claude pills are not entries.
+    static func cycleEntries(icons: [RailIcon]) -> [String?] {
+        [nil] + icons.compactMap(\.pillId)
+    }
+
+    /// ⌃⌥] or ⌘→ (`delta` 1), ⌃⌥[ or ⌘← (-1): the entry after or before the one on screen, wrapping.
+    /// A focus that shows no card of the rail (a Claude pill, none) is the list.
+    static func cycle(from focusId: String?, by delta: Int, icons: [RailIcon]) -> RailAction {
+        let entries = cycleEntries(icons: icons)
+        let current = entries.firstIndex { $0 != nil && $0 == focusId } ?? 0
+        let next = ((current + delta) % entries.count + entries.count) % entries.count
+        return action(for: entries[next])
+    }
+
+    /// ⌘1…9: entry `number` (1 the list, 2 and 3 the rail's cards), nil when there is none.
+    static func entry(number: Int, icons: [RailIcon]) -> RailAction? {
+        let entries = cycleEntries(icons: icons)
+        guard number >= 1, number <= entries.count else { return nil }
+        return action(for: entries[number - 1])
+    }
+
+    private static func action(for entry: String?) -> RailAction {
+        entry.map { .showCard($0) } ?? .showList
+    }
 }
 
 /// The home's columns, in island coordinates (x from the island's left edge).

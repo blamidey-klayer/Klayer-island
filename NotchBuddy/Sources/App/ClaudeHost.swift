@@ -59,9 +59,6 @@ struct ClaudeHost: Equatable {
         return name
     }
 
-    /// Pill label for integration_claude: "Claude Code", whatever app the session runs in.
-    static let pillName = "Claude Code"
-
     /// Brings the session's terminal forward (launching it if needed). false when not a terminal host.
     @discardableResult
     static func activate(_ hostBundleId: String?) -> Bool {

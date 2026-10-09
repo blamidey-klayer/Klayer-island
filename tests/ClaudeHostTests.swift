@@ -24,11 +24,10 @@ enum ClaudeHostTests {
         check("Cursor → nil", ClaudeHost.terminal(termProgram: "vscode", bundleId: "com.todesktop.230313mzl4w4u92") == nil)
         check("unknown → nil", ClaudeHost.terminal(termProgram: "", bundleId: "com.example.app") == nil)
 
-        print("ClaudeHost.name / pillName")
+        print("ClaudeHost.name")
         check("nil host = Claude Code", ClaudeHost.name(for: nil) == "Claude Code")
         check("Warp host", ClaudeHost.name(for: "dev.warp.Warp-Stable") == "Warp")
         check("unknown host = Claude Code", ClaudeHost.name(for: "com.example.app") == "Claude Code")
-        check("pill name = Claude Code, editor or terminal", ClaudeHost.pillName == "Claude Code")
 
         print("ClaudeHost.terminalCardsEnabled")
         UserDefaults.standard.removeObject(forKey: ClaudeHost.terminalCardsKey)

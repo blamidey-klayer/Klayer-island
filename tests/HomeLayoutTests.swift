@@ -17,6 +17,9 @@ enum HomeLayoutTests {
             ("only_github_and_spotify_replace_the_list", onlyGitHubAndSpotifyReplaceTheList),
             ("a_click_shows_the_card_a_second_click_the_list", aClickShowsTheCardASecondTheList),
             ("the_list_gives_the_focus_back", theListGivesTheFocusBack),
+            ("a_request_that_leaves_gives_the_list_back", aRequestThatLeavesGivesTheListBack),
+            ("pill_shortcuts_walk_the_list_then_the_rail_cards", pillShortcutsWalkTheListThenTheRailCards),
+            ("digit_shortcuts_pick_the_list_or_a_rail_card", digitShortcutsPickTheListOrARailCard),
         ]
         for (name, run) in cases {
             run()
@@ -161,6 +164,67 @@ enum HomeLayoutTests {
                      "a pill that left since: the main pill")
         precondition(HomeRail.listFocus(saved: github, loaded: loaded, main: claudeCode) == claudeCode,
                      "never back to a card")
+    }
+
+    // MARK: - After a permission or a question (review fix 1)
+
+    static func aRequestThatLeavesGivesTheListBack() {
+        let loaded = [claudeCode, desktop, github, spotify]
+        // The request took the screen from a pill of the list: that pill gets the focus back.
+        precondition(HomeRail.focusAfterRequest(saved: desktop, beforeCard: nil, loaded: loaded, main: claudeCode)
+                     == desktop)
+        precondition(HomeRail.focusAfterRequest(saved: claudeCode, beforeCard: spotify, loaded: loaded, main: claudeCode)
+                     == claudeCode)
+        // It took the screen from GitHub's or Spotify's card: the home comes back on the list, with
+        // the focus the card had taken.
+        precondition(HomeRail.focusAfterRequest(saved: github, beforeCard: desktop, loaded: loaded, main: claudeCode)
+                     == desktop, "a card in focus before the request gives the list back")
+        precondition(HomeRail.focusAfterRequest(saved: spotify, beforeCard: nil, loaded: loaded, main: claudeCode)
+                     == claudeCode, "nothing saved before the card: the main pill")
+        for saved in [github, spotify] {
+            let back = HomeRail.focusAfterRequest(saved: saved, beforeCard: github, loaded: loaded, main: claudeCode)
+            precondition(!HomeRail.showsCard(focusId: back), "after a request the home never shows a card")
+        }
+    }
+
+    // MARK: - Pill shortcuts (review fix 2): ⌃⌥] ⌃⌥[ ⌘→ ⌘← and ⌘1…9
+
+    static func pillShortcutsWalkTheListThenTheRailCards() {
+        let all = HomeRail.icons(spotifyActive: true, githubConfigured: true)
+        precondition(HomeRail.cycleEntries(icons: all) == [nil, spotify, github],
+                     "the list, then the cards of the rail in its order; Granola and the Claude pills are not entries")
+        // Forward from the list, from a Claude pill or with no focus: Spotify, then GitHub, then the list.
+        for focus in [nil, claudeCode, desktop] as [String?] {
+            precondition(HomeRail.cycle(from: focus, by: 1, icons: all) == .showCard(spotify),
+                         "from the list (\(focus ?? "nil")) the next entry is the first card")
+        }
+        precondition(HomeRail.cycle(from: spotify, by: 1, icons: all) == .showCard(github))
+        precondition(HomeRail.cycle(from: github, by: 1, icons: all) == .showList, "after the last card, the list")
+        // Backward wraps the other way.
+        precondition(HomeRail.cycle(from: claudeCode, by: -1, icons: all) == .showCard(github))
+        precondition(HomeRail.cycle(from: github, by: -1, icons: all) == .showCard(spotify))
+        precondition(HomeRail.cycle(from: spotify, by: -1, icons: all) == .showList)
+        // Only the cards the rail shows: no GitHub token, GitHub is skipped.
+        let spotifyOnly = HomeRail.icons(spotifyActive: true, githubConfigured: false)
+        precondition(HomeRail.cycleEntries(icons: spotifyOnly) == [nil, spotify])
+        precondition(HomeRail.cycle(from: github, by: 1, icons: spotifyOnly) == .showCard(spotify),
+                     "a card the rail does not show counts as the list")
+        // Granola alone: the shortcuts stay on the list.
+        let granolaOnly = HomeRail.icons(spotifyActive: false, githubConfigured: false)
+        precondition(HomeRail.cycle(from: claudeCode, by: 1, icons: granolaOnly) == .showList)
+        precondition(HomeRail.cycle(from: claudeCode, by: -1, icons: granolaOnly) == .showList)
+    }
+
+    static func digitShortcutsPickTheListOrARailCard() {
+        let all = HomeRail.icons(spotifyActive: true, githubConfigured: true)
+        precondition(HomeRail.entry(number: 1, icons: all) == .showList, "⌘1 is the list")
+        precondition(HomeRail.entry(number: 2, icons: all) == .showCard(spotify), "⌘2 the first card of the rail")
+        precondition(HomeRail.entry(number: 3, icons: all) == .showCard(github), "⌘3 the second")
+        precondition(HomeRail.entry(number: 4, icons: all) == nil && HomeRail.entry(number: 0, icons: all) == nil,
+                     "no entry: nothing happens")
+        let githubOnly = HomeRail.icons(spotifyActive: false, githubConfigured: true)
+        precondition(HomeRail.entry(number: 2, icons: githubOnly) == .showCard(github))
+        precondition(HomeRail.entry(number: 3, icons: githubOnly) == nil)
     }
 }
 

@@ -714,9 +714,9 @@ final class IslandWindowController: NSWindowController {
         let raw = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let cmd = raw == .command
 
-        // ⌘→: next pill
+        // ⌘→: next entry of the home (the list, then the rail's cards)
         if cmd && event.keyCode == 124 { cyclePill(by: +1); return true }
-        // ⌘←: previous pill
+        // ⌘←: previous entry of the home
         if cmd && event.keyCode == 123 { cyclePill(by: -1); return true }
         // ⌘↓: navigate list down
         if cmd && event.keyCode == 125 { navigateCard(by: +1); return true }
@@ -744,7 +744,7 @@ final class IslandWindowController: NSWindowController {
             state.isPinned.toggle()
             return true
         }
-        // ⌘1–⌘9: switch to pill by number
+        // ⌘1–⌘9: the home's entry by number (1 the list, then the rail's cards)
         let digitCodes: [UInt16: Int] = [18:1,19:2,20:3,21:4,23:5,22:6,26:7,28:8,25:9]
         if cmd, let n = digitCodes[event.keyCode] {
             switchToPill(number: n); return true
@@ -760,19 +760,28 @@ final class IslandWindowController: NSWindowController {
     }
 
     // MARK: - Pill cycling helpers
+    // The pill shortcuts walk what the home shows (lot 6 spec §2): the list, then the cards of the
+    // rail's icons in its order (`HomeRail.cycleEntries`), through the rail's own path (`showCard`,
+    // `showHomeList`). The Claude pills are not walked: their sessions are the list.
 
     private func cyclePill(by delta: Int) {
         guard !state.tasks.isEmpty else { return }
-        let ids = state.tasks.map { $0.id }
-        let cur = ids.firstIndex(of: state.focusId ?? "") ?? 0
-        state.setFocus(ids[(cur + delta + ids.count) % ids.count])
-        state.cardSelection = nil
-        expandOutsideFSM(to: .overview)
+        showHomeEntry(HomeRail.cycle(from: state.focusTask?.id, by: delta, icons: state.homeRailIcons))
     }
 
+    /// ⌘1 the list, ⌘2 and ⌘3 the rail's cards; a number with no entry does nothing.
     private func switchToPill(number: Int) {
-        guard number >= 1, number <= state.tasks.count else { return }
-        state.setFocus(state.tasks[number - 1].id)
+        guard !state.tasks.isEmpty,
+              let entry = HomeRail.entry(number: number, icons: state.homeRailIcons) else { return }
+        showHomeEntry(entry)
+    }
+
+    private func showHomeEntry(_ entry: RailAction) {
+        switch entry {
+        case .showCard(let pillId): state.showCard(pillId)
+        case .showList:             state.showHomeList()
+        case .openGranola:          return   // not an entry of the shortcuts
+        }
         state.cardSelection = nil
         expandOutsideFSM(to: .overview)
     }

@@ -112,7 +112,9 @@ final class HookServer: @unchecked Sendable {
             case .question: focusBeforeApproval = saved ?? focusBeforeApproval
             }
         } else if let prev = saved, state.focusId == pillId, state.tasks.contains(where: { $0.id == prev }) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = prev }
+            // Back to the pill the request took the screen from; a GitHub or Spotify card gives way
+            // to the list (lot 6 spec §2: after a request, the home shows the conversations).
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.restoreFocus(afterRequest: prev) }
         }
         switch after {
         case .keepView:        break

@@ -385,6 +385,27 @@ final class AppState: ObservableObject {
         focusBeforeCard = nil
     }
 
+    /// A permission or a question left: the focus goes back to `saved`, the pill it took the screen
+    /// from, or to the list's pill when `saved` showed a card (`HomeRail.focusAfterRequest`).
+    func restoreFocus(afterRequest saved: String) {
+        let back = HomeRail.focusAfterRequest(saved: saved, beforeCard: focusBeforeCard,
+                                              loaded: tasks.map(\.id), main: mainPillId)
+        if HomeRail.showsCard(focusId: saved) { focusBeforeCard = nil }
+        focusId = back
+    }
+
+    /// The rail's icons (`HomeRail.icons`): Spotify when its pill is on, GitHub when its pill is on
+    /// and a token is set (KeychainStore reads its cache, never the Keychain), Granola always. The
+    /// rail and the pill shortcuts both read it.
+    var homeRailIcons: [RailIcon] {
+        func loaded(_ icon: RailIcon) -> Bool {
+            guard let id = icon.pillId else { return false }
+            return tasks.contains { $0.id == id }
+        }
+        return HomeRail.icons(spotifyActive: loaded(.spotify),
+                              githubConfigured: loaded(.github) && KeychainStore.shared.get("github-token") != nil)
+    }
+
     func setPillBadge(_ badge: PillBadge, for id: String) {
         guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
         tasks[idx].pillBadge = badge

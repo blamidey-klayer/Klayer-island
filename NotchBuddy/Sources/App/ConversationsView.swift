@@ -55,8 +55,6 @@ struct ConversationsView: View {
 private struct ConversationRow: View {
     let row: SessionRow
     @State private var isHovered = false
-    /// The home is on screen: the mini Klay of a running session moves.
-    @Environment(\.islandViewActive) private var viewActive
 
     private var ended: Bool { row.phase.isEnded }
 
@@ -71,11 +69,11 @@ private struct ConversationRow: View {
     var body: some View {
         Button(action: { SessionOpener.open(row) }) {
             HStack(spacing: 8) {
-                MiniBotCanvasView(task: miniTask)
+                // An ended session's Klay is grey and still: its finished or error pose drawn
+                // once, no timeline (up to 10 of them)
+                MiniBotCanvasView(task: miniTask, still: ended)
                     .frame(width: 18 / 0.6, height: 18 / 0.6)
                     .frame(width: 18, height: 18, alignment: .center)
-                    // An ended session's Klay is grey and still (up to 10 of them: no drawing per frame)
-                    .environment(\.islandViewActive, viewActive && !ended)
                     .saturation(ended ? 0 : 1)
                     .opacity(ended ? 0.6 : 1)
                 VStack(alignment: .leading, spacing: 0) {

@@ -173,17 +173,20 @@ extension EnvironmentValues {
     }
 }
 
-/// Mini bot canvas (for agent pills/column)
+/// Mini bot canvas (the home's session rows)
 struct MiniBotCanvasView: View {
     let task: AgentTask
     var isDancing: Bool = false
+    /// One still drawing of the task's pose, no clock (the row of a session that ended).
+    var still: Bool = false
     @StateObject private var engine: BotEngine
     /// Paused behind an approval, a question or the chat: the home's mini Klays stop drawing.
     @Environment(\.islandViewActive) private var viewActive
 
-    init(task: AgentTask, isDancing: Bool = false) {
+    init(task: AgentTask, isDancing: Bool = false, still: Bool = false) {
         self.task = task
         self.isDancing = isDancing
+        self.still = still
         _engine = StateObject(wrappedValue: {
             let e = BotEngine()
             e.isMini = true
@@ -193,16 +196,38 @@ struct MiniBotCanvasView: View {
     }
 
     var body: some View {
-        TimelineView(.animation(paused: !viewActive)) { timeline in
-            Canvas { context, size in
-                // dt from the engine's own clock, as in BotCanvasView.
-                _ = timeline.date
-                let dt = KlayMotion.frameDelta(now: CACurrentMediaTime(), last: engine.lastTime)
-                engine.setDancing(isDancing)
-                engine.update(dt: dt)
-                var ctx = context
-                engine.applyDance(&ctx, size: size)
-                engine.draw(context: ctx, size: size)
+        Group {
+            if still {
+                // A fresh engine set on the state, drawn once: the state's own pose (its eyes, at
+                // rest), never the last frame of the phase before nor the engine's first pose. No
+                // timeline: it is drawn again only when the view updates.
+                let pose = task.state
+                let color = task.color
+                let eye = task.miniEye
+                Canvas { context, size in
+                    let settled = BotEngine()
+                    settled.isMini = true
+                    settled.bodyColor = cgColorFromHex(color)
+                    settled.setState(pose, force: true)
+                    if let eye {
+                        settled.eyeOverride = eye
+                        settled.eyeOverrideUntil = .greatestFiniteMagnitude
+                    }
+                    settled.draw(context: context, size: size)
+                }
+            } else {
+                TimelineView(.animation(paused: !viewActive)) { timeline in
+                    Canvas { context, size in
+                        // dt from the engine's own clock, as in BotCanvasView.
+                        _ = timeline.date
+                        let dt = KlayMotion.frameDelta(now: CACurrentMediaTime(), last: engine.lastTime)
+                        engine.setDancing(isDancing)
+                        engine.update(dt: dt)
+                        var ctx = context
+                        engine.applyDance(&ctx, size: size)
+                        engine.draw(context: ctx, size: size)
+                    }
+                }
             }
         }
         .onChange(of: task.state) { _, newState in

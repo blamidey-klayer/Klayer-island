@@ -13,8 +13,8 @@ enum ShortcutAction: String, CaseIterable, Sendable {
     case goToAlert         = "goToAlert"          // ⌃⌥A — jump to pending alert
     case jumpToTerminal    = "jumpToTerminal"     // ⌃⌥T — focus agent terminal
     case attachFrontWindow = "attachFrontWindow"  // ⌃⌥W — attach front window
-    case nextPill          = "nextPill"           // ⌃⌥] — next pill, open if closed
-    case prevPill          = "prevPill"           // ⌃⌥[ — previous pill, open if closed
+    case nextPill          = "nextPill"           // ⌃⌥]: next home entry (list, rail cards), open if closed
+    case prevPill          = "prevPill"           // ⌃⌥[: previous home entry, open if closed
     case muteToggle        = "muteToggle"         // ⌃⌥M — mute / unmute sounds
     case desktopToggle     = "desktopToggle"      // ⌃⌥D — send Klay to desktop / bring back
 

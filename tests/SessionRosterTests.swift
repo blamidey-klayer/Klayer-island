@@ -569,6 +569,19 @@ enum SessionRosterTests {
         precondition(ids(spring) == ["s"], "21:59 UTC is 23:59 in Paris: still today")
         spring.prune(now: start.addingTimeInterval((21 * 60 + 30) * 60), calendar: paris)
         precondition(spring.rows.isEmpty, "22:00 UTC is midnight in Paris that day")
+
+        // The day the clocks go back in Paris (31 October 2027) has 25 hours: a row finished at
+        // 00:30 (22:30 UTC the day before) stays until 23:00 UTC, not 22:00.
+        let autumn = utc.date(from: DateComponents(year: 2027, month: 10, day: 30, hour: 22, minute: 30))!
+        var fall = SessionRoster()
+        fall.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .error,
+                    lastAction: nil, at: autumn)
+        fall.prune(now: autumn.addingTimeInterval(24 * 60 * 60), calendar: paris)
+        precondition(ids(fall) == ["a"], "22:30 UTC is 23:30 in Paris: 24 hours later, still the same 25 hour day")
+        fall.prune(now: autumn.addingTimeInterval((24 * 60 + 29) * 60), calendar: paris)
+        precondition(ids(fall) == ["a"], "22:59 UTC is 23:59 in Paris: still today")
+        fall.prune(now: autumn.addingTimeInterval((24 * 60 + 30) * 60), calendar: paris)
+        precondition(fall.rows.isEmpty, "23:00 UTC is midnight in Paris that day")
     }
 
     static func tenFinishedRowsAtMost() {

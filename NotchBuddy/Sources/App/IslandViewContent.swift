@@ -205,20 +205,10 @@ private struct HomeRailView: View {
     /// Spotify playing tints its icon (the old pill's Klay danced).
     @ObservedObject private var spotify = SpotifyController.shared
 
-    private func isLoaded(_ icon: RailIcon) -> Bool {
-        guard let id = icon.pillId else { return false }
-        return state.tasks.contains { $0.id == id }
-    }
-
-    private var icons: [RailIcon] {
-        HomeRail.icons(spotifyActive: isLoaded(.spotify),
-                       githubConfigured: isLoaded(.github) && KeychainStore.shared.get("github-token") != nil)
-    }
-
     var body: some View {
         // Rows of 26 pt, 3 apart, as the conversations: the first icon faces the first row
         VStack(spacing: 3) {
-            ForEach(icons, id: \.self) { icon in
+            ForEach(state.homeRailIcons, id: \.self) { icon in
                 HomeRailButton(icon: icon, state: state,
                                tint: icon == .spotify && spotify.isPlaying ? SpotifyController.green : nil)
             }
@@ -2291,28 +2281,6 @@ struct PillBadgeView: View {
                 .foregroundColor(.black)
         }
         .shadow(color: badgeColor.opacity(0.6), radius: 4, x: 0, y: 0)
-    }
-}
-
-// MARK: - Column agents (right side of non-overview views)
-
-struct ColumnAgentsView: View {
-    @ObservedObject var state: AppState
-
-    var others: [AgentTask] {
-        state.tasks.filter { $0.id != state.focusId }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(others.prefix(4).enumerated()), id: \.1.id) { idx, task in
-                MiniBotCanvasView(task: task)
-                    .frame(width: 16 / 0.6, height: 16 / 0.6)
-                    .frame(width: 16, height: 16)
-                    .position(x: 0, y: CGFloat(50 + idx * 24))
-                    .animation(.spring(response: 0.5, dampingFraction: 0.72).delay(Double(idx) * 0.035), value: idx)
-            }
-        }
     }
 }
 
