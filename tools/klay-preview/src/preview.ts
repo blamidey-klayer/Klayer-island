@@ -1,6 +1,6 @@
 // Render bench: Klay's character sheet. Every state, the emotes, the hello
-// wave, the dance, the drop sequence's poses and the mini Klays, side by side, drawn by
-// src/engine.ts. Not part of the app. ?freeze=<seconds> stops every engine after
+// wave, the dance, the walk home, the drop sequence's poses and the mini Klays, side by side,
+// drawn by src/engine.ts. Not part of the app. ?freeze=<seconds> stops every engine after
 // that long, for screenshots; ?size=<px> changes the cell size.
 //
 // Every Klay follows the pointer as on the Mac (BotCanvasView): lookX = tanh(dx / 260),
@@ -11,6 +11,7 @@
 
 import { BotEngine, drawKlayDrop, hexToRGB } from "./engine";
 import { frameDelta } from "./motion";
+import { WALK, walkAmount, walkDoorstep, walkHop, walkHopProgress, walkPhase, walkPlan, walkPosition } from "./walk";
 import type { BotEmoteName, BotStateName } from "./types";
 
 const STATES: BotStateName[] = [
@@ -66,6 +67,74 @@ function buildSheet() {
   setInterval(() => wave.greet(), 2600);
   const dance = cell("dance");
   dance.setDancing(true);
+
+  // The walk home (KlayWalker on the Mac): four instants of a stride, then the walk in a loop.
+  // Klay walks up and to the right, towards the island: his eyes look that way, he leans that way.
+  const heading = { x: 0.6, y: 0.8 };
+  function walker() {
+    const e = new BotEngine();
+    e.setState("idle", true);
+    e.lookX = heading.x;
+    e.lookY = heading.y;
+    return e;
+  }
+  function walkCell(label: string, e: BotEngine, pose: (t: number) => number) {
+    drawerCell(label, SIZE, SIZE, (x, t) => {
+      e.walk = { phase: pose(t), amount: 1, facing: 1 };
+      e.update(0.016);
+      e.draw(x, SIZE, SIZE);
+    });
+  }
+  for (const [phase, label] of [
+    [0, "marche : contact, pied droit devant"],
+    [0.25, "marche : pied gauche levé"],
+    [0.5, "marche : contact, pied gauche devant"],
+    [0.75, "marche : pied droit levé"],
+  ] as const) {
+    walkCell(label, walker(), () => phase);
+  }
+  walkCell("marche (en boucle)", walker(), (t) => ((t * WALK.cadence) / 2) % 1);
+
+  // A whole walk at the drag ghost's size (canvas 67): from the bottom left of the cell to just
+  // under his place in a notch at the top, then the hop in. Cell coordinates, y up.
+  const W_CELL = 620;
+  const H_CELL = 260;
+  const GHOST = 40 / 0.6;
+  const NOTCH = { w: 180, h: 32 };
+  const home = { x: W_CELL / 2 - NOTCH.w / 2 + 34, y: H_CELL - NOTCH.h / 2, width: 20 / 0.6 };
+  const door = walkDoorstep(home, H_CELL - NOTCH.h, GHOST);
+  const plan = walkPlan({ x: 60, y: 50 }, door);
+  const trip = new BotEngine();
+  trip.setState("idle", true);
+  drawerCell("vers l'île : marche puis saut (taille du fantôme)", W_CELL, H_CELL, (x, t) => {
+    x.fillStyle = "#1a1b1e";
+    x.beginPath();
+    x.roundRect(W_CELL / 2 - NOTCH.w / 2, -14, NOTCH.w, NOTCH.h + 14, 14);
+    x.fill();
+    const loop = plan.duration + WALK.hopDuration + 0.9;
+    const u = t % loop;
+    let c = walkPosition(plan, u);
+    let w = GHOST;
+    let alpha = 1;
+    const hop = walkHopProgress(plan, u);
+    if (hop !== null) {
+      const f = walkHop(hop, door, home, GHOST, home.width, false);
+      c = f.center;
+      w = f.width;
+      alpha = f.alpha;
+    }
+    trip.lookX = plan.heading.x;
+    trip.lookY = plan.heading.y;
+    trip.walk = hop === null
+      ? { phase: walkPhase(plan, u), amount: walkAmount(plan, u), facing: plan.facing }
+      : null;
+    trip.update(0.016);
+    x.save();
+    x.globalAlpha = alpha;
+    x.translate(c.x - w / 2, H_CELL - c.y - w / 2);
+    trip.draw(x, w, w);
+    x.restore();
+  }, minis);
 
   // The drop sequence (UploadCanvasView on the Mac): one Klay, the island's own. His arms open
   // and his eyes widen for the file, then he swallows it, squashed, eyes shut (the deepest

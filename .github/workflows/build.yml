@@ -40,6 +40,9 @@ jobs:
       - name: Klay motion tests
         run: bash scripts/test-klay-motion.sh
 
+      - name: Klay walk tests
+        run: bash scripts/test-klay-walk.sh
+
       - name: Test auto-close timing
         run: bash scripts/test-auto-close.sh
 

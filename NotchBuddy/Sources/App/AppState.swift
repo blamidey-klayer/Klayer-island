@@ -42,6 +42,10 @@ final class AppState: ObservableObject {
     // Desktop Klay: true while Klay lives on the desktop instead of the notch
     @Published var klayOnDesktop: Bool = false
 
+    // True while Klay walks back into the island (KlayWalker): the island's Klay stays hidden
+    // until the walker is home, so two Klays never show.
+    @Published var klayWalkingHome: Bool = false
+
     // Mouse tracking
     var mousePosition: CGPoint = .zero
     var lastMouseMove: Date = .now

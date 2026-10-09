@@ -264,9 +264,9 @@ final class IslandWindowController: NSWindowController {
         }
 
         // Each approach of the notch makes Klay wave (spec §4): BotEngine.greet() plays `greet`.
-        // No wave while Klay lives on the desktop: the notch Klay is not drawn then.
+        // No wave while Klay lives on the desktop or walks home: the notch Klay is not drawn then.
         fsm.onGreet = { [weak self] in
-            guard let self, !self.state.klayOnDesktop else { return }
+            guard let self, !self.state.klayOnDesktop, !self.state.klayWalkingHome else { return }
             NotificationCenter.default.post(name: .botGreet, object: nil)
         }
 
@@ -905,8 +905,8 @@ final class IslandWindowController: NSWindowController {
                 self.botHovering = false
                 // Drag only starts when clicking directly on the bot head
                 guard self.isBotHit(event.locationInWindow) else { return }
-                // Notch Klay is invisible when on desktop: no drag, no slap
-                guard !self.state.klayOnDesktop else { return }
+                // Notch Klay is invisible when on desktop or walking home: no drag, no slap
+                guard !self.state.klayOnDesktop, !self.state.klayWalkingHome else { return }
                 self.attachDragStart = NSEvent.mouseLocation
                 // Post slap only when expanded
                 guard self.state.mode == .expanded else { return }
@@ -936,27 +936,20 @@ final class IslandWindowController: NSWindowController {
                 self.attachDragStart = nil
                 self.state.stateOverride = nil
 
-                let windowCtx = self.windowContextAtPoint(mouse)
-                let inNotchZone = self.window?.frame.contains(mouse) == true
-
-                if let ctx = windowCtx {
-                    // Drop on a window → attach context as before
-                    self.hideDragGhost()
+                if let ctx = self.windowContextAtPoint(mouse) {
+                    // Drop on a window → attach its context and open the island on the chat.
                     self.state.promptContext = ctx
                     SoundEngine.shared.play("approve")
                     NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
                     self.expandOutsideFSM(to: .prompt)
-                } else if !inNotchZone {
-                    // Drop outside notch zone → install Klay on the desktop.
-                    // Prevent hideDragGhost from closing the ghost panel so we can promote it.
-                    let ghost = self.dragGhostPanel
-                    self.dragGhostPanel = nil   // nil first so hideDragGhost skips close
-                    self.hideDragGhost()        // resets isDraggingBot, closes highlight panel
-                    DesktopKlayController.shared.install(ghostPanel: ghost, at: mouse)
-                } else {
-                    // Drop back in notch zone → Klay returns to notch
-                    self.hideDragGhost()
                 }
+                // Wherever the drag ends, Klay walks back into the island from where he was
+                // dropped: the walker takes the ghost over, and the island's Klay stays hidden
+                // until he is home (AppState.klayWalkingHome), so two Klays never show.
+                let ghost = self.dragGhostPanel
+                self.dragGhostPanel = nil   // nil first so hideDragGhost leaves it to the walker
+                KlayWalker.shared.walkHome(panel: ghost)
+                self.hideDragGhost()        // resets isDraggingBot, closes highlight panel
             }
         }
         // The island never opens on a click (spec §4): a mouseUp only ends a drag of Klay.
@@ -1060,6 +1053,49 @@ final class IslandWindowController: NSWindowController {
         // Direct follow: bot is "held", no trailing lag
         ghostCurrentOrigin = NSPoint(x: mouse.x - s/2, y: mouse.y - s/2)
         panel.setFrameOrigin(ghostCurrentOrigin)
+    }
+
+    // MARK: - Klay's place (where the walk home ends)
+
+    /// Where the island draws its Klay now, on screen (AppKit, y up), for the walk home
+    /// (KlayWalker): his centre and canvas width (KlaySize), and whether he shows. The closed
+    /// island over a notch hides him (so do the greeting and the drop canvas): his place is then
+    /// the notch's centre. `notchBottom` is the bottom edge of the notch, or of the resting bar.
+    struct KlayHome {
+        var center: CGPoint
+        var width: CGFloat
+        var shown: Bool
+        var notchBottom: CGFloat
+
+        /// The top centre of the island's screen, for a walker without an island controller.
+        @MainActor static var fallback: KlayHome {
+            let f = IslandWindowController.islandScreen().frame
+            let nh = IslandConst.notchHeight
+            return KlayHome(center: CGPoint(x: f.midX, y: f.maxY - nh / 2), width: 0, shown: false,
+                            notchBottom: f.maxY - nh)
+        }
+    }
+
+    func klayHome() -> KlayHome {
+        guard let panel = window as? IslandPanel else { return .fallback }
+        let pf = panel.frame
+        let island = panel.currentIslandFrame(nw: notchW, nh: notchH)
+        let notchBottom = pf.maxY - notchH
+        let (cx, cy, d, opacity) = botPosition(mode: state.mode, view: state.view,
+                                               islandW: island.width, islandH: island.height,
+                                               uploadProgress: state.uploadProgress, hasNotch: hasNotch)
+        // The greeting and the drop canvas draw their own Klay, the island's is hidden (IslandContainer).
+        let dropViews: [IslandView] = [.upload, .uploading, .choose]
+        let ownCanvas = state.mode == .expanded
+            && (state.view == .greeting
+                || (UploadSequenceEngine.shared.isActive && dropViews.contains(state.view)))
+        guard opacity > 0.01, d > 0, !ownCanvas else {
+            return KlayHome(center: CGPoint(x: pf.midX, y: pf.maxY - notchH / 2), width: 0, shown: false,
+                            notchBottom: notchBottom)
+        }
+        // botPosition is in island coordinates, y down from the island's top edge.
+        return KlayHome(center: CGPoint(x: pf.minX + island.minX + cx, y: pf.minY + island.maxY - cy),
+                        width: KlaySize.canvasWidth(diameter: d), shown: true, notchBottom: notchBottom)
     }
 
     // MARK: - Window highlight overlay (white border on target window during drag)

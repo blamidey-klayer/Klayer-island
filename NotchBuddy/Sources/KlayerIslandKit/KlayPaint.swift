@@ -224,6 +224,16 @@ enum KlayPaint {
         return l
     }
 
+    /// Hands and feet of the walk home at `pose`, in Klay's frame: the lifted foot reaches the
+    /// way he faces while the other pushes back, both set against the bob; the hand opposite the
+    /// lifted foot comes in and up (KlayWalk.gait, KlayWalk.limbs). Port of walkTargets in
+    /// tools/klay-preview/src/engine.ts.
+    static func walkLimbs(_ pose: KlayWalk.Pose) -> Limbs {
+        let l = KlayWalk.limbs(KlayWalk.gait(phase: pose.phase, amount: pose.amount),
+                               facing: pose.facing, handRest: handRest, footRest: footRest)
+        return Limbs(lh: l.lh, rh: l.rh, lf: l.lf, rf: l.rf)
+    }
+
     // MARK: - Body parts (all in Klay's frame, glyph units)
 
     /// The glyph itself, filled white, positioned so the hub sits on the origin.

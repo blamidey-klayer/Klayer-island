@@ -336,6 +336,10 @@ final class BotEngine: ObservableObject {
     var isDancing: Bool = false
     var dancingLevel: CGFloat = 0   // 0→1 over 0.3s, 1→0 over 0.5s
 
+    /// The walk home (KlayWalker sets it every frame), nil otherwise: the limbs take the gait's
+    /// pose, the body bobs and leans the way he walks, and he neither glances nor fidgets.
+    var walk: KlayWalk.Pose? = nil
+
     // Mini wandering look (random, ignores mouse)
     var miniLookTarget: CGPoint = .zero
     var miniLookNextTime: Double = 0
@@ -820,7 +824,7 @@ final class BotEngine: ObservableObject {
         }
 
         // The main Klay, pointer still for a while: he looks around, now and then back at it.
-        let glances = !isMini && !isHovered && cfg.look == nil && !cfg.scans
+        let glances = !isMini && !isHovered && cfg.look == nil && !cfg.scans && walk == nil
             && (state == .idle || state == .working || state == .finished)
         if glances && still > stillLook {
             if now >= glanceNext {
@@ -955,11 +959,11 @@ final class BotEngine: ObservableObject {
     private func updateFidget(now: Double, still: Double) {
         if let f = fidget {
             let dur = f.kind == .tap ? KlayMotion.Tap.dur : KlayMotion.Stretch.dur
-            if now - f.start >= dur || state != .idle || hovered { fidget = nil }
+            if now - f.start >= dur || state != .idle || hovered || walk != nil { fidget = nil }
             return
         }
         let calm = !isMini && state == .idle && !hovered && dancingLevel < 0.01
-            && now >= waveUntil && eyeOverride == nil && !locks.contains("sy")
+            && now >= waveUntil && eyeOverride == nil && !locks.contains("sy") && walk == nil
         guard calm else {
             nextFidget = max(nextFidget, now + 2)
             return
@@ -1005,12 +1009,25 @@ final class BotEngine: ObservableObject {
             x += d.dx * u
             y += d.dy * u
         }
-        return BodyPose(x: x, y: y, lean: lean.x.value * L.tilt, tilt: tilt)
+        return BodyPose(x: x, y: y + walkBob, lean: lean.x.value * L.tilt + walkLean, tilt: tilt)
+    }
+
+    /// How far the walk drops the body this instant (glyph units, y down): 0 when not walking.
+    private var walkBob: CGFloat {
+        guard let w = walk else { return 0 }
+        return KlayWalk.gait(phase: w.phase, amount: w.amount).bob
+    }
+
+    /// How far the walk leans him (rad) about his soles, the way he walks: 0 when not walking.
+    private var walkLean: CGFloat {
+        guard let w = walk else { return 0 }
+        return w.facing * KlayWalk.lean * clamp(w.amount, 0, 1)
     }
 
     private func updateLimbs(now: Double, t: CGFloat, dt: Double, waving: Bool) {
-        var target = KlayPaint.limbTargets(state: state, t: t, waving: waving ? hands : 0, look: yaw)
-        if let f = fidget {
+        var target = walk.map(KlayPaint.walkLimbs)
+            ?? KlayPaint.limbTargets(state: state, t: t, waving: waving ? hands : 0, look: yaw)
+        if let f = fidget, walk == nil {
             let ft = now - f.start
             switch f.kind {
             case .tap:
@@ -1133,8 +1150,11 @@ final class BotEngine: ObservableObject {
         let soles = KlayPaint.bottom * s
         ctx.translateBy(x: lean.x.value * L.shift * s,
                         y: -(lean.y.value * L.rise + hoverLift * KlayMotion.Hover.rise) * s)
+        // Walking: the body drops on each contact and rises mid-stride (the feet are set against
+        // it), and leans the way he walks, about his soles.
+        ctx.translateBy(x: 0, y: walkBob * s)
         ctx.translateBy(x: 0, y: soles)
-        ctx.rotate(by: .radians(Double(lean.x.value * L.tilt)))
+        ctx.rotate(by: .radians(Double(lean.x.value * L.tilt + walkLean)))
         ctx.scaleBy(x: 1, y: 1 + lean.y.value * L.stretch)
         ctx.translateBy(x: 0, y: -soles)
         if abs(roll) > 0.001 {

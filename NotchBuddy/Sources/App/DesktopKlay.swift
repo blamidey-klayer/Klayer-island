@@ -75,11 +75,13 @@ struct DesktopBotView: View {
 /// Manages the "Klay on the desktop" floating panel.
 ///
 /// Life cycle:
-/// - **Install from drag**: `IslandWindowController.finishDrag` calls `install(ghostPanel:at:)`.
+/// - **Sent out**: ⌃⌥D (`flyOutOrHome()`) → `launchFlyIfNeeded()`. A drag of Klay no longer leaves
+///   him on the desktop: he walks back into the island (KlayWalker).
 /// - **Launch restore**: `AppDelegate` observes `.greetComplete` → `launchFlyIfNeeded()`.
 /// - **Alert**: `pendingApproval`/`pendingQuestion` goes non-nil → surprised emote →
-///   `retractForAlert()` (panel gone, flag stays true) → both nil → `launchFlyIfNeeded()`.
-/// - **User flies home**: double-click → `flyHome()` → full teardown.
+///   `retractForAlert()` (he walks home, flag stays true) → both nil → `launchFlyIfNeeded()`.
+/// - **User sends him home**: double-click, ⌃⌥D again, a drop on the island → `walkHome()`: he
+///   walks back into the island (KlayWalker), the desktop mode ends.
 @MainActor
 final class DesktopKlayController {
     static let shared = DesktopKlayController()
@@ -141,93 +143,16 @@ final class DesktopKlayController {
 
     // MARK: - Keyboard shortcut toggle (⌃⌥D)
 
-    /// Fly Klay to the desktop if not there, or bring him back if he is.
+    /// Fly Klay to the desktop if not there, or walk him back if he is. Nothing while a walker
+    /// is out: one Klay at a time.
     func flyOutOrHome() {
+        guard !KlayWalker.shared.isWalking else { return }
         if phase == .home {
             UserDefaults.standard.set(true, forKey: DesktopKlayController.enabledKey)
             launchFlyIfNeeded()
         } else if phase == .onDesktop {
-            flyHome()
+            walkHome()
         }
-    }
-
-    // MARK: - Install (from drag-drop)
-
-    /// Promote `ghostPanel` (the drag ghost) or create a fresh panel as the desktop Klay,
-    /// centered on `screenPoint`. Called by `IslandWindowController.finishDrag`.
-    func install(ghostPanel: NSPanel?, at screenPoint: NSPoint) {
-        guard panel == nil, phase == .home else { ghostPanel?.close(); return }
-        let s = DesktopKlayController.panelSize
-
-        let p: NSPanel
-        if let ghost = ghostPanel {
-            p = ghost
-        } else {
-            p = makeBlankPanel()
-            p.setFrame(NSRect(x: screenPoint.x - s/2, y: screenPoint.y - s/2, width: s, height: s),
-                       display: false)
-        }
-
-        // Build engine + hosting view (autoresizingMask lets it grow with the panel animation)
-        let eng = BotEngine()
-        eng.setState(AppState.shared.effectiveState, force: true)
-        self.engine = eng
-        hoveringBody = false
-
-        let vs = DesktopBotViewState()
-        vs.lookOrigin = lookOriginFor(panel: p)
-        vs.paused = screenSleeping
-        self.viewState = vs
-
-        let hosting = NSHostingView(rootView:
-            DesktopBotView(appState: AppState.shared, engine: eng, viewState: vs))
-        hosting.frame = CGRect(origin: .zero, size: p.frame.size)
-        hosting.autoresizingMask = [.width, .height]
-        p.contentView = hosting
-
-        p.level = .floating
-        p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        p.ignoresMouseEvents = true
-        if !p.isVisible { p.orderFront(nil) }
-
-        // Squash emote + sound on landing
-        eng.triggerEmote(.happy, duration: 0.6, silent: true)
-        SoundEngine.shared.play("pop")
-
-        // Animate from current (ghost) size to 120 × 120, centered on drop point
-        let targetOrigin = clampToVisibleFrame(NSPoint(x: screenPoint.x - s/2, y: screenPoint.y - s/2))
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.17, 0.67, 0.38, 1.3)
-            p.animator().setFrame(NSRect(origin: targetOrigin, size: CGSize(width: s, height: s)),
-                                  display: true)
-        }, completionHandler: {
-            Task { @MainActor in
-                self.panel = p
-                self.phase = .onDesktop
-                AppState.shared.klayOnDesktop = true
-                UserDefaults.standard.set(true, forKey: DesktopKlayController.enabledKey)
-                self.persistPosition()
-                // Alert may have fired during the animation (observeAlerts skipped: phase wasn't .onDesktop)
-                let alertNow = AppState.shared.pendingApproval != nil || AppState.shared.pendingQuestion != nil
-                if DesktopKlayLogic.shouldRetractOnLanding(alertActive: alertNow) {
-                    self.engine?.triggerEmote(.surprised)
-                    self.phase = .retracting
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-                        guard let self else { return }
-                        switch self.phase {
-                        case .retracting:              self.retractForAlert()
-                        case .alertResolvedDuringRetract: self.phase = .home; self.launchFlyIfNeeded()
-                        default: break
-                        }
-                    }
-                } else {
-                    self.startPolling()
-                    self.addEventMonitors()
-                    self.observeLifecycle()
-                }
-            }
-        })
     }
 
     // MARK: - Launch fly (app-start restore or alert return)
@@ -238,6 +163,13 @@ final class DesktopKlayController {
         guard UserDefaults.standard.bool(forKey: DesktopKlayController.enabledKey) else { return }
         guard phase == .home else { return }
         guard panel == nil else { return }
+        // A walker is out (a drag of the island's Klay): he flies out once that one is home.
+        if KlayWalker.shared.isWalking {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.launchFlyIfNeeded()
+            }
+            return
+        }
         // Alert active: don't fly yet — park in .atNotchForAlert so observeAlerts restores us when it clears
         if AppState.shared.pendingApproval != nil || AppState.shared.pendingQuestion != nil {
             phase = .atNotchForAlert
@@ -306,70 +238,50 @@ final class DesktopKlayController {
         })
     }
 
-    // MARK: - Fly home (user-initiated: double-click)
+    // MARK: - Walk home (user-initiated: double-click, ⌃⌥D, drop on the island)
 
-    /// Animate panel to notch then fully tear down.
-    func flyHome() {
-        guard let p = panel else { return }
+    /// Klay walks back into the island (KlayWalker) and the desktop mode ends.
+    func walkHome() {
+        guard let p = releasePanel() else { return }
         phase = .home
-        pendingSlapWorkItem?.cancel()
-        stopPolling()
-        removeEventMonitors()
-        cancellables.removeAll()
-        isSleeping = false
-        let s = DesktopKlayController.panelSize
-        let screen = IslandWindowController.islandScreen()
-        let targetOrigin = NSPoint(x: screen.frame.midX - s/2, y: screen.frame.maxY - s)
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.45
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            p.animator().setFrame(NSRect(origin: targetOrigin, size: CGSize(width: s, height: s)),
-                                  display: true)
-        }, completionHandler: {
-            Task { @MainActor in
-                SoundEngine.shared.play("peek")
-                self.fullTearDown()
-            }
-        })
+        UserDefaults.standard.set(false, forKey: DesktopKlayController.enabledKey)
+        KlayWalker.shared.walkHome(panel: p)
+        AppState.shared.klayOnDesktop = false
     }
 
-    // MARK: - Retract for alert (panel flies home; comes back after alert resolves)
+    // MARK: - Retract for alert (he walks home; comes back after the alert resolves)
 
-    /// Close panel and show notch Klay for the alert. UserDefaults flag stays true so
-    /// `launchFlyIfNeeded` restores Klay once the alert is dismissed.
+    /// Klay walks home so the island's Klay shows the alert. The UserDefaults flag stays true so
+    /// `launchFlyIfNeeded` restores him once the alert is dismissed.
     private func retractForAlert() {
-        guard let p = panel else { return }
+        guard let p = releasePanel() else { return }
+        KlayWalker.shared.walkHome(panel: p) { [weak self] in
+            guard let self else { return }
+            if self.phase == .alertResolvedDuringRetract {
+                self.phase = .home
+                self.launchFlyIfNeeded()
+            } else {
+                self.phase = .atNotchForAlert
+            }
+        }
+        // The walker keeps the island's Klay hidden until he is home.
+        AppState.shared.klayOnDesktop = false
+    }
+
+    /// Stops the desktop Klay (polling, mouse monitors, subscriptions) and hands his panel over,
+    /// to the walker: the controller keeps nothing of it.
+    private func releasePanel() -> NSPanel? {
+        guard let p = panel else { return nil }
         stopPolling()
         removeEventMonitors()
         cancellables.removeAll()
         pendingSlapWorkItem?.cancel()
+        panel = nil
+        engine = nil
+        viewState = nil
+        isDragging = false
         isSleeping = false
-
-        let s = DesktopKlayController.panelSize
-        let screen = IslandWindowController.islandScreen()
-        let targetOrigin = NSPoint(x: screen.frame.midX - s/2, y: screen.frame.maxY - s)
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.45
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            p.animator().setFrame(NSRect(origin: targetOrigin, size: CGSize(width: s, height: s)),
-                                  display: true)
-        }, completionHandler: {
-            Task { @MainActor in
-                p.close()
-                self.panel = nil
-                self.engine = nil
-                self.viewState = nil
-                self.isDragging = false
-                AppState.shared.klayOnDesktop = false
-                // UserDefaults flag stays TRUE so launchFlyIfNeeded works
-                if self.phase == .alertResolvedDuringRetract {
-                    self.phase = .home
-                    self.launchFlyIfNeeded()
-                } else {
-                    self.phase = .atNotchForAlert
-                }
-            }
-        })
+        return p
     }
 
     // MARK: - Uninstall (immediate, no animation)
@@ -596,7 +508,7 @@ final class DesktopKlayController {
     private func handleClick(clickCount: Int) {
         if clickCount >= 2 {
             pendingSlapWorkItem?.cancel()
-            flyHome()
+            walkHome()
         } else {
             pendingSlapWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in self?.engine?.slap() }
@@ -610,7 +522,7 @@ final class DesktopKlayController {
         let inNotchZone = islandController?.window?.frame.contains(mouse) == true
 
         if inNotchZone {
-            flyHome()
+            walkHome()
             return
         }
 

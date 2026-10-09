@@ -17,6 +17,7 @@ import {
   stretchAmount,
   type Gaze, type P, type Spring, type Spring2,
 } from "./motion";
+import { WALK, walkGait, walkLimbs } from "./walk";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -353,6 +354,25 @@ export function limbTargets(
  */
 export function armsOpenTargets(): { lh: P; rh: P } {
   return { lh: { x: -200, y: -40 }, rh: { x: 200, y: -40 } };
+}
+
+/** Klay walking back into the island: where he is in his stride and which way he faces. */
+export interface WalkPose {
+  /** Stride phase, 0…1 (walkPhase): the left foot swings in the first half, the right in the second. */
+  phase: number;
+  /** 0 standing … 1 walking (walkAmount): it scales the stride, the bob, the swing and the lean. */
+  amount: number;
+  /** +1 walking right (or straight up), −1 walking left (WalkPlan.facing). */
+  facing: number;
+}
+
+/**
+ * Hands and feet of the walk at `pose`, in Klay's frame (glyph units): the feet lifted and
+ * moved along the way he faces, the hands swinging opposite to them (walkGait, walkLimbs).
+ * Mirror of KlayPaint.walkLimbs on the Mac.
+ */
+export function walkTargets(pose: WalkPose): { lh: P; rh: P; lf: P; rf: P } {
+  return walkLimbs(walkGait(pose.phase, pose.amount), pose.facing, HAND_REST, FOOT_REST);
 }
 
 /** The glyph, white, placed so that its hub sits on Klay's origin. */
@@ -830,6 +850,12 @@ export class BotEngine {
   isDancing = false;
   dancingLevel = 0;
 
+  /**
+   * The walk home (the Mac's walker sets it every frame), null otherwise: the limbs take the
+   * gait's pose, the body bobs and leans the way he walks, and he neither glances nor fidgets.
+   */
+  walk: WalkPose | null = null;
+
   lastTime = now();
   private t0 = now() - Math.random() * 5;
   private nextBlink = now() + 1.5 + Math.random() * 2;
@@ -1172,7 +1198,7 @@ export class BotEngine {
     }
 
     // The main Klay, pointer still for a while: he looks around, now and then back at it.
-    const glances = !this.isMini && !hovered && !this.cfg.look && !this.cfg.scans &&
+    const glances = !this.isMini && !hovered && !this.cfg.look && !this.cfg.scans && !this.walk &&
       (this.state === "idle" || this.state === "working" || this.state === "finished");
     if (glances && still > this.stillLook) {
       if (n >= this.glanceNext) {
@@ -1297,11 +1323,11 @@ export class BotEngine {
   private updateFidget(n: number, still: number) {
     if (this.fidget) {
       const dur = this.fidget.kind === "tap" ? MOTION.tap.dur : MOTION.stretch.dur;
-      if (n - this.fidget.start >= dur || this.state !== "idle" || this.hovered) this.fidget = null;
+      if (n - this.fidget.start >= dur || this.state !== "idle" || this.hovered || this.walk) this.fidget = null;
       return;
     }
     const calm = !this.isMini && this.state === "idle" && !this.hovered && this.dancingLevel < 0.01 &&
-      n >= this.waveUntil && !this.eyeOverride && !this.locks.has("sy");
+      n >= this.waveUntil && !this.eyeOverride && !this.locks.has("sy") && !this.walk;
     if (!calm) {
       this.nextFidget = Math.max(this.nextFidget, n + 2);
       return;
@@ -1338,12 +1364,22 @@ export class BotEngine {
       x += d.dx * UNITS_PER_R;
       y += d.dy * UNITS_PER_R;
     }
-    return { x, y, lean: this.lean.x * L.tilt, tilt: this.tilt };
+    return { x, y: y + this.walkBob(), lean: this.lean.x * L.tilt + this.walkLean(), tilt: this.tilt };
+  }
+
+  /** How far the walk drops the body this instant (glyph units, y down): 0 when not walking. */
+  private walkBob(): number {
+    return this.walk ? walkGait(this.walk.phase, this.walk.amount).bob : 0;
+  }
+
+  /** How far the walk leans him (rad) about his soles, the way he walks: 0 when not walking. */
+  private walkLean(): number {
+    return this.walk ? this.walk.facing * WALK.lean * Math.max(0, Math.min(1, this.walk.amount)) : 0;
   }
 
   private updateLimbs(n: number, t: number, dt: number, waving: boolean) {
-    const lt = limbTargets(this.state, t, waving ? this.hands : 0, this.yaw);
-    if (this.fidget) {
+    const lt = this.walk ? walkTargets(this.walk) : limbTargets(this.state, t, waving ? this.hands : 0, this.yaw);
+    if (this.fidget && !this.walk) {
       const ft = n - this.fidget.start;
       if (this.fidget.kind === "tap") {
         const foot = this.fidget.side < 0 ? lt.lf : lt.rf;
@@ -1480,8 +1516,11 @@ export class BotEngine {
     const L = MOTION.lean;
     const soles = BOTTOM * s;
     x.translate(this.lean.x * L.shift * s, -(this.lean.y * L.rise + this.hoverLift * MOTION.hover.rise) * s);
+    // Walking: the body drops on each contact and rises mid-stride (the feet are set against it),
+    // and leans the way he walks, about his soles.
+    x.translate(0, this.walkBob() * s);
     x.translate(0, soles);
-    x.rotate(this.lean.x * L.tilt);
+    x.rotate(this.lean.x * L.tilt + this.walkLean());
     x.scale(1, 1 + this.lean.y * L.stretch);
     x.translate(0, -soles);
     if (Math.abs(this.roll) > 0.001) {
