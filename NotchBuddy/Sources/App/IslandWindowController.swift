@@ -302,7 +302,7 @@ final class IslandWindowController: NSWindowController {
                 if !self.wasInIsland { self.fsm.mouseLeft() }
 
             case .home:
-                self.expand(to: self.defaultView())
+                self.expandOnDefaultView()
                 // Start collapse timer if mouse not currently hovering
                 if !self.wasInIsland {
                     self.fsm.mouseLeft()
@@ -557,6 +557,17 @@ final class IslandWindowController: NSWindowController {
         }
     }
 
+    /// Opens the island on `defaultView()` (hover, toggle hot key, go to alert). With a request
+    /// pending, the card it opens on (the permission first) may not be the one on screen when the
+    /// island folded: it is shown as a held request is, so its pill takes the focus, Klay the
+    /// request's pose, and the pill's badge goes (`HookServer.showHeldRequest`).
+    private func expandOnDefaultView() {
+        if let request = Self.pendingRequest {
+            HookServer.shared.showHeldRequest(request)
+        }
+        expand(to: defaultView())
+    }
+
     /// Opens the island on `view` for an action that does not go through the FSM (hot key,
     /// keyboard shortcut, Klay dropped on a window). A closed island is synced as opened by
     /// the app, so proximity and hover do not fold it; an island already open counts as used
@@ -648,7 +659,7 @@ final class IslandWindowController: NSWindowController {
             } else {
                 islandPanel.makeKey()
                 fsm.openedExternally()
-                expand(to: defaultView())
+                expandOnDefaultView()
             }
 
         case .openChat:
@@ -659,7 +670,7 @@ final class IslandWindowController: NSWindowController {
             if Self.pendingRequest != nil {
                 islandPanel.makeKey()
                 fsm.openedExternally()
-                expand(to: defaultView())   // the permission first, then the question
+                expandOnDefaultView()   // the permission first, then the question
             } else {
                 NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.annoyed)
                 SoundEngine.shared.play("error")

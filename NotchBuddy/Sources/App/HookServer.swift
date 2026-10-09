@@ -124,8 +124,10 @@ final class HookServer: @unchecked Sendable {
 
     /// Puts a request that waited behind another card (or behind a note) on screen: its pill takes
     /// the focus and the pose of the request, its badge goes. The card's buttons arm 0.6 s later.
+    /// The window controller calls it too when the island reopens on a request after a fold: the
+    /// permission comes first, even when the question was the card on screen.
     @MainActor
-    private func showHeldRequest(_ kind: PendingRequest) {
+    func showHeldRequest(_ kind: PendingRequest) {
         let state = AppState.shared
         let pillId: String
         switch kind {
