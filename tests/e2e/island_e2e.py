@@ -33,6 +33,8 @@ RELAY_PATH = os.path.join(SUPPORT_DIR, "nb-hook")
 
 DESKTOP_PILL = "agent_claude-desktop"   # HookRouting.desktopPillId
 CLAUDE_APP = "com.anthropic.claudefordesktop"   # HookRouting.desktopBundleId
+CODE_PILL = "integration_claude"   # HookRouting.pillId of a Claude Code session outside the Claude app
+VSCODE = "com.microsoft.VSCode"    # OpenTarget.vsCodeBundleId
 PROJECTS = "/Users/klayer-e2e/projets"  # cwd of the sessions: the island titles them by the last folder
 
 POLL = 0.1              # e2e_state polling interval (s)
@@ -157,6 +159,11 @@ def claude_app_env():
     """A hook of a session of the Claude app (its Code tab)."""
     return hook_env(CLAUDE_CODE_ENTRYPOINT="claude-desktop",
                     __CFBundleIdentifier="com.anthropic.claudefordesktop")
+
+
+def vscode_env():
+    """A hook of a session of the VS Code extension (no klayer_agent)."""
+    return hook_env(CLAUDE_CODE_ENTRYPOINT="claude-vscode", __CFBundleIdentifier=VSCODE)
 
 
 def terminal_env():
@@ -675,6 +682,58 @@ def scenario_10_card_steps_aside(run):
        "through; the Code tab note folds too" % name)
 
 
+def scenario_11_vscode_card_steps_aside(run):
+    """Task 27, Baptiste's main case: a session of the VS Code extension. Its row opens its VS Code tab
+    by the documented link; its permission card folds when VS Code comes to the front (e2e_activate),
+    the request stays pending and nb-hook keeps waiting; back on the island, the allow goes through.
+    Its API error then ends the row on « API Error: 529 », without the JSON body and its request id."""
+    sid, project = new_session(), "site-vitrine"
+    name = "Corrige le formulaire de contact"
+    fire(hook_input(sid, "SessionStart", project, source="startup"), vscode_env(), "SessionStart")
+    wait_until("the session %s in the list" % project, lambda s: phase(s, sid) is not None)
+    fire(hook_input(sid, "UserPromptSubmit", project, prompt=name), vscode_env(), "UserPromptSubmit")
+    link = "url:vscode://anthropic.claude-code/open?session=" + sid
+    wait_until("the row of %s named « %s », opening its VS Code tab" % (project, name),
+               lambda s: phase(s, sid) == "thinking" and title(s, sid) == name
+               and session(s, sid)["pill"] == CODE_PILL and session(s, sid)["entrypoint"] == "claude-vscode"
+               and session(s, sid)["open"] == link)
+
+    _, relay = permission_request(sid, project, "npm run lint", vscode_env())
+    wait_until("the permission card of %s" % project,
+               lambda s: pending(relay, "the permission of %s" % project)
+               and s["mode"] == "expanded" and s["view"] == "approval"
+               and s["pendingApproval"]["session"] == sid and s["pendingApproval"]["pill"] == CODE_PILL)
+    choices_before = read_state()["choices"]
+    command({"klayer_kind": "e2e_activate", "bundle_id": VSCODE})
+    wait_until("the island folded when VS Code came to the front, the permission still pending",
+               lambda s: pending(relay, "the permission of %s" % project)
+               and s["mode"] != "expanded" and s["pendingApproval"] is not None
+               and s["pendingApproval"]["session"] == sid and phase(s, sid) == "approval")
+    unanswered(relay, "the permission of %s after the card stepped aside for VS Code" % project,
+               lambda s: s["mode"] != "expanded" and s["pendingApproval"]["session"] == sid
+               and s["choices"] == choices_before)
+
+    command({"klayer_kind": "e2e_shortcut", "action": "goToAlert"})
+    wait_until("the card on screen again",
+               lambda s: pending(relay, "the permission of %s" % project)
+               and s["mode"] == "expanded" and s["view"] == "approval" and s["pendingApproval"]["session"] == sid)
+    command({"klayer_kind": "e2e_decide", "decision": "allow"})
+    expect_output(relay, ALLOW_OUTPUT, "PermissionRequest of VS Code allowed after the card stepped aside")
+    wait_until("the card closed and « Autorisé » recorded for npm run lint",
+               lambda s: s["pendingApproval"] is None
+               and choices_since(s, run["started"])[0] == ("permission", "npm run lint", "Autorisé", name))
+
+    api_error = ('API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},'
+                 '"request_id":"req_011CSHwq3vP1y8bAmdZgzFv5"}')
+    fire(hook_input(sid, "StopFailure", project, error="server_error", last_assistant_message=api_error),
+         vscode_env(), "StopFailure")
+    wait_until("the row of %s failed on « API Error: 529 »" % project,
+               lambda s: phase(s, sid) == "error" and session(s, sid)["detail"] == "API Error: 529")
+    ok("11 a VS Code session's row opens its VS Code tab; its card folds when VS Code comes to the front, "
+       "nothing answered, nb-hook still waiting; back on the island the allow goes through; its API error "
+       "row says « API Error: 529 » without the JSON")
+
+
 def unanswered(relay, what, still):
     """Scenario 8: a request nobody answers stays pending; nb-hook prints nothing and keeps waiting."""
     deadline = time.monotonic() + SILENCE
@@ -700,6 +759,7 @@ SCENARIOS = [
     scenario_8_nothing_approves_alone,
     scenario_9_session_name,
     scenario_10_card_steps_aside,
+    scenario_11_vscode_card_steps_aside,
 ]
 
 

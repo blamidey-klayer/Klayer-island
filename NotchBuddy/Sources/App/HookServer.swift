@@ -1320,10 +1320,12 @@ final class HookServer: @unchecked Sendable {
             return
         case "Stop":
             phase = .finished
-            action = SessionRoster.line(ActionText.clean(Self.finalText(of: payload)))
+            // The row stops before raw JSON (ActionText.end); the finished view keeps the whole text.
+            action = SessionRoster.line(ActionText.end(Self.finalText(of: payload)))
         case "StopFailure":
             phase = .error
-            action = SessionRoster.failureText(of: payload).flatMap { SessionRoster.line(ActionText.clean($0)) }
+            // « API Error: 529 » without its JSON body and request id; the error view keeps them.
+            action = SessionRoster.failureText(of: payload).flatMap { SessionRoster.line(ActionText.end($0)) }
         case "SessionEnd":
             AppState.shared.endSession(sessionId)
             return

@@ -80,7 +80,8 @@ enum ActionText {
 
     /// A token that only identifies something: a UUID, 12 hex characters or more with a digit (a
     /// commit, a long number), or an opaque token of 20 characters or more (base64, `toolu_…`) that
-    /// mixes cases with 2 digits or more, or is a quarter digits. Surrounding punctuation is ignored.
+    /// mixes cases with 2 digits or more, or is a quarter digits with no word in it (3 letters or more
+    /// between separators: « 2026-10-09-klayer-island » is a name). Surrounding punctuation is ignored.
     /// Words, file names and short references (« 6bb0d00 », « KLA-12 ») are not ids.
     static func isId(_ token: String) -> Bool {
         let core = token.trimmingCharacters(in: edgePunctuation)
@@ -97,7 +98,10 @@ enum ActionText {
         guard core.count >= 20, core.unicodeScalars.allSatisfy({ opaqueAlphabet.contains($0) }) else { return false }
         let upper = core.contains(where: \.isUppercase)
         let lower = core.contains(where: \.isLowercase)
-        return (upper && lower && digits >= 2) || digits * 4 >= core.count
+        if upper && lower && digits >= 2 { return true }
+        let hasWord = core.split(whereSeparator: { "+/=_-.".contains($0) })
+            .contains { $0.count >= 3 && $0.allSatisfy(\.isLetter) }
+        return digits * 4 >= core.count && !hasWord
     }
 
     /// `text` on one line, each run of spaces one space, without its ids: an id word goes, a UUID
@@ -114,6 +118,17 @@ enum ActionText {
         while let first = words.first, isSeparator(first) { words.removeFirst() }
         while let last = words.last, isSeparator(last) { words.removeLast() }
         return words.joined(separator: " ")
+    }
+
+    /// The last words of a session as its row says them (a Stop's last sentence, a StopFailure's
+    /// error): cut before the first `{` or `[`, so an API error's JSON body and its request id never
+    /// show (« API Error: 529 »), the separator left before it dropped, without ids. The finished and
+    /// error views keep the whole text.
+    static func end(_ text: String) -> String {
+        let head = text.firstIndex(where: { $0 == "{" || $0 == "[" }).map { String(text[..<$0]) } ?? text
+        var line = clean(head)
+        while let last = line.last, " :·-–|,;=".contains(last) { line.removeLast() }
+        return line
     }
 
     /// Raw JSON: an object or a list, whole.
@@ -221,10 +236,12 @@ enum ActionText {
 
     // MARK: - MCP tools
 
-    /// `mcp__<server>__<tool>`: a verb from the tool's first word, its object in words (in French
-    /// when known), and the server's name, « Liste les issues (Linear) ». The server's own name in
-    /// the tool goes (`notion-search`, `query_granola_meetings`). A server known by an id is not
-    /// named. Nil for a name that is not an MCP tool's.
+    /// `mcp__<server>__<tool>`: a verb from the tool's first word, else from its last (`issue_read`,
+    /// GitHub's `<object>_<verb>`), its object in words (in French when known), and the server's
+    /// name, « Liste les issues (Linear) », « Lit l'issue (GitHub) »; a bare verb « Lit dans Notion »;
+    /// no known verb, « Utilise <words> (<server>) ». The server's own name in the tool goes
+    /// (`notion-search`, `query_granola_meetings`). A server known by an id is not named. Nil for a
+    /// name that is not an MCP tool's.
     private static func mcpAction(_ tool: String) -> String? {
         guard tool.hasPrefix("mcp__") else { return nil }
         let parts = tool.dropFirst(5).components(separatedBy: "__")
@@ -237,18 +254,24 @@ enum ActionText {
         let serverWords = Set(words(of: server).filter { $0 != "claude" && $0 != "ai" && $0 != "plugin" })
         var toolWords = words(of: parts.dropFirst().joined(separator: "_"))
         toolWords.removeAll { serverWords.contains($0) || isId($0) }
-        guard let first = toolWords.first else {
+        guard let first = toolWords.first, let last = toolWords.last else {
             return label.map { "Utilise " + $0 } ?? "Utilise un outil"
         }
-        guard let verb = verbs[first] else {
-            let phrase = toolWords.joined(separator: " ")
-            let text = phrase.prefix(1).uppercased() + phrase.dropFirst()
+        let verb: Verb
+        let object: [String]
+        if let leading = verbs[first] {
+            verb = leading
+            object = Array(toolWords.dropFirst())
+        } else if let trailing = verbs[last] {
+            verb = trailing
+            object = Array(toolWords.dropLast())
+        } else {
+            let text = "Utilise " + toolWords.joined(separator: " ")
             return label.map { "\(text) (\($0))" } ?? text
         }
-        let object = Array(toolWords.dropFirst())
         if object.isEmpty {
             guard let label else { return verb.text }
-            return verb.text == "Cherche" ? "Cherche dans \(label)" : "\(verb.text) (\(label))"
+            return "\(verb.text) dans \(label)"
         }
         let text = verb.text + " " + phrase(object, indefinite: verb.creates)
         return label.map { "\(text) (\($0))" } ?? text
@@ -301,7 +324,7 @@ enum ActionText {
         return result
     }
 
-    /// What a tool's first word does. `creates`: the object is a new one (« un brouillon »).
+    /// What a tool's first (or last) word does. `creates`: the object is a new one (« un brouillon »).
     private struct Verb {
         let text: String
         var creates = false
@@ -316,7 +339,7 @@ enum ActionText {
         "search": Verb(text: "Cherche"), "query": Verb(text: "Cherche"), "find": Verb(text: "Cherche"),
         "send": Verb(text: "Envoie"),
         "add": Verb(text: "Ajoute"),
-        "edit": Verb(text: "Modifie"),
+        "edit": Verb(text: "Modifie"), "write": Verb(text: "Modifie"),
     ]
 
     /// A noun the island says in French: singular, plural, feminine, and whether « le » or « la »

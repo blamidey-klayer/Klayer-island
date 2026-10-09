@@ -61,7 +61,7 @@ struct AgentTask: Identifiable, Equatable {
     var source: AgentSource
     var isIntegration: Bool = false  // true for persistent integration pills
     var pillBadge: PillBadge? = nil  // alert badge shown on pill when not focused
-    var sessionBundleId: String? = nil  // app the session runs in (hook bundle_id), for "Open terminal"
+    var sessionBundleId: String? = nil  // app the session runs in (hook bundle_id), for « Ouvrir cette session » and ⌃⌥T
     var finalLine: String?   = nil  // last assistant message shown as static text after Stop
     var hostApp: String?     = nil  // bundle id of the terminal running a Claude Code session; nil = an editor or unknown
 }

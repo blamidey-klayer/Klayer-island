@@ -981,11 +981,13 @@ final class IslandWindowController: NSWindowController {
             let bundleId = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
             MainActor.assumeIsolated { self?.appCameToFront(bundleId) }
         }
+        #if KLAYER_E2E
         // The same, posted by the end-to-end test build (e2e_activate, HookServerE2E.swift).
         NotificationCenter.default.addObserver(forName: .appCameToFront, object: nil, queue: .main) { [weak self] note in
             let bundleId = note.object as? String
             MainActor.assumeIsolated { self?.appCameToFront(bundleId) }
         }
+        #endif
 
         // Track last external app for window context capture
         let ourBundle = Bundle.main.bundleIdentifier ?? ""
@@ -1443,9 +1445,11 @@ extension Notification.Name {
     static let openFullSettings    = Notification.Name("notchBuddy.openFullSettings")
     static let hookReveal       = Notification.Name("notchBuddy.hookReveal")
     static let finishedSessionMovedOn = Notification.Name("notchBuddy.finishedSessionMovedOn")
+    #if KLAYER_E2E
     // An app came to the front (object: its bundle id): the test build's stand-in for NSWorkspace's
     // activation, handled the same way (IslandWindowController.appCameToFront).
     static let appCameToFront = Notification.Name("notchBuddy.appCameToFront")
+    #endif
     static let spotifyReveal    = Notification.Name("notchBuddy.spotifyReveal")
     // Greeting ↔ IslandWindowController
     static let greetComplete    = Notification.Name("notchBuddy.greetComplete")

@@ -23,11 +23,14 @@ enum ActionTextTests {
             ("mcp_create_says_a_new_one", mcpCreateSaysANewOne),
             ("an_mcp_server_that_is_an_id_is_not_named", anMCPServerThatIsAnIdIsNotNamed),
             ("an_mcp_tool_drops_its_server_s_own_name", anMCPToolDropsItsServersOwnName),
-            ("an_mcp_tool_without_a_known_verb_is_its_name_in_words", anMCPToolWithoutAKnownVerbIsItsNameInWords),
+            ("an_mcp_verb_at_the_end_of_the_tool_counts", anMCPVerbAtTheEndOfTheToolCounts),
+            ("an_mcp_tool_without_a_known_verb_is_used", anMCPToolWithoutAKnownVerbIsUsed),
             ("mcp_server_names_are_humanized", mcpServerNamesAreHumanized),
             ("ids_are_recognised", idsAreRecognised),
             ("words_and_short_numbers_are_not_ids", wordsAndShortNumbersAreNotIds),
             ("clean_strips_ids_from_a_text", cleanStripsIdsFromAText),
+            ("a_date_led_name_is_no_id", aDateLedNameIsNoId),
+            ("an_end_stops_before_raw_json", anEndStopsBeforeRawJSON),
             ("a_prompt_is_its_first_line", aPromptIsItsFirstLine),
             ("a_json_or_blank_prompt_is_nothing", aJSONOrBlankPromptIsNothing),
             ("a_question_is_asked_to_you", aQuestionIsAskedToYou),
@@ -191,11 +194,23 @@ enum ActionTextTests {
         expect(describe("mcp__claude_ai_Granola__query_granola_meetings"), "Cherche les réunions (Granola)",
                "the server's name inside the tool")
         expect(describe("mcp__slack__slack_send_message"), "Envoie le message (Slack)", "slack_send_message")
-        expect(describe("mcp__notion__notion-fetch"), "Lit (Notion)", "a bare verb with a server")
+        expect(describe("mcp__notion__notion-fetch"), "Lit dans Notion", "a bare verb with a server")
+        expect(describe("mcp__claude_ai_Notion__notion-fetch"), "Lit dans Notion", "the Notion connector")
     }
 
-    static func anMCPToolWithoutAKnownVerbIsItsNameInWords() {
-        expect(describe("mcp__klayer__acknowledge_alert"), "Acknowledge alert (Klayer)", "no verb known")
+    /// The official GitHub MCP server names its tools `<object>_<verb>` (review of Task 27, Important 1).
+    static func anMCPVerbAtTheEndOfTheToolCounts() {
+        expect(describe("mcp__github__issue_read"), "Lit l'issue (GitHub)", "issue_read")
+        expect(describe("mcp__github__issue_write"), "Modifie l'issue (GitHub)", "issue_write")
+        expect(describe("mcp__github__pull_request_read"), "Lit la pull request (GitHub)", "pull_request_read")
+        expect(describe("mcp__github__actions_list"), "Liste les actions (GitHub)", "actions_list")
+    }
+
+    static func anMCPToolWithoutAKnownVerbIsUsed() {
+        expect(describe("mcp__Klayer_Back_Office__log_time"), "Utilise log time (Klayer Back Office)", "log_time")
+        expect(describe("mcp__klayer__acknowledge_alert"), "Utilise acknowledge alert (Klayer)", "no verb known")
+        expect(describe("mcp__96310fe8-60b7-452f-8cd7-a68a842ae8af__acknowledge_alert"), "Utilise acknowledge alert",
+               "no verb known, a server known by its id")
         expect(describe("mcp__x__getWidgetStatus"), "Lit widget status (X)", "camelCase is split")
         expect(describe("mcp__x"), "Utilise x", "a malformed MCP name")
     }
@@ -234,6 +249,27 @@ enum ActionTextTests {
                "a UUID inside a word goes, the rest stays")
         expect(ActionText.clean("  J'ai   corrigé\tle bug  "), "J'ai corrigé le bug", "spaces collapsed")
         expect(ActionText.clean("toolu_01XFDUDYJgAACzvnptvVoYEL"), "", "nothing left")
+    }
+
+    /// Klayer names its folders by date first (review of Task 27, Minor 5).
+    static func aDateLedNameIsNoId() {
+        precondition(!ActionText.isId("2026-10-09-klayer-island"), "a date-led name is no id")
+        precondition(!ActionText.isId("2026_10_09_compte_rendu.md"), "a date-led file name is no id")
+        expect(describe("Read", ["file_path": "/Users/me/projets/2026-10-09-klayer-island"]),
+               "Lit 2026-10-09-klayer-island", "a file named by its date")
+        precondition(ActionText.isId("k3j9x0q2m8z7p1w4r6t5y8"), "a lower case token a quarter digits is still an id")
+    }
+
+    /// The row of a session that ended (Stop, StopFailure) stops before raw JSON: an API error's body
+    /// and its request id never show (review of Task 27, Important 2).
+    static func anEndStopsBeforeRawJSON() {
+        let apiError = #"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CSHwq3vP1y8bAmdZgzFv5"}"#
+        expect(ActionText.end(apiError), "API Error: 529", "an API error")
+        expect(ActionText.end("API Error: {\"type\":\"error\"}"), "API Error", "the separator before the JSON goes")
+        expect(ActionText.end("Erreur [voir le détail]"), "Erreur", "a list too")
+        expect(ActionText.end("Le résumé est prêt."), "Le résumé est prêt.", "a sentence stays whole")
+        expect(ActionText.end(#"{"type":"error"}"#), "", "nothing but JSON: nothing")
+        expect(ActionText.end("Fini 96310fe8-60b7-452f-8cd7-a68a842ae8af"), "Fini", "no id")
     }
 
     // MARK: - Prompts and questions

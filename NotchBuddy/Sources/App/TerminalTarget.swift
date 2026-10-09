@@ -1,6 +1,7 @@
 import Foundation
 
-/// Picks which app "Open terminal" / ⌃⌥T should bring to the front.
+/// Picks which app ⌃⌥T, or « Ouvrir cette session » when the session's own target did not open,
+/// should bring to the front.
 /// Foundation only, so it can be tested without AppKit (see scripts/test-terminal-target.sh).
 enum TerminalTarget {
     /// Terminals tried, in order, when the session's own app is unknown or not running.

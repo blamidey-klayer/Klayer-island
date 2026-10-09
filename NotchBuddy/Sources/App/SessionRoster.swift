@@ -72,8 +72,8 @@ struct SessionRow: Equatable, Identifiable {
 // documented sources: the `session_title` of a hook (SessionStart and UserPromptSubmit carry it when
 // the session has a custom title: `--name`, `/rename`, a rename in the Claude app or VS Code) and the
 // `session_name` of the status line (the custom name if set, otherwise the title Claude generated).
-// The latest non-empty name wins, whatever its source: the status line carries the custom name as
-// soon as it is set, so it is never staler than the hook's title. The transcript is never read.
+// The latest non-empty name wins, whatever its source: the status line should carry the custom name
+// as soon as it is set (to confirm on a Mac, TEST-MAC 5.9). The transcript is never read.
 // Held in memory with the row; nb.log never has it. A request answered from the island records its
 // session by this name in the history of choices (choices.json, local), as it recorded the folder.
 

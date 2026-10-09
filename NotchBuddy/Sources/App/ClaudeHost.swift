@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 // MARK: - ClaudeHost
 //
@@ -57,17 +57,5 @@ struct ClaudeHost: Equatable {
     static func name(for hostBundleId: String?) -> String {
         guard let id = hostBundleId, let name = terminals[id] else { return "Claude Code" }
         return name
-    }
-
-    /// Brings the session's terminal forward (launching it if needed). false when not a terminal host.
-    @discardableResult
-    static func activate(_ hostBundleId: String?) -> Bool {
-        guard let id = hostBundleId, terminals[id] != nil else { return false }
-        if let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == id }) {
-            running.activate()
-        } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
-            NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
-        }
-        return true
     }
 }
