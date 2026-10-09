@@ -64,6 +64,9 @@ jobs:
       - name: Test Code notification
         run: bash scripts/test-code-notification.sh
 
+      - name: Test Claude app watch
+        run: bash scripts/test-claude-app-watch.sh
+
       - name: Test home layout
         run: bash scripts/test-home-layout.sh
 

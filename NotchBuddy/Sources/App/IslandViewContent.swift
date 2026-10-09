@@ -713,10 +713,8 @@ struct ErrorView: View {
 }
 
 /// Brings the Claude desktop app forward (or launches it): target of the Claude Desktop pill.
-private let claudeDesktopBundleId = "com.anthropic.claudefordesktop"
-
 private func openClaudeDesktopApp() {
-    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeDesktopBundleId) {
+    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: HookRouting.desktopBundleId) {
         NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
     }
 }

@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The Claude Code processes of the chat and of a Gmail draft do not outlive the island.
         ChatSession.shared.stop()
         GmailDraftJob.stop()
+        // The Claude app's accessibility tree goes back off if the Chat and Cowork watch turned it on.
+        ClaudeAppWatcher.shared.stop(waitForRestore: true)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -114,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         islandController?.fsm.launch()
         HookServer.shared.start()
         GithubPoller.shared.start()
+        // Chat and Cowork in the Claude app (experimental, Settings): wakes only on app activation.
+        ClaudeAppWatcher.shared.start()
         NotificationCenter.default.addObserver(self, selector: #selector(openSettingsFromNotification(_:)),
                                                name: .openFullSettings, object: nil)
         // After the greeting ends, fly Klay back to the desktop if it was there at last quit

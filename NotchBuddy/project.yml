@@ -68,7 +68,7 @@ targets:
         NSAppleEventsUsageDescription: "Pour sauter au terminal, lire l'adresse de la page ouverte et piloter Spotify."
         NSMicrophoneUsageDescription: "Klayer Island uses the microphone when you dictate a message in the chat."
         NSSpeechRecognitionUsageDescription: "Klayer Island turns your voice into the text of a chat message."
-        NSAccessibilityUsageDescription: "Pour lire le titre de la fenêtre active et l'attacher comme contexte."
+        NSAccessibilityUsageDescription: "Pour lire le titre de la fenêtre active et l'attacher comme contexte, et pour suivre les réponses de l'app Claude."
         CFBundleLocalizations:
           - en
           - ar

@@ -33,6 +33,10 @@ struct SettingsView: View {
     // Active pills: the pill whose colour palette is open, if any
     @State private var colorPalettePill: String? = nil
     @AppStorage(ClaudeHost.terminalCardsKey) private var terminalCardsEnabled = false
+    // Chat and Cowork in the Claude app (experimental): on by default, read by ClaudeAppWatcher
+    @AppStorage(ClaudeAppWatcher.enabledKey) private var claudeAppWatchEnabled = true
+    @State private var claudeAppAccessGranted = ClaudeAppWatcher.accessGranted
+    @State private var claudeAppDiagnosticCopied = false
     @State private var customSoundCount = SoundEngine.shared.customized.count
 
     private var appVersion: String {
@@ -382,6 +386,54 @@ struct SettingsView: View {
                 }
             }
             .padding(6)
+        }
+
+        GroupBox(String(localized: "App Claude : Chat et Cowork")) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(String(localized: "Suivre Chat et Cowork dans l'app Claude (expérimental)"),
+                       isOn: $claudeAppWatchEnabled)
+                    .onChange(of: claudeAppWatchEnabled) { _, on in ClaudeAppWatcher.shared.setEnabled(on) }
+                Text(String(localized: "L'île lit les boutons de l'app Claude, jamais le texte des messages, et s'ouvre quand une réponse se termine ou qu'une autorisation t'attend pendant que tu es dans une autre app."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Text(claudeAppAccessGranted
+                         ? String(localized: "Accès Accessibilité : autorisé")
+                         : String(localized: "Accès Accessibilité : non autorisé"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    if !claudeAppAccessGranted {
+                        Button(String(localized: "Autoriser l'accès")) { ClaudeAppWatcher.requestAccess() }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                HStack(spacing: 10) {
+                    Button(String(localized: "Copier le diagnostic de l'app Claude")) {
+                        Task {
+                            await ClaudeAppWatcher.shared.copyDiagnostic()
+                            claudeAppDiagnosticCopied = true
+                            try? await Task.sleep(for: .seconds(2))
+                            claudeAppDiagnosticCopied = false
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    if claudeAppDiagnosticCopied {
+                        Text(String(localized: "Copié"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Text(String(localized: "Le diagnostic copie les rôles et libellés des boutons de l'app Claude, jamais le texte des messages, pour régler les libellés reconnus."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(6)
+            .onAppear { claudeAppAccessGranted = ClaudeAppWatcher.accessGranted }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                claudeAppAccessGranted = ClaudeAppWatcher.accessGranted
+            }
         }
 
         GroupBox(String(localized: "plan.title")) {

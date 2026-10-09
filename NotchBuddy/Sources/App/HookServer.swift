@@ -41,6 +41,11 @@ final class HookServer: @unchecked Sendable {
     /// When each pill raised its binoculars (a search PreToolUse): PostToolUse leaves them up at
     /// least `SessionPhase.searchDwell`, by comparing dates (no timer).
     private var searchingSince: [String: Date] = [:]
+    /// When the last hook event of a Claude app session (`klayer_agent: claude-desktop`) arrived. The
+    /// Chat and Cowork watch stays quiet within 15 s of it: a Code tab session shows its stop and
+    /// permission buttons in the Claude app too, and its hooks already tell the island
+    /// (ClaudeAppWatchRules.suppressedByCodeHook).
+    @MainActor private(set) var lastDesktopHookAt: Date? = nil
 
     private init() {}
 
@@ -440,6 +445,7 @@ final class HookServer: @unchecked Sendable {
             return
         }
         let validAgent = validateAgent(rawAgent)
+        if validAgent != nil { lastDesktopHookAt = Date() }
 
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
@@ -813,6 +819,7 @@ final class HookServer: @unchecked Sendable {
             }
             return
         }
+        if validateAgent(rawAgent) != nil { lastDesktopHookAt = Date() }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
 
@@ -972,6 +979,7 @@ final class HookServer: @unchecked Sendable {
             }
             return
         }
+        if validateAgent(rawAgent) != nil { lastDesktopHookAt = Date() }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
 

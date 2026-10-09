@@ -10415,6 +10415,116 @@
           }
         }
       }
+    },
+    "App Claude : Chat et Cowork": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Claude : Chat et Cowork"
+          }
+        }
+      }
+    },
+    "Suivre Chat et Cowork dans l'app Claude (expérimental)": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivre Chat et Cowork dans l'app Claude (expérimental)"
+          }
+        }
+      }
+    },
+    "L'île lit les boutons de l'app Claude, jamais le texte des messages, et s'ouvre quand une réponse se termine ou qu'une autorisation t'attend pendant que tu es dans une autre app.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'île lit les boutons de l'app Claude, jamais le texte des messages, et s'ouvre quand une réponse se termine ou qu'une autorisation t'attend pendant que tu es dans une autre app."
+          }
+        }
+      }
+    },
+    "Accès Accessibilité : autorisé": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès Accessibilité : autorisé"
+          }
+        }
+      }
+    },
+    "Accès Accessibilité : non autorisé": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès Accessibilité : non autorisé"
+          }
+        }
+      }
+    },
+    "Autoriser l'accès": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser l'accès"
+          }
+        }
+      }
+    },
+    "Copier le diagnostic de l'app Claude": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le diagnostic de l'app Claude"
+          }
+        }
+      }
+    },
+    "Copié": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié"
+          }
+        }
+      }
+    },
+    "Le diagnostic copie les rôles et libellés des boutons de l'app Claude, jamais le texte des messages, pour régler les libellés reconnus.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le diagnostic copie les rôles et libellés des boutons de l'app Claude, jamais le texte des messages, pour régler les libellés reconnus."
+          }
+        }
+      }
+    },
+    "Claude a fini de répondre": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude a fini de répondre"
+          }
+        }
+      }
+    },
+    "Dans l'app Claude": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans l'app Claude"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
