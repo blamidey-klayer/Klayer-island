@@ -15,7 +15,8 @@ import ApplicationServices
 //   AXManualAccessibility (the Claude app is an Electron app: its tree exists only while it is on).
 // - CPU: no timer while `ClaudeAppWatchState.needsPolling` is false. NSWorkspace notifications
 //   (activation, launch, quit) wake it. A read every 2 s while the Claude app is in front or an
-//   answer is under way, on one serial queue, bounded (depth 30, 5 000 nodes, 0.5 s per call).
+//   answer is under way (from behind: at most 15 unreadable reads in a row, at most 60 min), on one
+//   serial queue, bounded (depth 30, 5 000 nodes, 0.5 s per call). The state decides alone.
 // - Not trusted for Accessibility: nothing is read or scheduled.
 
 @MainActor
@@ -85,16 +86,18 @@ final class ClaudeAppWatcher {
     }
 
     /// Settings turns the watch off, or the island quits: no observer, no timer, nothing runs, and
-    /// the Claude app's tree goes back as it was. `waitForRestore`: wait for that (at quit).
+    /// the Claude app's tree goes back as it was. `waitForRestore` (at quit): a walk under way is
+    /// cancelled, then the tree is restored before the island goes, even during a diagnostic.
     func stop(waitForRestore: Bool = false) {
-        guard running else { return }
-        running = false
-        let center = NSWorkspace.shared.notificationCenter
-        observers.forEach { center.removeObserver($0) }
-        observers = []
-        resetReading()
-        claudePid = nil
-        reader.release(wait: waitForRestore)
+        if running {
+            running = false
+            let center = NSWorkspace.shared.notificationCenter
+            observers.forEach { center.removeObserver($0) }
+            observers = []
+            resetReading()
+            claudePid = nil
+        }
+        if waitForRestore { reader.quit() } else { reader.release() }
     }
 
     func setEnabled(_ on: Bool) {
@@ -103,15 +106,25 @@ final class ClaudeAppWatcher {
 
     // MARK: - Accessibility access
 
-    /// macOS's own Accessibility prompt: from Settings (« Autoriser l'accès »), a click of the user.
-    nonisolated static func requestAccess() {
+    /// System Settings › Privacy & Security › Accessibility.
+    nonisolated private static let accessibilityPane =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+    /// « Autoriser l'accès » in Settings, a click of the user: macOS's own Accessibility prompt, and
+    /// the Accessibility pane of System Settings when the app is still not trusted after it (macOS
+    /// no longer shows the prompt once the app is listed there and unchecked).
+    static func requestAccess() {
         guard !ClaudeAppWatchRules.isTestLaunch(environment: ProcessInfo.processInfo.environment) else { return }
-        showAccessPrompt()
+        if !showAccessPrompt(), let url = URL(string: accessibilityPane) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
-    nonisolated private static func showAccessPrompt() {
+    /// Returns whether the app is trusted.
+    @discardableResult
+    nonisolated private static func showAccessPrompt() -> Bool {
         // The key of kAXTrustedCheckOptionPrompt, written out: the global is not concurrency-safe.
-        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
     /// The prompt shows on its own at most once ever: the first time the watch is on and the Claude
@@ -195,37 +208,46 @@ final class ClaudeAppWatcher {
         }
         readInFlight = true
         polling = true
-        // In front or not at the time of this read (ClaudeAppWatchState decides with it).
-        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        // In front when the read is asked; checked again once the walk is done (`didRead`).
+        let askedInFront = Self.isFrontmost(pid)
         let generation = self.generation
         reader.read(pid: pid) { snapshot in
             Task { @MainActor in
-                ClaudeAppWatcher.shared.didRead(snapshot, frontmost: frontmost, generation: generation)
+                ClaudeAppWatcher.shared.didRead(snapshot, askedInFront: askedInFront, generation: generation)
             }
         }
     }
 
-    private func didRead(_ snapshot: ClaudeAppSnapshot, frontmost: Bool, generation: Int) {
+    private static func isFrontmost(_ pid: pid_t) -> Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+    }
+
+    private func didRead(_ snapshot: ClaudeAppSnapshot, askedInFront: Bool, generation: Int) {
         guard generation == self.generation else { return }   // started before a reset
         readInFlight = false
-        guard running else { return }
+        guard running, let pid = claudePid else { return }
         guard snapshot.trusted else {
             log("Accessibility access refused: reading stops")
             stopReading()
             return
         }
-        // A read the Claude app did not answer in time says nothing: the state stays as it was.
+        // In front only if it was when the read was asked and still is after the walk: an app
+        // switch during the walk counts the read as behind.
+        let frontmost = askedInFront && Self.isFrontmost(pid)
         if snapshot.complete {
             let events = state.observe(stopVisible: snapshot.stopVisible,
                                        permissionVisible: snapshot.permissionVisible,
                                        appFrontmost: frontmost, now: Date(),
                                        lastCodeHookAt: HookServer.shared.lastDesktopHookAt)
             present(events, windowTitle: snapshot.windowTitle)
+        } else {
+            // A read that said nothing (no window, a timeout): the state decides whether to go on.
+            state.observeUnreadable(appFrontmost: frontmost)
         }
         if readAgain {
             readAgain = false
             readNow()
-        } else if state.needsPolling || (!snapshot.complete && frontmost) {
+        } else if state.needsPolling {
             scheduleNextRead()
         } else {
             stopReading()
@@ -330,6 +352,16 @@ private final class ClaudeAppReader: @unchecked Sendable {
     /// A diagnostic is waiting for the tree or walking it.
     private var diagnosing = false
 
+    /// Set from the main thread at quit, read by the walk at every node: the only property shared
+    /// across threads, behind its lock.
+    private let quitLock = NSLock()
+    private var quitting = false
+    private var isQuitting: Bool {
+        quitLock.lock()
+        defer { quitLock.unlock() }
+        return quitting
+    }
+
     /// Roles never entered: their content is text (or a link, an image), never a button.
     private static let leafRoles: Set<String> = ["AXStaticText", "AXTextArea", "AXTextField", "AXLink", "AXImage"]
     private static let manualAccessibility = "AXManualAccessibility"
@@ -352,13 +384,24 @@ private final class ClaudeAppReader: @unchecked Sendable {
         }
     }
 
-    /// The watch went off or the island quits. `wait`: until the tree is back as it was.
-    func release(wait: Bool) {
-        let work: @Sendable () -> Void = { [self] in
+    /// The watch went off: the tree goes back off once no diagnostic needs it.
+    func release() {
+        queue.async { [self] in
             reading = false
             if !diagnosing { releaseTree() }
         }
-        if wait { queue.sync(execute: work) } else { queue.async(execute: work) }
+    }
+
+    /// The island quits: a walk under way stops at its next node, then the tree goes back as it
+    /// was, a diagnostic or not, before this returns.
+    func quit() {
+        quitLock.lock()
+        quitting = true
+        quitLock.unlock()
+        queue.sync { [self] in
+            reading = false
+            releaseTree()
+        }
     }
 
     /// The Claude app quit: its element and tree went with it.
@@ -406,7 +449,7 @@ private final class ClaudeAppReader: @unchecked Sendable {
     /// AXManualAccessibility on for this run of reads. Returns true when we just turned it on.
     @discardableResult
     private func holdTree(_ app: AXUIElement) -> Bool {
-        guard !treeHeld else { return false }
+        guard !treeHeld, !isQuitting else { return false }
         treeHeld = true
         let (error, value) = copy(app, Self.manualAccessibility)
         if error == .success, (value as? Bool) == true {
@@ -433,6 +476,10 @@ private final class ClaudeAppReader: @unchecked Sendable {
     private func walk(_ app: AXUIElement) -> ClaudeAppSnapshot {
         let started = DispatchTime.now().uptimeNanoseconds
         var snapshot = ClaudeAppSnapshot()
+        guard !isQuitting else {
+            snapshot.complete = false
+            return snapshot
+        }
         let (windowsError, windows) = elements(app, "AXWindows")
         switch windowsError {
         case .apiDisabled:
@@ -459,8 +506,12 @@ private final class ClaudeAppReader: @unchecked Sendable {
 
         var stack: [(AXUIElement, Int)] = windows.reversed().map { ($0, 0) }
         walking: while let (element, depth) = stack.popLast() {
+            guard !isQuitting else {
+                snapshot.complete = false
+                break
+            }
             guard snapshot.nodesRead < ClaudeAppWatchRules.maxNodes else {
-                snapshot.truncated = true
+                snapshot.nodeLimited = true
                 break
             }
             snapshot.nodesRead += 1
@@ -485,7 +536,7 @@ private final class ClaudeAppReader: @unchecked Sendable {
             }
             if Self.leafRoles.contains(roleName) { continue }
             guard depth < ClaudeAppWatchRules.maxDepth else {
-                snapshot.truncated = true
+                snapshot.depthLimited = true
                 continue
             }
             let (childrenError, children) = elements(element, "AXChildren")

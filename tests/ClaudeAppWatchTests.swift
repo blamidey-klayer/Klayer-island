@@ -34,13 +34,26 @@ enum ClaudeAppWatchTests {
             ("an_event_kept_quiet_by_a_code_hook_is_consumed", anEventKeptQuietByACodeHookIsConsumed),
             ("polling_only_in_front_or_during_an_answer", pollingOnlyInFrontOrDuringAnAnswer),
             ("a_reset_forgets_everything", aResetForgetsEverything),
+            // Two reads confirm an end (fix round 1, Important 2)
+            ("a_single_missing_stop_is_a_flicker", aSingleMissingStopIsAFlicker),
+            ("a_code_hook_between_the_two_misses_keeps_quiet", aCodeHookBetweenTheTwoMissesKeepsQuiet),
+            ("a_miss_in_front_at_either_read_says_nothing", aMissInFrontAtEitherReadSaysNothing),
+            ("a_permission_flicker_alerts_once", aPermissionFlickerAlertsOnce),
+            // Unreadable reads and stuck buttons stop the reading (fix round 1, Important 1, Minor 7)
+            ("an_unreadable_read_behind_stops_the_reading", anUnreadableReadBehindStopsTheReading),
+            ("an_answer_lost_to_15_unreadable_reads_is_dropped", anAnswerLostTo15UnreadableReadsIsDropped),
+            ("an_answer_read_again_after_unreadable_reads_ends_with_a_confirmation",
+             anAnswerReadAgainAfterUnreadableReadsEndsWithAConfirmation),
+            ("an_answer_behind_for_over_60_min_is_dropped", anAnswerBehindForOver60MinIsDropped),
             // The alert, the permission prompt, the test launch
             ("the_alert_line_is_the_conversation_title_when_readable", theAlertLineIsTheConversationTitleWhenReadable),
             ("the_accessibility_prompt_shows_once_ever_on_its_own", theAccessibilityPromptShowsOnceEverOnItsOwn),
             ("a_test_launch_never_watches", aTestLaunchNeverWatches),
             // The diagnostic copied by Baptiste
             ("the_diagnostic_lists_unique_button_lines", theDiagnosticListsUniqueButtonLines),
-            ("the_diagnostic_truncates_labels_and_lines", theDiagnosticTruncatesLabelsAndLines),
+            ("the_diagnostic_keeps_at_most_300_lines", theDiagnosticKeepsAtMost300Lines),
+            ("the_diagnostic_hides_long_labels", theDiagnosticHidesLongLabels),
+            ("the_diagnostic_tells_which_bound_was_reached", theDiagnosticTellsWhichBoundWasReached),
             ("the_diagnostic_never_holds_the_window_title", theDiagnosticNeverHoldsTheWindowTitle),
             ("the_diagnostic_tells_when_nothing_can_be_read", theDiagnosticTellsWhenNothingCanBeRead),
         ]
@@ -176,10 +189,13 @@ enum ClaudeAppWatchTests {
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
         precondition(s.needsPolling, "an answer is under way: read again")
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(2)).isEmpty)
-        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4))
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4)).isEmpty,
+                     "one read without the stop button is not an end yet")
+        precondition(s.needsPolling, "a second read confirms it")
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(6))
                      == [.answerFinished])
         precondition(!s.needsPolling, "the answer ended in the background: no more reading")
-        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(6)).isEmpty,
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(8)).isEmpty,
                      "once only")
     }
 
@@ -194,7 +210,8 @@ enum ClaudeAppWatchTests {
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(3)).isEmpty)
         precondition(s.needsPolling, "the answer is still under way: keep reading in the background")
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(5)).isEmpty)
-        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(7))
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(7)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(9))
                      == [.answerFinished], "the end of the answer opens the island")
         precondition(!s.needsPolling)
 
@@ -203,7 +220,8 @@ enum ClaudeAppWatchTests {
         precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: true, now: at(0)).isEmpty)
         precondition(t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(1)).isEmpty)
         precondition(t.needsPolling)
-        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(3))
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(3)).isEmpty)
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(5))
                      == [.answerFinished])
     }
 
@@ -240,9 +258,10 @@ enum ClaudeAppWatchTests {
         precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(4)).isEmpty,
                      "the same prompt, still there: no second alert")
         precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(6)).isEmpty)
-        // Answered (elsewhere, by the user), then a second permission comes.
+        // Answered (elsewhere, by the user): gone at two reads, then a second permission comes.
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(8)).isEmpty)
-        precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(10))
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(10)).isEmpty)
+        precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(12))
                      == [.permissionRequested], "a new appearance alerts again")
     }
 
@@ -260,7 +279,17 @@ enum ClaudeAppWatchTests {
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
         precondition(s.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(2))
                      == [.permissionRequested], "the permission, not « fini de répondre »")
-        precondition(s.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(4)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(4)).isEmpty,
+                     "the stop is gone at two reads, but a prompt shows: no « fini de répondre »")
+        precondition(s.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(6)).isEmpty)
+
+        // The prompt showed at the first read without the stop button only: still no « fini ».
+        var t = ClaudeAppWatchState()
+        precondition(t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        precondition(t.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(2))
+                     == [.permissionRequested])
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4)).isEmpty)
+        precondition(!t.needsPolling)
     }
 
     // Ruling 5: a session of the Code tab runs inside the Claude app, so its stop and permission
@@ -274,8 +303,10 @@ enum ClaudeAppWatchTests {
                                lastCodeHookAt: at(6)).isEmpty, "a Code tab permission, its hook 14 s ago")
         precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(40),
                                lastCodeHookAt: at(6)).isEmpty, "consumed: no alert later for the same prompt")
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(58),
+                               lastCodeHookAt: at(45)).isEmpty)
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(60),
-                               lastCodeHookAt: at(45)).isEmpty, "a Code tab Stop, its hook 15 s ago")
+                               lastCodeHookAt: at(45)).isEmpty, "a Code tab Stop, its hook 15 s before the confirming read")
         precondition(!s.needsPolling)
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(90),
                                lastCodeHookAt: at(45)).isEmpty, "consumed: nothing later")
@@ -286,6 +317,8 @@ enum ClaudeAppWatchTests {
                                lastCodeHookAt: at(-16)).isEmpty)
         precondition(t.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(22),
                                lastCodeHookAt: at(6)) == [.permissionRequested])
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(59),
+                               lastCodeHookAt: at(45)).isEmpty)
         precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(61),
                                lastCodeHookAt: at(45)) == [.answerFinished])
     }
@@ -311,6 +344,152 @@ enum ClaudeAppWatchTests {
         precondition(s == ClaudeAppWatchState())
         // Relaunched: the stop button of the old answer is forgotten, its absence is no finish.
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(5)).isEmpty)
+    }
+
+    // MARK: - Two reads confirm an end (fix round 1, Important 2)
+
+    static func aSingleMissingStopIsAFlicker() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(2)).isEmpty,
+                     "one read without the stop button (a node rebuilt while Claude streams)")
+        precondition(s.needsPolling, "the answer is still followed")
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(4)).isEmpty,
+                     "the stop button is back: the miss is forgotten")
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(6)).isEmpty,
+                     "a new first miss, not the second of the earlier one")
+        precondition(s.needsPolling)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(8))
+                     == [.answerFinished], "the real end, exactly once")
+        precondition(!s.needsPolling)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(10)).isEmpty)
+    }
+
+    // The quiet window is checked at the confirming read: a Code tab Stop hook that lands between
+    // the two reads keeps the watch quiet.
+    static func aCodeHookBetweenTheTwoMissesKeepsQuiet() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(10),
+                               lastCodeHookAt: nil).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(12),
+                               lastCodeHookAt: at(11)).isEmpty, "the Code tab reported it")
+        precondition(!s.needsPolling, "consumed: the answer is over")
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(40)).isEmpty)
+    }
+
+    static func aMissInFrontAtEitherReadSaysNothing() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: true, now: at(0)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: true, now: at(2)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(3)).isEmpty,
+                     "the first miss was seen in front: the user saw the end")
+        precondition(!s.needsPolling)
+
+        var t = ClaudeAppWatchState()
+        precondition(t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(2)).isEmpty)
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: true, now: at(4)).isEmpty,
+                     "the confirming read is in front")
+        precondition(t.needsPolling, "in front: reading goes on")
+        precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(5)).isEmpty)
+        precondition(!t.needsPolling)
+    }
+
+    static func aPermissionFlickerAlertsOnce() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(2))
+                     == [.permissionRequested])
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(4)).isEmpty)
+        precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(6)).isEmpty,
+                     "absent at one read only: the same prompt, no second alert")
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(8)).isEmpty)
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(10)).isEmpty)
+        precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(12))
+                     == [.permissionRequested], "absent at two reads: a new prompt")
+    }
+
+    // MARK: - Unreadable reads and stuck buttons stop the reading (fix round 1)
+
+    // Important 1: the user closes the Claude app's window (or hides it with ⌘H), then goes to another
+    // app. Every read is windowless from then on: reading stops at the first one behind.
+    static func anUnreadableReadBehindStopsTheReading() {
+        var s = ClaudeAppWatchState()
+        _ = s.observe(stopVisible: false, permissionVisible: false, appFrontmost: true, now: at(0))
+        precondition(s.needsPolling)
+        s.observeUnreadable(appFrontmost: true)
+        precondition(s.needsPolling, "still in front: reading goes on")
+        s.observeUnreadable(appFrontmost: false)
+        precondition(!s.needsPolling, "behind with no answer under way: no more reading")
+    }
+
+    static func anAnswerLostTo15UnreadableReadsIsDropped() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        for read in 1..<ClaudeAppWatchRules.unreadableReadLimit {
+            s.observeUnreadable(appFrontmost: false)
+            precondition(s.needsPolling, "unreadable read \(read): the answer may still be under way")
+        }
+        s.observeUnreadable(appFrontmost: false)
+        precondition(!s.needsPolling, "15 unreadable reads (30 s): the answer is dropped")
+        precondition(ClaudeAppWatchRules.unreadableReadLimit == 15)
+        // Dropped silently: a later read without the stop button tells nothing.
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(40)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(42)).isEmpty)
+
+        // A readable read in between starts the count again.
+        var t = ClaudeAppWatchState()
+        _ = t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0))
+        for _ in 1..<15 { t.observeUnreadable(appFrontmost: false) }
+        _ = t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(30))
+        for _ in 1..<15 { t.observeUnreadable(appFrontmost: false) }
+        precondition(t.needsPolling)
+    }
+
+    static func anAnswerReadAgainAfterUnreadableReadsEndsWithAConfirmation() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        s.observeUnreadable(appFrontmost: false)
+        precondition(s.needsPolling)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4)).isEmpty)
+        s.observeUnreadable(appFrontmost: false)
+        precondition(s.needsPolling, "an unreadable read neither confirms nor cancels the miss")
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(8))
+                     == [.answerFinished])
+        precondition(!s.needsPolling)
+    }
+
+    // Minor 7: a generic « Stop » button that never leaves (dictation, a long task) is not followed
+    // from behind for more than 60 min.
+    static func anAnswerBehindForOver60MinIsDropped() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(3_599)).isEmpty)
+        precondition(s.needsPolling)
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(3_601)).isEmpty)
+        precondition(!s.needsPolling, "more than 60 min behind: dropped silently")
+        precondition(ClaudeAppWatchRules.answerBehindLimit == 3_600)
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(3_603)).isEmpty)
+        precondition(!s.needsPolling, "the same stuck button is not followed again from behind")
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(3_605)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(3_607)).isEmpty,
+                     "its end tells nothing")
+        // The user comes back to the Claude app: an answer seen there is followed again.
+        _ = s.observe(stopVisible: true, permissionVisible: false, appFrontmost: true, now: at(4_000))
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(4_002)).isEmpty)
+        precondition(s.needsPolling)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4_004)).isEmpty)
+        precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4_006))
+                     == [.answerFinished])
+
+        // Coming in front resets the 60 min: it counts from the last time the app went behind.
+        var t = ClaudeAppWatchState()
+        _ = t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0))
+        _ = t.observe(stopVisible: true, permissionVisible: false, appFrontmost: true, now: at(3_000))
+        _ = t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(3_002))
+        _ = t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(6_000))
+        precondition(t.needsPolling)
     }
 
     // MARK: - The alert, the permission prompt, the test launch
@@ -343,7 +522,7 @@ enum ClaudeAppWatchTests {
 
     static func snapshot(_ buttons: [AXNodeSummary], title: String? = nil) -> ClaudeAppSnapshot {
         ClaudeAppSnapshot(trusted: true, complete: true, buttons: buttons, nodesRead: 812, windows: 1,
-                          truncated: false, windowTitle: title, milliseconds: 42)
+                          depthLimited: false, nodeLimited: false, windowTitle: title, milliseconds: 42)
     }
 
     static func theDiagnosticListsUniqueButtonLines() {
@@ -363,7 +542,7 @@ enum ClaudeAppWatchTests {
         precondition(text.contains("812"), "the counts")
     }
 
-    static func theDiagnosticTruncatesLabelsAndLines() {
+    static func theDiagnosticKeepsAtMost300Lines() {
         let long = String(repeating: "a", count: 80)
         var buttons = [button(long)]
         for i in 0..<400 { buttons.append(button("Button \(i)")) }
@@ -371,10 +550,46 @@ enum ClaudeAppWatchTests {
                                                   snapshot: snapshot(buttons))
         let rows = ClaudeAppWatchRules.diagnosticLines(buttons)
         precondition(rows.count == 300, "at most 300 lines")
-        precondition(rows[0] == "AXButton | " + String(repeating: "a", count: 60), "labels cut at 60 characters")
+        precondition(rows[0] == "AXButton | (libellé long, 80 caractères)")
         precondition(text.contains("AXButton | Button 298"))
         precondition(!text.contains("AXButton | Button 299"), "the 301st line is left out")
         precondition(text.contains("300 sur 401"), "the diagnostic says lines were left out")
+    }
+
+    // Minor 3: in a web app a button's name is often its text (a card, a tool summary, « More
+    // options for <title> »). Only short labels, like the stop, allow and deny ones, are copied.
+    static func theDiagnosticHidesLongLabels() {
+        let thirty = String(repeating: "b", count: 30)
+        precondition(ClaudeAppWatchRules.diagnosticLabel(thirty) == thirty, "30 characters are copied")
+        precondition(ClaudeAppWatchRules.diagnosticLabel(thirty + "c") == "(libellé long, 31 caractères)")
+        precondition(ClaudeAppWatchRules.diagnosticLabel("Allow once for this chat") == "Allow once for this chat",
+                     "5 words are copied")
+        precondition(ClaudeAppWatchRules.diagnosticLabel("Open menu for my tax plan") == "(libellé long, 25 caractères)",
+                     "6 words are not")
+        precondition(ClaudeAppWatchRules.diagnosticLabel("Arrêter la réponse") == "Arrêter la réponse")
+        precondition(ClaudeAppWatchRules.diagnosticLabel("  ") == "(sans libellé)")
+        let text = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: snapshot([
+            button("More options for Plan de vacances avec Julie"), button("Stop response"),
+        ]))
+        precondition(!text.contains("Julie"), "a long label's text never reaches the clipboard")
+        precondition(text.components(separatedBy: "\n").contains("AXButton | (libellé long, 44 caractères)"))
+        precondition(text.components(separatedBy: "\n").contains("AXButton | Stop response"))
+        // The alerts still match on the full label.
+        precondition(ClaudeAppWatchRules.isStop(button("Stop response")))
+    }
+
+    // Minor 1: the depth bound and the node bound are told apart.
+    static func theDiagnosticTellsWhichBoundWasReached() {
+        var deep = snapshot([button("Stop")])
+        deep.depthLimited = true
+        let text = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: deep)
+        precondition(text.contains("limite de profondeur atteinte : oui"))
+        precondition(text.contains("limite de nœuds atteinte : non"))
+        var wide = snapshot([button("Stop")])
+        wide.nodeLimited = true
+        let other = ClaudeAppWatchRules.diagnostic(appVersion: "1.2.3", running: true, trusted: true, snapshot: wide)
+        precondition(other.contains("limite de profondeur atteinte : non"))
+        precondition(other.contains("limite de nœuds atteinte : oui"))
     }
 
     static func theDiagnosticNeverHoldsTheWindowTitle() {
