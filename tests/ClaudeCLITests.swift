@@ -48,6 +48,7 @@ enum ClaudeCLITests {
             ("chat_environment_starts_no_connector", chatEnvironmentStartsNoConnector),
             ("candidates_cover_node_version_managers", candidatesCoverNodeVersionManagers),
             ("chat_arguments_under_a_managed_mcp_file", chatArgumentsUnderAManagedMCPFile),
+            ("chat_notices_never_go_back_to_claude", chatNoticesNeverGoBackToClaude),
             ("chat_init_tolerates_tool_loading_names", chatInitToleratesToolLoadingNames),
         ]
         for (name, run) in cases {
@@ -1473,7 +1474,7 @@ enum ClaudeCLITests {
                                       isExecutable: { $0.hasPrefix(nvm) }) == nil, "no nvm folder: no nvm candidate")
     }
 
-    // MARK: - Re-review of lot 4: managed MCP file (N1), chat init names
+    // MARK: - Re-review of lot 4: managed MCP file (N1), chat notices (N2), chat init names
 
     static func chatArgumentsUnderAManagedMCPFile() {
         // Docs, « Control MCP server access »: with managed-mcp.json deployed, « The
@@ -1493,6 +1494,30 @@ enum ClaudeCLITests {
         // The environment does not depend on the file: connectors and tool search off in both cases.
         let env = ClaudeCLI.chatEnvironment(from: ["PATH": "/usr/bin"], binary: "/Users/test/.local/bin/claude")
         precondition(env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false" && env["ENABLE_TOOL_SEARCH"] == "false")
+    }
+
+    static func chatNoticesNeverGoBackToClaude() {
+        // An error that came while the chat was not on screen is written in the conversation as a
+        // notice. A new process gets the earlier exchanges: never a notice, which Claude would read
+        // as one of its own answers.
+        let surcharge = "Les serveurs de Claude sont surchargés : réessaie dans un instant."
+        let stopped = "Claude Code s'est arrêté pendant la réponse."
+        let messages: [(fromUser: Bool, text: String, isNotice: Bool)] = [
+            (true, "Bonjour", false), (false, "Salut !", false),
+            (true, "Écris 400 mots sur Paris", false), (false, surcharge, true),
+            (true, "Et maintenant ?", false), (false, "Paris est", false), (false, stopped, true),
+        ]
+        let earlier = ChatOutgoing.earlierExchanges(messages)
+        precondition(earlier.map(\.text) == ["Bonjour", "Salut !", "Écris 400 mots sur Paris", "Et maintenant ?", "Paris est"],
+                     "the notices are left out, everything else stays in its order, got \(earlier.map(\.text))")
+        precondition(earlier.map(\.fromUser) == [true, false, true, true, false], "who said what is kept")
+        let transcript = ChatOutgoing.transcript(earlier) ?? ""
+        precondition(!transcript.contains("surchargés") && !transcript.contains("s'est arrêté"), "no notice in the transcript")
+        precondition(transcript.contains("Utilisateur : Écris 400 mots sur Paris") && transcript.contains("Klay : Paris est"),
+                     "the question without an answer and the partial answer stay")
+        precondition(ChatOutgoing.earlierExchanges([(fromUser: false, text: stopped, isNotice: true)]).isEmpty)
+        precondition(ChatOutgoing.transcript(ChatOutgoing.earlierExchanges([(fromUser: false, text: stopped, isNotice: true)])) == nil,
+                     "a conversation of notices only sends nothing back")
     }
 
     static func chatInitToleratesToolLoadingNames() {

@@ -513,4 +513,7 @@ struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: ChatRole
     var content: String   // var for streaming updates
+    /// Written by the island, not by Claude: an error that came while the chat was not on screen.
+    /// Shown as an answer bubble; never re-sent to Claude (`ChatOutgoing.earlierExchanges`).
+    var isNotice = false
 }

@@ -159,8 +159,11 @@ final class ChatSession: ObservableObject {
         }
         let contextKey = Self.contextKey(window: windowLine, file: fileURL)
 
-        // What the conversation said so far, for a process that starts on this message.
-        let earlier = state.chatHistory.map { (fromUser: $0.role == .user, text: $0.content) }
+        // What the conversation said so far, for a process that starts on this message: the
+        // island's own notices are left out.
+        let earlier = ChatOutgoing.earlierExchanges(state.chatHistory.map {
+            (fromUser: $0.role == .user, text: $0.content, isNotice: $0.isNotice)
+        })
 
         state.chatHistory.append(ChatMessage(role: .user, content: query))
         let bubble = ChatMessage(role: .assistant, content: "")
@@ -448,17 +451,33 @@ final class ChatSession: ObservableObject {
 
     /// The error note of the chat: Klay in error, the message on the note view. Only from the chat
     /// itself: a permission or question card that came during the answer, or any other view the
-    /// user went to, stays on screen, and Klay only stops thinking.
+    /// user went to, stays on screen, Klay only stops thinking, and the error waits in the
+    /// conversation (`writeNotice`).
     private func showError(_ current: Turn, message: String) {
-        removeBubbleIfEmpty(current)
         let state = current.state
         guard state.view == .prompt else {
             if state.stateOverride == .thinking { state.stateOverride = nil }
+            writeNotice(message, for: current)
             return
         }
+        removeBubbleIfEmpty(current)
         state.stateOverride = .error
         state.noteMessage = message
         state.view = .note
+    }
+
+    /// The chat is not on screen: the error goes into the conversation, where the user finds it
+    /// back, in the answer's empty bubble or, after a partial answer, in a bubble of its own.
+    /// Flagged as a notice, so it never goes back to Claude as one of Klay's answers.
+    private func writeNotice(_ message: String, for current: Turn) {
+        let history = current.state.chatHistory
+        if let index = history.firstIndex(where: { $0.id == current.bubbleID }),
+           history[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            current.state.chatHistory[index].content = message
+            current.state.chatHistory[index].isNotice = true
+        } else {
+            current.state.chatHistory.append(ChatMessage(role: .assistant, content: message, isNotice: true))
+        }
     }
 
     /// Closes the turn in progress with an error note.

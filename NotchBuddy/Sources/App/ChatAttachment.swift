@@ -159,6 +159,14 @@ struct ChatOutgoing: Equatable, Sendable {
         return text
     }
 
+    /// The exchanges a new process may read back: what the user asked and what Klay answered, in
+    /// their order. A notice the island wrote in the chat (an error that came while the chat was
+    /// not on screen) is left out: Claude must never read it as one of its own answers.
+    static func earlierExchanges(_ messages: [(fromUser: Bool, text: String, isNotice: Bool)])
+        -> [(fromUser: Bool, text: String)] {
+        messages.filter { !$0.isNotice }.map { (fromUser: $0.fromUser, text: $0.text) }
+    }
+
     /// How much of the earlier exchanges goes back to a new process, in characters.
     static let transcriptLimit = 20_000
 
