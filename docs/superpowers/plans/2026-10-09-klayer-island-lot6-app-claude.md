@@ -80,3 +80,25 @@
 **Files:** `docs/TEST-MAC.md` (section lot 6 : maison, chat, dépôt, onglet Code, suivi expérimental, diagnostic à copier et renvoyer), `docs/SPEC.md`, `README.md`, `docs/INTEGRATIONS.md`, `CHANGELOG.md`.
 
 - [ ] Écrire, vérifier contre le code, commit, push.
+
+### Task 23: Test de bout en bout sur la CI macOS : l'île réagit aux sessions de l'app Claude
+
+> Ajouté à la demande de Baptiste : « fais bien les tests pour voir si j'ai les notifications dans l'île quand une session est terminée quelque part, ou quand Claude me demande un accord ou un choix, et que je peux le faire via Klayer Island ».
+
+**Files:** Create `scripts/test-e2e-island.sh`, `tests/e2e/island_e2e.py` ; Modify `NotchBuddy/project.yml` (configuration ou drapeau de compilation `KLAYER_E2E` pour une build de test seulement), `HookServer.swift` (commandes de test sous `#if KLAYER_E2E`), `.github/workflows/build.yml` (build de test + étape e2e, l'artefact livré reste la build Release sans `KLAYER_E2E`).
+
+**Interfaces:**
+- Sous `#if KLAYER_E2E` uniquement, et seulement si l'app a été lancée avec `KLAYER_ISLAND_TEST=1` : sur la socket, `{"klayer_kind":"e2e_state"}` renvoie `mode`, `view`, `pendingApproval` (pill, commande), `pendingQuestion` (questions), `finishedSession` (titre, pill), `sessions` (id, phase) ; `{"klayer_kind":"e2e_decide","decision":"allow|deny|always"}` et `{"klayer_kind":"e2e_answer","answers":{…}}` appellent le même chemin que les boutons. Dans la build livrée, ces commandes n'existent pas (vérifié par une étape CI : `strings` du binaire Release ne contient pas `e2e_decide`).
+- Le script Python lance la build de test (`Contents/MacOS/KlayerIsland` avec `KLAYER_ISLAND_TEST=1`), attend la socket, joue les scénarios avec le vrai `nb-hook` écrit par l'app (charges utiles au format Claude Code, `CLAUDE_CODE_ENTRYPOINT=claude-desktop`), lit l'état, puis arrête l'app.
+
+**Scénarios (tous doivent passer) :**
+1. Fin de session d'une session de l'app Claude, île cachée : île ouverte, vue `finished`, titre = dossier du projet.
+2. Même fin pendant que la vue `prompt` est ouverte : vue inchangée, ligne `finished`.
+3. Autorisation (PermissionRequest) d'une session de l'app Claude : vue `approval`, commande résumée ; `e2e_decide allow` : `nb-hook` imprime la sortie `PermissionRequest` `allow` attendue par Claude Code et sort 0 ; carte fermée.
+4. Question (`--ask`, AskUserQuestion, 2 options) : vue `question` ; `e2e_answer` : `nb-hook` imprime `updatedInput` avec les réponses ; carte fermée.
+5. Autorisation puis processus `nb-hook` tué (réponse donnée dans l'app) : carte fermée, aucune décision envoyée.
+6. Notification d'autorisation sans carte (Task 20) : note « Claude attend ta réponse dans l'app Claude ».
+7. Contrôles : `klayer_agent` inconnu → `ask` immédiat ; session terminal avec cartes terminal désactivées → `ask` immédiat.
+8. Rien de tout cela n'approuve sans la commande de test (aucune décision `allow` sans `e2e_decide`).
+
+- [ ] Écrire les scénarios, les faire échouer sur une app sans commandes de test (RED : l'état n'est pas lisible), implémenter, CI verte avec l'étape e2e. Commit, push.
