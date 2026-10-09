@@ -257,6 +257,9 @@ struct GmailDraftAnswer: Equatable {
     /// The process ended before its turn did (crash, or killed outside the island).
     mutating func processEnded(lastErrorLine: String?) {
         guard end == nil else { return }
+        // Translated twice on purpose: GmailDraftJob passes `ClaudeCLI.lastErrorLine`, already in
+        // French. `french` leaves a French text as it is (tested), and translating here keeps this
+        // type right on its own, whatever line it is given.
         end = .failed(Self.shortMessage(lastErrorLine.map(ClaudeErrorText.french)) ?? Self.stoppedMessage)
     }
 
