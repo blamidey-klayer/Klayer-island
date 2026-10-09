@@ -68,7 +68,7 @@ enum FileDropHandler {
                 await MainActor.run {
                     state.droppedFile = DroppedFile(url: dest, name: name)
                     // « Poser une question » came before the copy: the chat takes the copy too.
-                    if case .file(let asked, _)? = state.promptContext, asked == name {
+                    if case .file(_, let asked)? = state.promptContext, asked == url {
                         state.promptContext = .file(name: name, fileURL: dest)
                     }
                 }

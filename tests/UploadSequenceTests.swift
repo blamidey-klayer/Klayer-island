@@ -11,11 +11,14 @@ enum UploadSequenceTests {
     static func main() {
         let cases: [(String, @MainActor () -> Void)] = [
             ("klay_starts_where_the_drop_tab_draws_him", { klayStartsWhereTheDropTabDrawsHim() }),
+            ("one_size_rule_for_the_island_and_the_canvas", { oneSizeRuleForTheIslandAndTheCanvas() }),
             ("the_text_sits_under_klay_inside_both_cards", { theTextSitsUnderKlayInsideBothCards() }),
             ("arms_open_and_eyes_widen_when_a_file_comes", { armsOpenAndEyesWidenWhenAFileComes() }),
             ("his_eyes_follow_the_file", { hisEyesFollowTheFile() }),
             ("he_blinks_while_the_file_hovers", { heBlinksWhileTheFileHovers() }),
             ("the_text_stays_while_he_follows_the_file", { theTextStaysWhileHeFollowsTheFile() }),
+            ("a_file_that_leaves_lets_him_rest_again", { aFileThatLeavesLetsHimRestAgain() }),
+            ("a_file_that_comes_back_finds_him_where_he_stands", { aFileThatComesBackFindsHimWhereHeStands() }),
             ("he_swallows_the_file_squashed_eyes_shut", { heSwallowsTheFileSquashedEyesShut() }),
             ("arms_back_at_rest_after_the_gulp", { armsBackAtRestAfterTheGulp() }),
             ("then_the_bar_and_the_choice", { thenTheBarAndTheChoice() }),
@@ -51,6 +54,13 @@ enum UploadSequenceTests {
         precondition(f.arms < 0.05 && f.eye == .pill, "his arms still at rest, his eyes as in the tab")
     }
 
+    /// BotPlacement draws the island's Klay in a canvas d / 0.6 wide, his glyph spanning 0.62 of it;
+    /// the drop canvas draws his at KlayPaint.glyphScale(diameter:), built on the same rule.
+    static func oneSizeRuleForTheIslandAndTheCanvas() {
+        precondition(KlaySize.canvasWidth(diameter: 62) == 62 / 0.6 && KlaySize.glyphSpan == 0.62,
+                     "Klay of diameter d: canvas d / 0.6, glyph 0.62 of its width")
+    }
+
     static func theTextSitsUnderKlayInsideBothCards() {
         // The drag-over card spans island y 42…166, the Déposer tab's 98 pt card 55…153.
         precondition(USC.TEXT_Y > USC.REST_Y + 30, "under Klay (25 pt below his middle for 62 pt)")
@@ -70,11 +80,15 @@ enum UploadSequenceTests {
 
     static func hisEyesFollowTheFile() {
         let (right, r0) = entered(x: 560, y: 60)
-        precondition(right.frame(at: r0.addingTimeInterval(0.05)).lookX > 0.3, "file on the right: he looks right")
+        precondition(right.frame(at: r0.addingTimeInterval(0.05)).yaw > 0.3, "file on the right: he looks right")
         let (left, l0) = entered(x: 80, y: 60)
-        precondition(left.frame(at: l0.addingTimeInterval(0.05)).lookX < -0.3, "file on the left: he looks left")
+        precondition(left.frame(at: l0.addingTimeInterval(0.05)).yaw < -0.3, "file on the left: he looks left")
         let (above, a0) = entered(x: 320, y: 20)
-        precondition(above.frame(at: a0.addingTimeInterval(0.05)).lookY < 0, "file above: he looks up")
+        precondition(above.frame(at: a0.addingTimeInterval(0.05)).pitch > 0.1, "file above: he looks up")
+        // The island Klay's rule (BotEngine), so his eyes stay put at the hand-over.
+        let f = right.frame(at: r0.addingTimeInterval(0.05))
+        let expected = KlayMotion.pointerCurve(CGFloat(tanh((560 - f.x) / 260))) * KlayMotion.yawRange
+        precondition(abs(f.yaw - Double(expected)) < 1e-9, "yaw = pointerCurve(tanh(dx / 260)) × yawRange")
     }
 
     static func heBlinksWhileTheFileHovers() {
@@ -89,6 +103,35 @@ enum UploadSequenceTests {
         let f = e.frame(at: start.addingTimeInterval(1.5))
         precondition(f.x > USC.REST_X + 100, "he goes to catch the file: \(f.x)")
         precondition(f.textAlpha == 1 && f.zoneAlpha == 1, "« Dépose ton fichier » stays")
+    }
+
+    static func aFileThatLeavesLetsHimRestAgain() {
+        let (e, start) = entered(x: 560, y: 60)
+        let over = e.frame(at: start.addingTimeInterval(0.8))
+        precondition(over.arms > 0.95 && over.eye == .wide && over.zoneOver, "arms open for the file")
+        e.exitZone(at: start.addingTimeInterval(0.8))
+        let leaving = e.frame(at: start.addingTimeInterval(0.9))
+        precondition(leaving.arms > 0.05 && leaving.arms < 0.95, "his arms come down, not at once: \(leaving.arms)")
+        let left = e.frame(at: start.addingTimeInterval(1.2))
+        precondition(left.arms < 0.01, "arms at rest: \(left.arms)")
+        precondition(left.eye == .pill && abs(left.yaw) < 1e-9 && abs(left.pitch) < 1e-9,
+                     "eyes back to rest, looking ahead, not at the stale pointer")
+        precondition(!left.zoneOver, "no green zone without a file")
+        let rested = e.frame(at: start.addingTimeInterval(3.5))
+        precondition(abs(rested.x - USC.REST_X) < 2 && abs(rested.y - USC.REST_Y) < 2,
+                     "back at his resting place: \(rested.x)")
+        precondition(rested.textAlpha == 1, "the text stays")
+    }
+
+    static func aFileThatComesBackFindsHimWhereHeStands() {
+        let (e, start) = entered(x: 560, y: 60)
+        e.exitZone(at: start.addingTimeInterval(1.0))
+        let before = e.frame(at: start.addingTimeInterval(1.05))
+        precondition(before.x > USC.REST_X + 100, "he had gone to catch it: \(before.x)")
+        e.enterZone(x: 100, y: 60)
+        let after = e.frame(at: Date())
+        precondition(abs(after.x - before.x) < 3, "no jump back to rest: \(before.x) → \(after.x)")
+        precondition(after.zoneOver, "the file is over the island again")
     }
 
     // MARK: - The gulp

@@ -518,8 +518,8 @@ export interface DropPose {
   eye: EyeShape;
   /** Eyelids: 1 open, towards 0 in a blink. */
   open?: number;
-  /** Where he looks, −1…1 each way, y down. */
-  look?: { yaw: number; pitch: number };
+  /** Where he looks (klayGaze: −1…1, yaw > 0 right, pitch > 0 up), the island Klay's gaze. */
+  gaze?: { yaw: number; pitch: number };
   /** The gulp's squash, about the middle of his height. */
   sx?: number;
   sy?: number;
@@ -536,7 +536,7 @@ export function drawKlayDrop(
 ) {
   const s = ((d / 0.6) * GLYPH_SPAN) / GLYPH_W; // px per glyph unit
   const l = dropLimbs(pose.arms, t);
-  const look = pose.look ?? { yaw: 0, pitch: 0 };
+  const g = pose.gaze ?? { yaw: 0, pitch: 0 };
   x.save();
   x.translate(cx, cy);
   x.scale(pose.sx ?? 1, pose.sy ?? 1);
@@ -546,7 +546,7 @@ export function drawKlayDrop(
   if (limbs) drawKlayLegs(x, l.lf, l.rf);
   drawKlayGlyph(x);
   if (limbs) drawKlayArms(x, l.lh, l.rh);
-  drawKlayEyes(x, { shape: pose.eye, open: pose.open ?? 1, es: 1, yaw: look.yaw, pitch: look.pitch, ink: INK }, 1, 0, 0);
+  drawKlayEyesGaze(x, { shape: pose.eye, open: pose.open ?? 1, es: 1, ink: INK }, klayGaze(g.yaw, g.pitch), 1, 0, 0);
   x.restore();
 }
 

@@ -94,16 +94,27 @@ enum KlayPaint {
     static let bottom: CGFloat = 212 + 15
     /// Vertical offset that centres the character's full height on a canvas centre.
     static let centerY: CGFloat = (top + bottom) / 2
-    /// Fraction of the canvas width the glyph spans (main Klay).
-    static let glyphSpan: CGFloat = 0.62
+    /// Fraction of the canvas width the glyph spans (main Klay): KlaySize's rule.
+    static let glyphSpan: CGFloat = KlaySize.glyphSpan
     /// Below this glyph width (px) the limbs would be sub-pixel noise: they are left out.
     static let limbsMinPx: CGFloat = 30
+
+    /// Canvas points per glyph unit of the main Klay drawn in a canvas `width` wide.
+    static func glyphScale(canvasWidth width: CGFloat) -> CGFloat {
+        width * glyphSpan / KlayGlyph.width
+    }
+
+    /// Canvas points per glyph unit of the island's Klay of layout diameter `d` (KlaySize): the
+    /// island (BotEngine in BotPlacement's canvas) and the drop canvas draw him at this scale.
+    static func glyphScale(diameter d: CGFloat) -> CGFloat {
+        glyphScale(canvasWidth: KlaySize.canvasWidth(diameter: d))
+    }
 
     // MARK: - Colours
 
     /// Glyph white on the dark island (the brand's glyph-white).
     static let body = Color.white
-    /// Eyes, pupils and slot: Klayer teal-deep #071B20.
+    /// Eyes and pupils: Klayer teal-deep #071B20.
     static let ink = Color(red: 7 / 255, green: 27 / 255, blue: 32 / 255)
     /// Klayer brume #ECEDE7, the rings and the rim of the binocular lenses.
     static let brume = Color(red: 236 / 255, green: 237 / 255, blue: 231 / 255)

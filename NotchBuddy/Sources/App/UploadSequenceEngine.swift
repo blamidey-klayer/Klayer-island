@@ -109,6 +109,7 @@ struct USSimState {
     var locked:  Bool = false
     var lockAt:  Double = -9
     var entered: Double = -9  // t_ref of zone entry; -9 = not entered
+    var exitedAt: Double? = nil  // t_ref when the file left the island without a drop
     var gulp:    Bool = false
     var ok:      Bool = false
     var lastPct: Int = 0
@@ -131,7 +132,9 @@ struct USFrame {
     var eye: USEyeShape = .pill
     /// Eyelids: 1 open, towards 0 in a blink.
     var open: Double = 1
-    var lookX: Double = 0; var lookY: Double = 0
+    /// Where he looks (KlayMotion.gaze: −1…1, yaw > 0 right, pitch > 0 up), by the island Klay's
+    /// rule (BotEngine): his eyes do not change at the hand-over.
+    var yaw: Double = 0; var pitch: Double = 0
     var fileVisible: Bool = true; var suck: Double = 0
     var zoneOver:    Bool   = false
     var zoneAlpha:   Double = 1
@@ -183,11 +186,14 @@ final class UploadSequenceEngine {
         cursorX = Double(x); cursorY = Double(y)
         prevCursorX = cursorX; prevCursorY = cursorY; prevCursorTime = now
         cursorSpeed = 0
+        // The file comes back before a drop: Klay goes on from where he stands, never a jump.
+        let back = isActive && dropWallTime == nil
+        let (bx, by) = back ? (sim.bx, sim.by) : (USSpring(v: USC.REST_X), USSpring(v: USC.REST_Y))
         sim = USSimState()
         sim.t       = USC.ENTRY_T_REF
         sim.entered = USC.ENTRY_T_REF
-        sim.bx      = USSpring(v: USC.REST_X)
-        sim.by      = USSpring(v: USC.REST_Y)
+        sim.bx      = bx
+        sim.by      = by
         entryWallTime = now
         dropWallTime  = nil
         isActive      = true
@@ -204,8 +210,13 @@ final class UploadSequenceEngine {
         cursorX = Double(x); cursorY = Double(y)
     }
 
-    func exitZone() {
-        // Keep engine active — island stays open per spec
+    /// The file left the island without a drop. The engine stays active (the island stays open,
+    /// the file may come back): Klay lowers his arms, his eyes go back to rest and he walks back to
+    /// his resting place.
+    func exitZone(at date: Date = Date()) {
+        guard isActive, dropWallTime == nil, sim.entered >= 0 else { return }
+        sim.exitedAt = tRef(at: date)
+        sim.locked = false
     }
 
     func performDrop(uploadDuration ud: Double) {
@@ -215,6 +226,7 @@ final class UploadSequenceEngine {
         // Reset sim.t to T_DROP so the canonical post-drop timeline starts correctly,
         // regardless of how long the user hovered. Spring state (position/velocity) is preserved.
         sim.t = USC.T_DROP
+        sim.exitedAt = nil
     }
 
     func deactivate() {
@@ -258,8 +270,14 @@ final class UploadSequenceEngine {
     private func stepOnce(dt: Double) {
         let isDragging = (dropWallTime == nil)
 
+        // The file left: back to his resting place, no more following.
+        if isDragging, let left = sim.exitedAt, sim.t >= left {
+            sim.locked = false
+            sim.bx.step(target: USC.REST_X, response:0.35, damping:0.70, dt:dt)
+            sim.by.step(target: USC.REST_Y, response:0.35, damping:0.70, dt:dt)
+        }
         // Horizontal follow + lock (only while dragging and in zone)
-        if isDragging && sim.entered >= 0 {
+        else if isDragging && sim.entered >= 0 {
             let dist = hypot(cursorX - sim.bx.v, (cursorY + 14) - sim.by.v)
             if !sim.locked && dist < USC.LOCK_IN && cursorSpeed < 180 {
                 sim.locked = true; sim.lockAt = sim.t
@@ -299,7 +317,10 @@ final class UploadSequenceEngine {
 
         // Arms: open as the file comes (0 → 1 in 0.38 s, a little overshoot), back down to rest
         // while he swallows it; at rest on the bar and back at the choice.
-        var arms = usEBack(usSeg(pt, entered, entered + 0.38))
+        // The file left without a drop: arms down and eyes back to rest in 0.3 s (t: pt stops
+        // just before the drop while the file hovers).
+        let away = isDragging ? sim.exitedAt.map { usEOut(usSeg(t, $0, $0 + 0.30)) } ?? 0 : 0
+        var arms = usEBack(usSeg(pt, entered, entered + 0.38)) * (1 - away)
         if pt >= USC.T_SUCK_END { arms *= 1 - usEOut(usSeg(pt, USC.T_SUCK_END, USC.T_CHEW1)) }
         f.arms = max(0, min(arms, 1.08))
 
@@ -373,15 +394,19 @@ final class UploadSequenceEngine {
             f.open = phase > 3.46 ? abs((phase - 3.46) / 0.07 - 1) : 1
         }
 
-        let lkx = pt < USC.T_SUCK_END ? cursorX - x : (pt < USC.T_PROG_START ? 0.0 : 40.0)
-        let lky = pt < USC.T_SUCK_END ? (cursorY+10) - y : 0.0
-        f.lookX = max(-1, min(1, lkx/200)); f.lookY = max(-1, min(1, lky/150))
+        // Gaze: at the file until it is in, ahead while he swallows, then at the bar. The island
+        // Klay's rule (BotEngine): lookX = tanh(dx / 260), lookY = −tanh(dy / 200) through the
+        // pointer curve, times the yaw and pitch ranges. Ahead again once the file left.
+        let lkx = (pt < USC.T_SUCK_END ? cursorX - x : (pt < USC.T_PROG_START ? 0.0 : 40.0)) * (1 - away)
+        let lky = (pt < USC.T_SUCK_END ? (cursorY+10) - y : 0.0) * (1 - away)
+        f.yaw   = Double(KlayMotion.pointerCurve(CGFloat(tanh(lkx / 260))) * KlayMotion.yawRange)
+        f.pitch = Double(KlayMotion.pointerCurve(CGFloat(-tanh(lky / 200))) * KlayMotion.pitchRange)
 
         f.fileVisible = pt < USC.T_SUCK_END
         f.suck = usSeg(pt, USC.T_SUCK_START, USC.T_SUCK_END)
 
         // Content alpha values
-        f.zoneOver   = sim.entered >= 0 && pt < USC.T_CHEW_END
+        f.zoneOver   = sim.entered >= 0 && sim.exitedAt == nil && pt < USC.T_CHEW_END
         f.zoneAlpha  = 1 - usSeg(pt, USC.T_CHEW_END, USC.T_CHEW_END + 0.20)
         f.textAlpha  = f.zoneAlpha
         f.barReveal  = usEOut(usSeg(pt, USC.T_BAR_IN, USC.T_BAR_IN+0.25))

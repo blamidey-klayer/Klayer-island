@@ -1233,7 +1233,7 @@ final class IslandWindowController: NSWindowController {
         let (cx, cy, diameter, _) = botPosition(mode: s.mode, view: s.view,
                                                   islandW: islandW, islandH: islandH,
                                                   uploadProgress: s.uploadProgress, hasNotch: s.hasNotch)
-        let radius = (diameter / 0.6) / 2
+        let radius = KlaySize.canvasWidth(diameter: diameter) / 2
         // botPosition cy is from island TOP; panel AppKit coords have y=0 at bottom
         // island top in AppKit coords = panelH (island glued to top of panel/screen)
         let botX = islandMinX + cx

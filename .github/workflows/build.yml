@@ -70,6 +70,9 @@ jobs:
       - name: Test drop sequence
         run: bash scripts/test-upload-sequence.sh
 
+      - name: Test window capture sites
+        run: bash scripts/test-window-capture-sites.sh
+
       - name: Test terminal target
         run: bash scripts/test-terminal-target.sh
 

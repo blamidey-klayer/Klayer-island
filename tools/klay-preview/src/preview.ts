@@ -85,7 +85,7 @@ function buildSheet() {
   }
 
   drawerCell("dépôt : bras ouverts", SIZE, SIZE, (x, t) => {
-    drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.6, t, { arms: 1, eye: "wide", look: { yaw: 0.4, pitch: -0.6 } });
+    drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.6, t, { arms: 1, eye: "wide", gaze: { yaw: 0.3, pitch: 0.4 } });
   });
   drawerCell("dépôt : avale", SIZE, SIZE, (x, t) => {
     drawKlayDrop(x, SIZE / 2, SIZE / 2, SIZE * 0.6, t, { arms: 0.41, eye: "closed", sx: 1.14, sy: 0.82 });
@@ -130,7 +130,7 @@ function buildSheet() {
   }), minis);
   // A file over the island: the same Klay, arms open, eyes on the file.
   drawerCell("dépôt, glisser (carte 620 × 124)", CARD_W, 124, dropCard(124, 42, (x, cy, t) => {
-    drawKlayDrop(x, KLAY.x, cy, KLAY.d, t, { arms: 1, eye: "wide", look: { yaw: 0.5, pitch: -0.4 } });
+    drawKlayDrop(x, KLAY.x, cy, KLAY.d, t, { arms: 1, eye: "wide", gaze: { yaw: 0.35, pitch: 0.3 } });
   }), minis);
 
   for (const [state, color] of [

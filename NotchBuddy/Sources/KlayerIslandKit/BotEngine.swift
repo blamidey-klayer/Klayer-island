@@ -1052,7 +1052,7 @@ final class BotEngine: ObservableObject {
 
     /// Glyph units → canvas points for the main Klay in a canvas of width `W`.
     private func glyphScale(_ W: CGFloat) -> CGFloat {
-        W * KlayPaint.glyphSpan / KlayGlyph.width
+        KlayPaint.glyphScale(canvasWidth: W)
     }
 
     /// World-space centre of Klay's full height (glyph top to soles) or of the mini disc.

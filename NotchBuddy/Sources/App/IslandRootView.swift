@@ -103,7 +103,9 @@ struct IslandContainer: View {
                                       height: state.mode == .expanded ? 320 : islandHeight)
                 }
                 .opacity(uploadActive || greetingActive ? 0 : 1)
-                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive)
+                // The drop canvas draws its own Klay at once: the island's goes at once (never
+                // two Klays), and fades back in when the canvas leaves. The greeting fades as before.
+                .animation(uploadActive ? nil : .easeInOut(duration: 0.25), value: uploadActive || greetingActive)
 
             CountdownBar(state: state, islandW: islandWidth)
 
@@ -270,7 +272,7 @@ struct BotPlacement: View {
 
     var body: some View {
         let (cx, cy, diameter, opacity) = botPosition(mode: state.mode, view: state.view, islandW: islandW, islandH: islandH, uploadProgress: state.uploadProgress, hasNotch: state.hasNotch)
-        let canvasSize = diameter / 0.6
+        let canvasSize = KlaySize.canvasWidth(diameter: diameter)
         let overhang: CGFloat = 40
         let isUploading = state.view == .uploading
 

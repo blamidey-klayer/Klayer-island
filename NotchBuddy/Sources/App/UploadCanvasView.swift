@@ -284,18 +284,12 @@ struct UploadCanvasView: View {
 
     // MARK: - Klay
 
-    /// Points per glyph unit of Klay at diameter `d`: BotEngine's size rule (BotPlacement draws
-    /// the island's Klay in a canvas of width d / 0.6, the glyph spans glyphSpan of it), so the
-    /// canvas Klay matches the island's at the hand-over.
-    private static func glyphScale(_ d: Double) -> CGFloat {
-        CGFloat(d / 0.6) * KlayPaint.glyphSpan / KlayGlyph.width
-    }
-
-    /// Klay in the drop sequence, drawn like the island's Klay (KlayPaint, the glyph untouched):
-    /// (x, y) is the middle of his full height. His arms open for the file, his eyes follow it,
-    /// then he swallows it: squashed, eyes shut. Tilt and squash turn about his middle.
+    /// Klay in the drop sequence, drawn like the island's Klay (KlayPaint, the glyph untouched, at
+    /// the island's scale for his diameter, KlayPaint.glyphScale(diameter:)): (x, y) is the
+    /// middle of his full height. His arms open for the file, his eyes follow it (the island
+    /// Klay's gaze), then he swallows it: squashed, eyes shut. Tilt and squash turn about his middle.
     private func drawKlay(ctx: inout GraphicsContext, f: USFrame, wallTime: Double) {
-        let s = Self.glyphScale(f.d)
+        let s = KlayPaint.glyphScale(diameter: CGFloat(f.d))
         var c = ctx
         c.translateBy(x: CGFloat(f.x), y: CGFloat(f.y + f.hop))
         c.rotate(by: .radians(f.tilt))
@@ -314,7 +308,7 @@ struct UploadCanvasView: View {
         case .closed: shape = .closed
         }
         KlayPaint.drawEyes(c, shape: shape, mult: 1,
-                           look: CGPoint(x: CGFloat(f.lookX) * 14, y: CGFloat(f.lookY) * 12),
+                           gaze: KlayMotion.gaze(yaw: CGFloat(f.yaw), pitch: CGFloat(f.pitch)),
                            open: CGFloat(f.open), time: CGFloat(wallTime))
     }
 
@@ -322,7 +316,7 @@ struct UploadCanvasView: View {
     /// as wide as their spacing. The file funnels down to it and disappears under it. It follows
     /// Klay's hop and squash (not his small tilt).
     private func gulpRect(_ f: USFrame) -> (x: Double, y: Double, w: Double, h: Double) {
-        let s = Double(Self.glyphScale(f.d))
+        let s = Double(KlayPaint.glyphScale(diameter: CGFloat(f.d)))
         let below = Double(-KlayPaint.centerY + KlayPaint.eyeDY - KlayPaint.eyeR) * s
         let w = Double(2 * KlayPaint.eyeDX) * s * f.sx
         return (x: f.x - w / 2, y: f.y + f.hop + below * f.sy, w: w, h: 2)

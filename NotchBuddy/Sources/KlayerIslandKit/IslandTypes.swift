@@ -85,6 +85,22 @@ enum AgentLayoutMode {
     case none, grid, pills, column
 }
 
+// MARK: - Klay's size rule
+
+/// The island draws its Klay of layout diameter d in a square canvas d / 0.6 wide (BotPlacement);
+/// his click circle is that canvas' inscribed circle, and his glyph spans `glyphSpan` of its
+/// width (KlayPaint.glyphScale). The one rule for the island, the drop canvas, the click test and
+/// BotEngine, so the drop canvas' Klay takes over from the island's at the same size.
+enum KlaySize {
+    /// Fraction of the canvas width the glyph spans.
+    static let glyphSpan: CGFloat = 0.62
+
+    /// Width of the canvas the island draws Klay of diameter `d` in.
+    static func canvasWidth(diameter d: CGFloat) -> CGFloat {
+        d / 0.6
+    }
+}
+
 // MARK: - Constants (from NW, NH, EW in prototype)
 
 enum IslandConst {
