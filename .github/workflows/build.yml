@@ -153,8 +153,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) DEBUG KLAYER_E2E'
-          # Control of the check above: the test build carries the test commands' names.
-          strings -a build-e2e/Build/Products/Debug/KlayerIsland.app/Contents/MacOS/* | grep -q 'e2e_decide' \
+          # Control of the check above: the test build carries the test commands' names. grep reads
+          # all of strings' output (no -q), so strings never writes into a closed pipe.
+          strings -a build-e2e/Build/Products/Debug/KlayerIsland.app/Contents/MacOS/* | grep 'e2e_decide' >/dev/null \
             || { echo "::error::the test build has no test command: KLAYER_E2E was not applied"; exit 1; }
 
       - name: End-to-end island test
