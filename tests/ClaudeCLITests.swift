@@ -45,6 +45,7 @@ enum ClaudeCLITests {
             ("draft_form_is_kept_until_a_draft_is_ready", draftFormIsKeptUntilADraftIsReady),
             ("draft_environment_turns_tool_search_off", draftEnvironmentTurnsToolSearchOff),
             ("draft_answer_lets_tool_search_through", draftAnswerLetsToolSearchThrough),
+            ("chat_environment_starts_no_connector", chatEnvironmentStartsNoConnector),
         ]
         for (name, run) in cases {
             run()
@@ -134,12 +135,15 @@ enum ClaudeCLITests {
             "--verbose",
             "--include-partial-messages",
             "--tools", "",
+            "--strict-mcp-config",
             "--disallowedTools", "mcp__*",
             "--permission-mode", "dontAsk",
             "--no-session-persistence",
             "--settings", "{\"disableAllHooks\":true}",
             "--system-prompt", "Tu es Klay.",
         ], "the chat arguments are exactly the documented list")
+        precondition(args.contains("--strict-mcp-config") && !args.contains("--mcp-config"),
+                     "only the MCP servers given with --mcp-config, and none is given: zero servers")
         precondition(ClaudeCLI.model == "claude-haiku-5-5")
         precondition(value(after: "--tools", in: args) == "", "--tools takes an empty argument")
         precondition(value(after: "--disallowedTools", in: args) == "mcp__*")
@@ -1374,5 +1378,29 @@ enum ClaudeCLITests {
         var unseen = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         unseen.read([.toolUse(name: "ToolSearch", inputJSON: "{}"), .toolResult(text: draftResult)])
         precondition(unseen.end == .failed(GmailDraftAnswer.mismatchMessage), "a tool search result is never a draft")
+    }
+
+    // MARK: - Final review of lot 4: the chat starts no MCP server and no connector (M1)
+
+    static func chatEnvironmentStartsNoConnector() {
+        let binary = "/Users/test/.local/bin/claude"
+        var base: [String: String] = ["HOME": "/Users/test", "PATH": "/usr/bin", "ANTHROPIC_API_KEY": "secret",
+                                      "LANG": "fr_FR.UTF-8"]
+        let chat = ClaudeCLI.chatEnvironment(from: base, binary: binary)
+        precondition(chat["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false", "the chat fetches no claude.ai connector")
+        precondition(chat["ENABLE_TOOL_SEARCH"] == "false", "nothing deferred, no ToolSearch to offer")
+        precondition(chat["ANTHROPIC_API_KEY"] == nil && chat["KLAYER_ISLAND_INTERNAL"] == "1" && chat["LANG"] == "fr_FR.UTF-8",
+                     "the shared scrub and tag still apply, the rest stays")
+        precondition(chat["PATH"] == ClaudeCLI.environment(from: base, binary: binary)["PATH"])
+        precondition(base["ENABLE_CLAUDEAI_MCP_SERVERS"] == nil, "the caller's dictionary is not mutated")
+
+        // Whatever the user's environment says, the chat process gets both switches off.
+        base["ENABLE_CLAUDEAI_MCP_SERVERS"] = "true"
+        base["ENABLE_TOOL_SEARCH"] = "true"
+        let forced = ClaudeCLI.chatEnvironment(from: base, binary: binary)
+        precondition(forced["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false" && forced["ENABLE_TOOL_SEARCH"] == "false")
+        // Per process: the draft keeps the connectors (it needs Gmail), the auth check gets nothing added.
+        precondition(ClaudeCLI.draftEnvironment(from: base, binary: binary)["ENABLE_CLAUDEAI_MCP_SERVERS"] == "true")
+        precondition(ClaudeCLI.environment(from: base, binary: binary)["ENABLE_CLAUDEAI_MCP_SERVERS"] == "true")
     }
 }

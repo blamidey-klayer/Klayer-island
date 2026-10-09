@@ -231,21 +231,22 @@ Le lot 4 suppose plusieurs faits sur Claude Code que la doc ne confirme pas tous
 - [ ] Lancez `claude -p --model claude-haiku-5-5 "bonjour"`. Notez la réponse, ou le message d'erreur mot pour mot.
 - [ ] Lancez `claude mcp list`. Notez si une ligne nomme Gmail, et son état.
 - [ ] Nom exact de l'outil Gmail. Lancez `claude -p --model claude-haiku-5-5 --output-format stream-json --verbose "ok" | grep -o -i 'mcp__[A-Za-z0-9_-]*gmail[A-Za-z0-9_-]*' | sort -u`. Si la commande n'affiche rien, collez les premières lignes de la sortie sans le `grep`, en repérant la ligne `system` de sous-type `init` et son champ `tools`. Comparez le nom du brouillon à `mcp__claude_ai_Gmail__create_draft`, lettre à lettre (casse, tirets bas).
-- [ ] Préparez les arguments de l'île. Copiez ces lignes dans le terminal. Elles reprennent les arguments du chat (`ClaudeCLI.chatArguments`) et du brouillon (`ClaudeCLI.draftArguments`), sans la consigne système, que chaque commande ci-dessous donne avec `--system-prompt`. `DRAFT_ENV` pose devant `claude` la variable que l'île ajoute à l'environnement du brouillon (`ClaudeCLI.draftEnvironment`) : la recherche d'outils MCP coupée. Dans les commandes qui suivent, si un `grep` n'affiche rien, relancez la commande sans lui et collez les premières lignes de la sortie :
+- [ ] Préparez les arguments de l'île. Copiez ces lignes dans le terminal. Elles reprennent les arguments du chat (`ClaudeCLI.chatArguments`) et du brouillon (`ClaudeCLI.draftArguments`), sans la consigne système, que chaque commande ci-dessous donne avec `--system-prompt`. `CHAT_ENV` et `DRAFT_ENV` posent devant `claude` les variables que l'île ajoute à l'environnement de chaque processus : pour le chat, les connecteurs claude.ai et la recherche d'outils MCP coupés (`ClaudeCLI.chatEnvironment`) ; pour le brouillon, la recherche d'outils seule (`ClaudeCLI.draftEnvironment`), car il a besoin du connecteur Gmail. Dans les commandes qui suivent, si un `grep` n'affiche rien, relancez la commande sans lui et collez les premières lignes de la sortie :
 
   ```
-  CHAT=(--model claude-haiku-5-5 --input-format stream-json --output-format stream-json --verbose --include-partial-messages --tools "" --disallowedTools "mcp__*" --permission-mode dontAsk --no-session-persistence --settings '{"disableAllHooks":true}')
+  CHAT=(--model claude-haiku-5-5 --input-format stream-json --output-format stream-json --verbose --include-partial-messages --tools "" --strict-mcp-config --disallowedTools "mcp__*" --permission-mode dontAsk --no-session-persistence --settings '{"disableAllHooks":true}')
   DRAFT=(--model claude-haiku-5-5 --output-format stream-json --verbose --tools "" --permission-mode dontAsk --setting-sources local --settings '{"disableAllHooks":true}' --no-session-persistence --max-turns 5 --allowedTools mcp__claude_ai_Gmail__create_draft --disallowedTools mcp__claude_ai_Gmail__send_message mcp__claude_ai_Gmail__reply mcp__claude_ai_Gmail__forward mcp__claude_ai_Gmail__update_draft mcp__claude_ai_Gmail__delete_draft)
+  CHAT_ENV=(env ENABLE_CLAUDEAI_MCP_SERVERS=false ENABLE_TOOL_SEARCH=false)
   DRAFT_ENV=(env ENABLE_TOOL_SEARCH=false)
   ```
 
 - [ ] Outils du chat. Depuis un dossier vide (`mkdir -p ~/essai-chat && cd ~/essai-chat`), lancez :
 
   ```
-  echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]},"parent_tool_use_id":null}' | claude -p --system-prompt "Réponds ok." "${CHAT[@]}" | grep '"subtype":"init"' | grep -o '"tools":\[[^]]*\]'
+  echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]},"parent_tool_use_id":null}' | "${CHAT_ENV[@]}" claude -p --system-prompt "Réponds ok." "${CHAT[@]}" | grep '"subtype":"init"' | grep -o '"tools":\[[^]]*\]'
   ```
 
-  Attendu : `"tools":[]`, aucun outil. L'île tolère le seul nom `EndConversation`. Si un autre outil est listé, notez-le : l'île arrêterait chaque chat par sécurité (« Le chat a reçu des outils : arrêt par sécurité. ») et il faudrait corriger les options.
+  Attendu : `"tools":[]`, aucun outil. L'île tolère le seul nom `EndConversation`. Si un autre outil est listé, notez-le, en particulier `ToolSearch` ou `WaitForMcpServers` : l'île arrêterait chaque chat par sécurité (« Le chat a reçu des outils : arrêt par sécurité. ») et il faudrait corriger les options. Relevez aussi le champ `mcp_servers` de la même ligne `init` (relancez sans le dernier `grep`) : attendu vide, puisque le chat ne démarre aucun serveur MCP ni connecteur.
 - [ ] Outils du brouillon. Depuis un autre dossier vide (`mkdir -p ~/essai-brouillon && cd ~/essai-brouillon`), lancez :
 
   ```

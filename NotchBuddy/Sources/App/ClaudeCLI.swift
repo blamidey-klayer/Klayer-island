@@ -81,12 +81,25 @@ enum ClaudeCLI {
         return env
     }
 
+    /// The chat's environment: the one above, with the claude.ai connectors and MCP tool search
+    /// off, whatever the user's own environment says. With `--strict-mcp-config` and no
+    /// `--mcp-config`, the chat process then starts no MCP server and fetches no connector: none
+    /// becomes its child, none slows its start, none can show in its tools.
+    static func chatEnvironment(from base: [String: String], binary: String) -> [String: String] {
+        var env = environment(from: base, binary: binary)
+        env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
+        env["ENABLE_TOOL_SEARCH"] = "false"
+        return env
+    }
+
     /// Inline settings that switch every hook off for the island's own processes.
     private static let noHooksSettings = "{\"disableAllHooks\":true}"
 
     /// Arguments of the long-lived chat process: messages come in as `stream-json` on stdin,
     /// the answer streams out token by token. No tool of any kind (neither a built-in one nor
-    /// an MCP connector of the user's account), nothing saved, no hook.
+    /// an MCP connector of the user's account), nothing saved, no hook. `--strict-mcp-config`
+    /// with no `--mcp-config`: no MCP server starts (the connectors are off in
+    /// `chatEnvironment`); `--disallowedTools mcp__*` stays as the second lock.
     static func chatArguments(systemPrompt: String) -> [String] {
         [
             "-p",
@@ -96,6 +109,7 @@ enum ClaudeCLI {
             "--verbose",
             "--include-partial-messages",
             "--tools", "",
+            "--strict-mcp-config",
             "--disallowedTools", "mcp__*",
             "--permission-mode", "dontAsk",
             "--no-session-persistence",

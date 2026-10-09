@@ -239,7 +239,8 @@ Deux processus `claude -p` existent : celui du chat (un par conversation, décri
 
 ### Environnement commun aux deux processus
 
-- Une copie de l'environnement de l'app, sans `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY` ni `ANTHROPIC_PROFILE`. En mode `-p`, une clé présente l'emporte sur la connexion claude.ai et masque les connecteurs : sans ce nettoyage, le forfait de l'utilisateur ne servirait pas. Les autres variables (HOME, USER, LANG, TMPDIR…) restent, y compris les réglages que l'utilisateur a posés lui-même, par exemple `ENABLE_CLAUDEAI_MCP_SERVERS`.
+- Une copie de l'environnement de l'app, sans `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY` ni `ANTHROPIC_PROFILE`. En mode `-p`, une clé présente l'emporte sur la connexion claude.ai et masque les connecteurs : sans ce nettoyage, le forfait de l'utilisateur ne servirait pas. Les autres variables (HOME, USER, LANG, TMPDIR…) restent, y compris les réglages que l'utilisateur a posés lui-même, par exemple `ENABLE_CLAUDEAI_MCP_SERVERS` pour le brouillon.
+- Chaque processus y ajoute ses propres variables. Le chat : `ENABLE_CLAUDEAI_MCP_SERVERS=false` et `ENABLE_TOOL_SEARCH=false`, quoi que dise l'environnement de l'utilisateur (ci-dessous). Le brouillon : `ENABLE_TOOL_SEARCH=false` seulement, car il a besoin du connecteur Gmail (§6, « Recherche d'outils »). `claude auth status` reçoit l'environnement commun, sans rien de plus.
 - `KLAYER_ISLAND_INTERNAL=1` : `nb-hook` sort tout de suite, sans rien relayer, pour ces processus. Ils ne créent ni pastille, ni ligne de session, ni carte d'autorisation.
 - PATH : le dossier du binaire d'abord (une installation npm lance `node` depuis le même dossier), puis `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`, puis le reste du PATH de l'app, sans doublon.
 - Hooks coupés aussi par l'option `--settings '{"disableAllHooks":true}'` (d'après la doc, les hooks imposés par un administrateur ne sont pas couverts).
@@ -252,7 +253,8 @@ Un seul `claude -p` par conversation, démarré au premier message. Ses argument
 - `--model claude-haiku-5-5` : Haiku, fixe.
 - `--input-format stream-json`, `--output-format stream-json`, `--verbose`, `--include-partial-messages` : les messages arrivent sur stdin, un JSON par ligne (les images avant le texte) ; la réponse sort au fil de l'eau, mot à mot.
 - `--tools ""` : aucun outil intégré (ni fichiers, ni shell, ni web).
-- `--disallowedTools "mcp__*"` : aucun outil de connecteur.
+- `--strict-mcp-config`, sans `--mcp-config` : Claude Code n'utilise que les serveurs MCP passés par `--mcp-config` (doc, page MCP), donc aucun. Avec `ENABLE_CLAUDEAI_MCP_SERVERS=false` dans son environnement, le processus ne charge aucun connecteur claude.ai non plus : aucun serveur MCP local ne devient son enfant, aucun connecteur ne retarde son démarrage, aucun ne peut figurer dans ses outils. `ENABLE_TOOL_SEARCH=false` : rien n'est différé, donc pas d'outil `ToolSearch` à proposer.
+- `--disallowedTools "mcp__*"` : aucun outil de connecteur, seconde barrière derrière les deux réglages précédents.
 - `--permission-mode dontAsk` : tout ce qui demanderait une autorisation est refusé.
 - `--no-session-persistence` : Claude Code n'enregistre pas la session. Avec l'entrée `stream-json`, ce point n'est pas confirmé par la doc : voir TEST-MAC.
 - `--settings '{"disableAllHooks":true}'` : aucun hook.

@@ -128,7 +128,8 @@ final class ChatSession: ObservableObject {
                                          isExecutable: { FileManager.default.isExecutableFile(atPath: $0) })
     }
 
-    /// The environment of a `claude` process of the island (chat or draft).
+    /// The environment of `claude auth status`. The chat and the draft add their own switches
+    /// (`ClaudeCLI.chatEnvironment`, `ClaudeCLI.draftEnvironment`).
     nonisolated static func environment(for binary: String) -> [String: String] {
         ClaudeCLI.environment(from: ProcessInfo.processInfo.environment, binary: binary)
     }
@@ -280,7 +281,8 @@ final class ChatSession: ObservableObject {
             try started.start(
                 binary: binary,
                 arguments: ClaudeCLI.chatArguments(systemPrompt: systemPrompt),
-                environment: Self.environment(for: binary),
+                // No connector, no tool search: the chat process starts no MCP server.
+                environment: ClaudeCLI.chatEnvironment(from: ProcessInfo.processInfo.environment, binary: binary),
                 directory: folder,
                 onOutput: { data in
                     Self.onMain { $0.received(data, generation: generation) }
