@@ -163,7 +163,9 @@ final class ChatSession: ObservableObject {
         state.chatHistory.append(ChatMessage(role: .user, content: query))
         let bubble = ChatMessage(role: .assistant, content: "")
         state.chatHistory.append(bubble)
-        state.stateOverride = .thinking
+        // A request card's pose wins (AppState.showsRequestCard); it also drops this one if it
+        // comes during the answer.
+        if !state.showsRequestCard { state.stateOverride = .thinking }
         isAnswering = true
         let generation = token.generation
         turn = Turn(generation: generation, bubbleID: bubble.id, state: state)
@@ -440,12 +442,19 @@ final class ChatSession: ObservableObject {
         }
     }
 
-    /// The error note of the chat, as before: Klay in error, the message on the note view.
+    /// The error note of the chat: Klay in error, the message on the note view. Only from the chat
+    /// itself: a permission or question card that came during the answer, or any other view the
+    /// user went to, stays on screen, and Klay only stops thinking.
     private func showError(_ current: Turn, message: String) {
         removeBubbleIfEmpty(current)
-        current.state.stateOverride = .error
-        current.state.noteMessage = message
-        current.state.view = .note
+        let state = current.state
+        guard state.view == .prompt else {
+            if state.stateOverride == .thinking { state.stateOverride = nil }
+            return
+        }
+        state.stateOverride = .error
+        state.noteMessage = message
+        state.view = .note
     }
 
     /// Closes the turn in progress with an error note.

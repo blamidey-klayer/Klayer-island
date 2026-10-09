@@ -9,7 +9,10 @@ final class AppState: ObservableObject {
 
     // Island state
     @Published var mode: IslandMode = .hidden
-    @Published var view: IslandView = .overview
+    @Published var view: IslandView = .overview {
+        // A permission or question card that comes on screen takes Klay's pose back.
+        didSet { if showsRequestCard { dropBusyPose() } }
+    }
 
     // Tasks
     @Published var tasks: [AgentTask] = []
@@ -300,6 +303,19 @@ final class AppState: ObservableObject {
 
     var effectiveState: BotState {
         stateOverride ?? focusTask?.state ?? .idle
+    }
+
+    /// The island's view is a permission or question card whose request is still pending. Its
+    /// pill's pose (approval, question) is Klay's: the quick chat and the Gmail draft neither set
+    /// nor keep their own over it (a request's pose wins).
+    var showsRequestCard: Bool {
+        (view == .approval && pendingApproval != nil) || (view == .question && pendingQuestion != nil)
+    }
+
+    /// The poses only the chat and the Gmail draft set (Klay thinking, the chat's error note)
+    /// give way to a request card. Any other override (dizzy) stays.
+    func dropBusyPose() {
+        if stateOverride == .thinking || stateOverride == .error { stateOverride = nil }
     }
 
     // MARK: - Task management

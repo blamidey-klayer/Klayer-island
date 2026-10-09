@@ -272,7 +272,9 @@ final class GmailDraftFlow: ObservableObject {
         file = dropped?.url
         formFileKey = Self.fileKey(state.droppedFile)
         phase = .working
-        state.stateOverride = .thinking
+        // A request card's pose wins (AppState.showsRequestCard); it also drops this one if it
+        // comes during the 90 s.
+        if !state.showsRequestCard { state.stateOverride = .thinking }
         runID += 1
         let run = runID
 
