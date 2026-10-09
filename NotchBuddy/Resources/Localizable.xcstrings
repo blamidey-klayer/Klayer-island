@@ -10345,26 +10345,6 @@
         }
       }
     },
-    "Terminé à %@": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminé à %@"
-          }
-        }
-      }
-    },
-    "Erreur à %@": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur à %@"
-          }
-        }
-      }
-    },
     "Retour aux conversations": {
       "localizations": {
         "fr": {

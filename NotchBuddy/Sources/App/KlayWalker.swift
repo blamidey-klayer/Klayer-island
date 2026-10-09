@@ -39,9 +39,9 @@ struct KlayWalkerView: View {
 /// while `AppState.klayWalkingHome` is true): never two Klays, at worst one frame with none.
 /// The plan and the gait are KlayWalk's, tested on Linux (scripts/test-klay-walk.sh).
 ///
-/// CPU: a display link of the walker's own view moves the panel at the display's rate (120 Hz on
-/// ProMotion) and the panel's TimelineView draws him, both only during the walk; nothing is left
-/// running once he is home.
+/// CPU: a display link of the walker's own view moves the panel at the display's rate and the
+/// panel's TimelineView draws him, both only during the walk; nothing is left running once he is
+/// home. A one-shot fallback ends a walk whose link never fired, 1 s after its planned end.
 @MainActor
 final class KlayWalker {
     static let shared = KlayWalker()
@@ -61,6 +61,8 @@ final class KlayWalker {
     private var hopTarget: IslandWindowController.KlayHome?
     /// What to do once he is home (DesktopKlayController after a request called him back).
     private var arrived: [() -> Void] = []
+    /// Counts the walks: the fallback of one walk never ends a later one.
+    private var walkCount = 0
 
     /// Walks Klay home from `given`, the panel he is drawn in (the drag ghost, the desktop Klay's
     /// panel), from where it is. The walker takes the panel over: its content becomes the walking
@@ -96,7 +98,8 @@ final class KlayWalker {
         let home = Self.island?.klayHome() ?? IslandWindowController.KlayHome.fallback
         let doorstep = KlayWalk.doorstep(place: home.center, notchBottom: home.notchBottom,
                                          walkerWidth: width)
-        plan = KlayWalk.Plan(from: from, to: doorstep)
+        let route = KlayWalk.Plan(from: from, to: doorstep)
+        plan = route
         hopTarget = nil
         start = CACurrentMediaTime()
 
@@ -105,6 +108,15 @@ final class KlayWalker {
         let link = hosting.displayLink(target: WalkerFrames(self), selector: #selector(WalkerFrames.step(_:)))
         link.add(to: .main, forMode: .common)
         displayLink = link
+
+        // Should the link never fire, Klay would stay hidden: 1 s after this walk should have
+        // ended, hop included, the same walk still on ends at once, without the `peek`.
+        walkCount += 1
+        let thisWalk = walkCount
+        DispatchQueue.main.asyncAfter(deadline: .now() + route.total + 1) { [weak self] in
+            guard let self, self.isWalking, self.walkCount == thisWalk else { return }
+            self.arrive(sound: false)
+        }
         tick()
     }
 

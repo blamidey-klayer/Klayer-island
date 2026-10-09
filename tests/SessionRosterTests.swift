@@ -36,7 +36,6 @@ enum SessionRosterTests {
             ("ten_finished_rows_at_most_the_most_recent", tenFinishedRowsAtMost),
             ("active_rows_come_before_finished_ones", activeRowsComeBeforeFinishedOnes),
             ("a_session_that_ends_keeps_its_finished_row", aSessionThatEndsKeepsItsFinishedRow),
-            ("a_finished_row_says_when_it_ended", aFinishedRowSaysWhenItEnded),
             ("a_session_goes_by_its_latest_name_then_its_folder", aSessionGoesByItsLatestNameThenItsFolder),
             ("the_latest_name_wins_whatever_its_source", theLatestNameWinsWhateverItsSource),
             ("an_empty_name_never_replaces_a_known_one", anEmptyNameNeverReplacesAKnownOne),
@@ -647,19 +646,11 @@ enum SessionRosterTests {
                      "its end time and last line are unchanged")
     }
 
-    static func aFinishedRowSaysWhenItEnded() {
-        precondition(SessionRoster.clock(at(minutes: 0), calendar: utc) == "08:00")
-        precondition(SessionRoster.clock(at(minutes: 65), calendar: utc) == "09:05", "two digits for the minutes")
-        precondition(SessionRoster.clock(at(minutes: 0), calendar: calendar("Europe/Paris")) == "09:00",
-                     "the user's time zone")
-        precondition(SessionRoster.clock(at(minutes: 6 * 60), calendar: utc) == "14:00", "24 hour clock")
-        precondition(SessionRoster.clock(at(minutes: -8 * 60 + 5), calendar: utc) == "00:05", "two digits for the hours")
-    }
-
     // MARK: - The name of a session (Task 25)
-    // A hook's `session_title` (a custom title: --name, /rename, a rename in the Claude app or VS Code)
-    // comes first, then the status line's `session_name` (the custom name, else the AI title), then
-    // the project folder.
+    // One name per session: the latest non-empty one wins, whatever its source, a hook's
+    // `session_title` (a custom title: --name, /rename, a rename in the Claude app or VS Code) or the
+    // status line's `session_name` (the custom name, else the AI title). Without a name, the project
+    // folder (the first prompt's name comes before it, Task 27 below).
 
     static func row(_ roster: SessionRoster, _ id: String) -> SessionRow? { roster.rows.first { $0.id == id } }
 
@@ -744,7 +735,7 @@ enum SessionRosterTests {
                          "\(String(describing: blank)) is no name")
             precondition(row(roster, "s")?.title == "Nom choisi", "\(String(describing: blank)) replaced the name")
         }
-        // The status line's name is still there under the custom title: a blank title did not clear it.
+        // A session with no name yet: a blank name leaves it on its folder.
         var bare = SessionRoster()
         bare.update(sessionId: "s", pillId: "integration_claude", folder: "dossier", phase: .working,
                     lastAction: nil, at: at(minutes: 0))

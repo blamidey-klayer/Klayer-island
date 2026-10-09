@@ -441,8 +441,6 @@ struct IslandContentView: View {
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
                         : .easeIn(duration: 0.16)
                     IslandViewContent(view: v, state: state)
-                        // Mini Klays of a view that is not on screen stop drawing.
-                        .environment(\.islandViewActive, active)
                         .frame(maxWidth: .infinity)
                         .frame(height: isTall ? nil : 98)
                         .frame(minHeight: (isTall && !active) ? 0 : nil, maxHeight: isTall ? .infinity : nil)

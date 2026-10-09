@@ -306,14 +306,6 @@ struct SessionRoster {
         rows.filter { !$0.phase.isEnded } + rows.filter { $0.phase.isEnded }
     }
 
-    /// The time of `date` on a 24 hour clock, « 14:05 », in `calendar`'s time zone (the user's):
-    /// the end time of a finished row (« Terminé à 14:05 »).
-    static func clock(_ date: Date, calendar: Calendar) -> String {
-        let parts = calendar.dateComponents([.hour, .minute], from: date)
-        func twoDigits(_ n: Int?) -> String { let n = n ?? 0; return n < 10 ? "0\(n)" : "\(n)" }
-        return twoDigits(parts.hour) + ":" + twoDigits(parts.minute)
-    }
-
     /// A text as the one line of a row: line breaks and tabs become one space, and a text longer
     /// than 80 characters is cut to 79 followed by « … », so `update` keeps it whole. Nil when
     /// nothing is left, so the row keeps its last action.

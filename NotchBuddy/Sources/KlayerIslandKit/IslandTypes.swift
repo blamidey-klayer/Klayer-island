@@ -60,8 +60,6 @@ struct AgentTask: Identifiable, Equatable {
     var steps: [String]
     var source: AgentSource
     var isIntegration: Bool = false  // true for persistent integration pills
-    var emote: BotEmote? = nil
-    var miniEye: EyeShape? = nil
     var pillBadge: PillBadge? = nil  // alert badge shown on pill when not focused
     var sessionBundleId: String? = nil  // app the session runs in (hook bundle_id), for "Open terminal"
     var finalLine: String?   = nil  // last assistant message shown as static text after Stop
