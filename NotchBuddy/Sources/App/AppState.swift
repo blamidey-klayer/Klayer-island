@@ -254,6 +254,28 @@ final class AppState: ObservableObject {
         if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
     }
 
+    /// A name of session `id` arrived: a hook's `session_title` (`.customTitle`) or the status
+    /// line's `session_name` (`.statusLine`), rules in `SessionRoster.name`. Its row, and the
+    /// finished or error view that tells about it, go by that name. Kept in memory only. True when
+    /// the name the session goes by changed.
+    @discardableResult
+    func nameSession(_ id: String, _ raw: Any?, from source: SessionNameSource) -> Bool {
+        guard sessionRoster.name(sessionId: id, raw, from: source, at: Date()) else { return false }
+        if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
+        if let finished = finishedSession, finished.id == id {
+            finishedSession?.title = sessionRoster.title(of: id, folder: finished.folder)
+        }
+        if let failed = failedSession, failed.id == id {
+            failedSession?.title = sessionRoster.title(of: id, folder: failed.folder)
+        }
+        return true
+    }
+
+    /// What session `id` goes by: its name when one is known, even before its row exists, else `folder`.
+    func sessionTitle(of id: String, folder: String) -> String {
+        sessionRoster.title(of: id, folder: folder)
+    }
+
     // Claude plan gauge (from statusline hook)
     @Published var claudePlanUsage: PlanUsage? = nil {
         didSet {

@@ -540,6 +540,61 @@ def scenario_8_nothing_approves_alone(run):
     ok("8 nothing is allowed without e2e_decide (3 s unanswered in 3 and 5, the killed hook printed nothing)")
 
 
+def status_line(session_id, project, env, **fields):
+    """One run of the status line relay (nb-hook --statusline), with Claude Code's status line input:
+    it forwards to the island and exits 0; no previous status line here, so it prints nothing."""
+    payload = {
+        "hook_event_name": "Status",
+        "session_id": session_id,
+        "transcript_path": "/Users/klayer-e2e/.claude/projects/-%s/%s.jsonl" % (project, session_id),
+        "cwd": "%s/%s" % (PROJECTS, project),
+        "model": {"id": "claude-opus-4-1", "display_name": "Opus"},
+        "workspace": {"current_dir": "%s/%s" % (PROJECTS, project), "project_dir": "%s/%s" % (PROJECTS, project)},
+        "version": "2.1.233",
+    }
+    payload.update(fields)
+    code, out = Relay(payload, env, args=("--statusline",)).finish(5, "nb-hook --statusline")
+    if code != 0 or out != "":
+        raise Failure("nb-hook --statusline exited %d and printed %r; expected exit 0 and no output" % (code, out))
+
+
+def title(state, session_id):
+    row = session(state, session_id)
+    return row["title"] if row else None
+
+
+def scenario_9_session_name(run):
+    """The name of a session titles its row and its finished view instead of its folder: the status
+    line's session_name, then a custom title from a hook (session_title), which comes first; the Code
+    tab note names the session by it."""
+    sid, project = new_session(), "refonte-onboarding"
+    start_turn(sid, project, "Prépare la refonte de l'onboarding")
+    name = "Refonte de l'onboarding client"
+    status_line(sid, project, claude_app_env(), session_name="  %s  " % name)
+    wait_until("the row of %s titled « %s »" % (project, name), lambda s: title(s, sid) == name)
+    stop(sid, project, "Le plan de la refonte est prêt.")
+    wait_until("the finished view of %s titled « %s »" % (project, name),
+               lambda s: s["mode"] == "expanded" and s["view"] == "finished"
+               and s["finishedSession"]["id"] == sid and s["finishedSession"]["title"] == name
+               and phase(s, sid) == "finished" and title(s, sid) == name)
+    # Renamed in the Claude app: the next prompt carries the custom title, which comes first.
+    custom = "Onboarding v2"
+    fire(hook_input(sid, "UserPromptSubmit", project, prompt="Ajoute l'étape de bienvenue", session_title=custom),
+         claude_app_env(), "UserPromptSubmit with session_title")
+    wait_until("the row of %s titled « %s »" % (project, custom),
+               lambda s: phase(s, sid) == "thinking" and title(s, sid) == custom)
+    status_line(sid, project, claude_app_env(), session_name=name)
+    keeps("the custom title before the status line's name", lambda s: title(s, sid) == custom, 1.0)
+    fire(hook_input(sid, "Notification", project, message="Claude needs your permission to use Bash",
+                    notification_type="permission_prompt"), claude_app_env(), "Notification")
+    wait_until("the note « Claude attend ta réponse » naming « %s »" % custom,
+               lambda s: s["mode"] == "expanded" and s["view"] == "note"
+               and s["claudeAppAlert"] == {"title": "Claude attend ta réponse",
+                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % custom})
+    ok("9 a session goes by its name: the status line's titles its row and its finished view, a custom "
+       "title from a hook comes first, and the Code tab note names it")
+
+
 def unanswered(relay, what, still):
     """Scenario 8: a request nobody answers stays pending; nb-hook prints nothing and keeps waiting."""
     deadline = time.monotonic() + SILENCE
@@ -563,6 +618,7 @@ SCENARIOS = [
     scenario_6_notification_without_card,
     scenario_7_fall_through,
     scenario_8_nothing_approves_alone,
+    scenario_9_session_name,
 ]
 
 

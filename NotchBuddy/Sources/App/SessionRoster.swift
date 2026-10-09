@@ -33,8 +33,10 @@ enum SessionPhase: String, Equatable, CaseIterable {
 }
 
 /// One running session. `id` is the hook's session id, `pillId` the pill that routes it,
-/// `title` the project folder name, `lastAction` one short line (empty until there is one),
-/// `hostBundleId` the app the session runs in (a terminal or an editor), nil when unknown.
+/// `title` what the session goes by (its name when one is known, `SessionName`, else its project
+/// folder), `lastAction` one short line (empty until there is one), `hostBundleId` the app the
+/// session runs in (a terminal or an editor), nil when unknown, `folder` the project folder name,
+/// what the title falls back to.
 struct SessionRow: Equatable, Identifiable {
     let id: String
     var pillId: String
@@ -43,6 +45,52 @@ struct SessionRow: Equatable, Identifiable {
     var lastAction: String
     var updatedAt: Date
     var hostBundleId: String? = nil
+    var folder: String = ""
+}
+
+// MARK: - The name of a session (Task 25)
+// The name the user sees in VS Code's session list and in the Claude app's Code tab, from the two
+// documented sources: the `session_title` of a hook (SessionStart and UserPromptSubmit carry it when
+// the session has a custom title: `--name`, `/rename`, a rename in the Claude app or VS Code) and the
+// `session_name` of the status line (the custom name if set, otherwise the title Claude generated).
+// The transcript is never read. Held in memory with the row, never written anywhere.
+
+/// Where a name comes from.
+enum SessionNameSource: Equatable {
+    /// A hook's `session_title`: the custom title, first.
+    case customTitle
+    /// The status line's `session_name`: the custom name or the AI title, after a custom title.
+    case statusLine
+}
+
+/// What the island knows of a session's name.
+struct SessionName: Equatable {
+    /// Longest name kept, in characters.
+    static let limit = 120
+
+    var custom: String? = nil
+    var statusLine: String? = nil
+    /// The last time a name arrived: a session with no row yet keeps it 30 min from then.
+    var notedAt: Date
+    /// The session had a row: the name goes when the row goes.
+    var hadRow = false
+
+    /// The name the session goes by, nil when none is known: the custom title, else the status
+    /// line's name.
+    var name: String? { custom ?? statusLine }
+
+    /// The title of the session's row: its name, else its folder.
+    func title(folder: String) -> String { name ?? folder }
+
+    /// A name as the island keeps it: one line (each run of spaces, tabs and line breaks becomes one
+    /// space), trimmed, cut to 120 characters. Nil for anything else than a string, or when nothing
+    /// is left: an empty name never replaces a known one.
+    static func clean(_ raw: Any?) -> String? {
+        guard let text = raw as? String else { return nil }
+        let line = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        guard !line.isEmpty else { return nil }
+        return String(line.prefix(limit)).trimmingCharacters(in: .whitespaces)
+    }
 }
 
 /// What a click on a row of the open island opens.
@@ -82,9 +130,14 @@ struct SessionRoster {
     /// Most recent activity first. At equal dates the latest `update` comes first.
     private(set) var rows: [SessionRow] = []
 
-    /// Creates or updates the row of `sessionId` and moves it to the top. A nil `lastAction`
-    /// keeps the previous one (empty for a new row); a given one is cut to 80 characters. A nil
-    /// `hostBundleId` keeps the host the session had (none for a new row).
+    /// The names of the sessions, by session id: those of the rows, and those that came before their
+    /// session's row (kept 30 min). They leave with their row (`end`, `prune`).
+    private(set) var names: [String: SessionName] = [:]
+
+    /// Creates or updates the row of `sessionId` and moves it to the top. `title` is the project
+    /// folder name: the row goes by the session's name when one is known (`name`), else by it. A nil
+    /// `lastAction` keeps the previous one (empty for a new row); a given one is cut to 80
+    /// characters. A nil `hostBundleId` keeps the host the session had (none for a new row).
     mutating func update(sessionId: String, pillId: String, title: String, phase: SessionPhase,
                          lastAction: String?, hostBundleId: String? = nil, at date: Date) {
         let previous = rows.first { $0.id == sessionId }
@@ -94,18 +147,64 @@ struct SessionRoster {
         } else {
             action = previous?.lastAction ?? ""
         }
+        names[sessionId]?.hadRow = true
         rows.removeAll { $0.id == sessionId }
-        let row = SessionRow(id: sessionId, pillId: pillId, title: title, phase: phase,
-                             lastAction: action, updatedAt: date,
-                             hostBundleId: hostBundleId ?? previous?.hostBundleId)
+        let row = SessionRow(id: sessionId, pillId: pillId, title: self.title(of: sessionId, folder: title),
+                             phase: phase, lastAction: action, updatedAt: date,
+                             hostBundleId: hostBundleId ?? previous?.hostBundleId, folder: title)
         rows.insert(row, at: rows.firstIndex { $0.updatedAt <= date } ?? rows.count)
+    }
+
+    /// A name of `sessionId` arrived (`raw`, as the hook or the status line gave it), from `source`.
+    /// A custom title replaces the custom title, a status line name the status line name, and the
+    /// row goes by the custom title first (`SessionName.title`). The row keeps its place, its date
+    /// and everything else. A blank or non-string name changes nothing. A session with no row yet
+    /// keeps its name for its row to come, 30 min from the last one noted. True when the name the
+    /// session goes by changed.
+    @discardableResult
+    mutating func name(sessionId: String, _ raw: Any?, from source: SessionNameSource, at date: Date) -> Bool {
+        dropNames(now: date)
+        guard let clean = SessionName.clean(raw) else { return false }
+        var known = names[sessionId] ?? SessionName(notedAt: date)
+        let before = known.name
+        switch source {
+        case .customTitle: known.custom = clean
+        case .statusLine:  known.statusLine = clean
+        }
+        known.notedAt = date
+        if rows.contains(where: { $0.id == sessionId }) { known.hadRow = true }
+        names[sessionId] = known
+        guard known.name != before else { return false }
+        if let index = rows.firstIndex(where: { $0.id == sessionId }) {
+            rows[index].title = known.title(folder: rows[index].folder)
+        }
+        return true
+    }
+
+    /// What session `sessionId` goes by: its name when one is known, else `folder`.
+    func title(of sessionId: String, folder: String) -> String {
+        names[sessionId]?.title(folder: folder) ?? folder
+    }
+
+    /// The names whose row left go with it. A name that came before its row stays 30 min after the
+    /// last one noted (`now`; nil keeps them all, for `end`, which has no date).
+    private mutating func dropNames(now: Date?) {
+        guard !names.isEmpty else { return }
+        let ids = Set(rows.map(\.id))
+        names = names.filter { id, name in
+            if ids.contains(id) { return true }
+            if name.hadRow { return false }
+            guard let now else { return true }
+            return now.timeIntervalSince(name.notedAt) < Self.idleLifetime
+        }
     }
 
     /// A session ended (SessionEnd): its row leaves, unless it finished or failed, the day's
     /// history that `prune` clears at midnight (Stop then quitting Claude Code is the usual end of
-    /// a session). Unknown ids change nothing.
+    /// a session), and its name with it. Unknown ids change nothing.
     mutating func end(sessionId: String) {
         rows.removeAll { $0.id == sessionId && !$0.phase.isEnded }
+        dropNames(now: nil)
     }
 
     /// Removes the rows nobody needs any more. A `finished` or `error` row stays until midnight of
@@ -113,7 +212,8 @@ struct SessionRoster {
     /// `idle` row goes after 30 minutes without activity, a working one (`thinking`, `working`,
     /// `searching`, `ratelimit`) after 2 hours, never an `approval` or a `question` (the user is
     /// still expected to answer). The age counts from the row's last update, a row is pruned once
-    /// it reaches the limit. A clock set back (now before the row's date) removes nothing.
+    /// it reaches the limit. A clock set back (now before the row's date) removes nothing. The names
+    /// of the rows removed go too, and a name without a row 30 min after it was last noted.
     mutating func prune(now: Date, calendar: Calendar) {
         rows.removeAll { row in
             let silence = now.timeIntervalSince(row.updatedAt)
@@ -138,6 +238,8 @@ struct SessionRoster {
             ended += 1
             return ended > Self.endedLimit
         }
+        // The names of the rows that left go with them.
+        dropNames(now: now)
     }
 
     /// `listed(rows)` cut to `limit` rows, nothing for a limit of 0 or less. Does not remove anything.

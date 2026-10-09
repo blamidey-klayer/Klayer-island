@@ -487,6 +487,8 @@ final class HookServer: @unchecked Sendable {
         // The app this session runs in, kept on its row: a click on the row and the finished
         // view's open button bring it forward, whatever the other sessions of the pill do.
         let sessionHost = SessionRoster.host(routed: hostApp, bundleId: bundleId)
+        // The session's custom title, before its row moves, so the row and its views go by it.
+        noteSessionTitle(in: payload, sessionId: sessionId)
         // What a Notification asks of the user, read once, before `trackSession` moves the row: an
         // idle prompt after a finish that was shown asks nothing new, and the row's phase says so.
         let asked = name == "Notification" ? askedRequest(in: payload, sessionId: sessionId) : nil
@@ -656,8 +658,9 @@ final class HookServer: @unchecked Sendable {
             if presentation == .open, state.tasks.contains(where: { $0.id == agentId }) {
                 // The finished view tells which session ended, whatever the pill and its focus become.
                 var finished = state.sessions.first { $0.id == sessionId }
-                    ?? SessionRow(id: sessionId, pillId: agentId, title: projectName, phase: .finished,
-                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost)
+                    ?? SessionRow(id: sessionId, pillId: agentId,
+                                  title: state.sessionTitle(of: sessionId, folder: projectName), phase: .finished,
+                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost, folder: projectName)
                 if !finalText.isEmpty { finished.lastAction = finalText }
                 state.finishedSession = finished
                 if state.focusId != agentId {
@@ -683,8 +686,9 @@ final class HookServer: @unchecked Sendable {
                 // The error view tells which session failed and why, like the finished view: its
                 // project, the error text of the hook (none: the view says so), the app it runs in.
                 var failed = state.sessions.first { $0.id == sessionId }
-                    ?? SessionRow(id: sessionId, pillId: agentId, title: projectName, phase: .error,
-                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost)
+                    ?? SessionRow(id: sessionId, pillId: agentId,
+                                  title: state.sessionTitle(of: sessionId, folder: projectName), phase: .error,
+                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost, folder: projectName)
                 failed.lastAction = SessionRoster.failureText(of: payload) ?? ""
                 state.failedSession = failed
                 if state.focusId != agentId {
@@ -810,6 +814,13 @@ final class HookServer: @unchecked Sendable {
         if let usage = ClaudePlanGauge.parse(payload: payload) {
             AppState.shared.claudePlanUsage = usage
         }
+        // The session's name (`session_name`: its custom name, else the title Claude generated),
+        // which the relay forwards when the status line has one. nb.log says a name arrived, never it.
+        if let sessionId = payload["session_id"] as? String, !sessionId.isEmpty,
+           let name = payload["session_name"],
+           AppState.shared.nameSession(sessionId, name, from: .statusLine) {
+            nbLog("Session name from the status line (\(sessionId.prefix(8)))")
+        }
     }
 
     // MARK: - Permission request (blocking: Claude Code waits for decision)
@@ -840,6 +851,7 @@ final class HookServer: @unchecked Sendable {
         if validateAgent(rawAgent) != nil { lastDesktopHookAt = Date() }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
+        noteSessionTitle(in: payload, sessionId: sessionId)
 
         let tool = payload["tool_name"] as? String ?? "Tool"
         let toolInput = payload["tool_input"] as? [String: Any] ?? [:]
@@ -1000,6 +1012,7 @@ final class HookServer: @unchecked Sendable {
         if validateAgent(rawAgent) != nil { lastDesktopHookAt = Date() }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
+        noteSessionTitle(in: payload, sessionId: sessionId)
 
         // A permission card on screen is never swapped for this question under the pointer: the
         // question waits behind it, badged, and shows once the permission is answered.
@@ -1222,8 +1235,9 @@ final class HookServer: @unchecked Sendable {
 
     // MARK: - Session roster
 
-    /// Feeds the roster of running sessions (one row per session) from a hook event, titled with the
-    /// project folder name, with the app the session runs in (`host`, nil keeps the known one).
+    /// Feeds the roster of running sessions (one row per session) from a hook event, with the project
+    /// folder name (`title`: the row goes by the session's name when the roster knows one), with the
+    /// app the session runs in (`host`, nil keeps the known one).
     /// Events that say nothing new about a session (SubagentStart…) leave its row alone, except that
     /// a tool that ran puts a row the Claude app's notification left on approval or question back on
     /// working (the user answered). Permissions and questions feed it from their own request.
@@ -1290,8 +1304,19 @@ final class HookServer: @unchecked Sendable {
         guard let sessionId,
               let row = state.sessions.first(where: { $0.id == sessionId }),
               row.phase == .approval || row.phase == .question else { return }
-        state.updateSession(sessionId: sessionId, pillId: row.pillId, title: row.title,
+        state.updateSession(sessionId: sessionId, pillId: row.pillId, title: row.folder,
                             phase: .working, lastAction: nil)
+    }
+
+    /// The custom title a hook carries names its session (`session_title`: SessionStart and
+    /// UserPromptSubmit have it when the session was named with `--name` or `/rename`, or renamed in
+    /// the Claude app or VS Code). It comes before the status line's name. nb.log says a title
+    /// arrived, never the title.
+    @MainActor
+    private func noteSessionTitle(in payload: [String: Any], sessionId: String) {
+        guard let title = payload["session_title"],
+              AppState.shared.nameSession(sessionId, title, from: .customTitle) else { return }
+        nbLog("Session title from a hook (\(sessionId.prefix(8)))")
     }
 
     /// True while a permission or a question card of this session is held (on screen, or waiting for
@@ -1324,14 +1349,16 @@ final class HookServer: @unchecked Sendable {
     /// The note of a Claude app notification that asks something (`kind`), through the one entry of
     /// Claude app alerts: shown, or, the island busy, its sound and the alert held for when it frees.
     /// A permission has the approval sound, Claude waiting (idle, or an MCP form) the question one.
+    /// The line names the session by its name, else its folder (`projectName`).
     @MainActor
     private func alertClaudeApp(_ kind: CodeNotification.Kind, projectName: String, sessionId: String) {
         let title = String(localized: "Claude attend ta réponse")
+        let session = AppState.shared.sessionTitle(of: sessionId, folder: projectName)
         let detail: String
         switch kind {
-        case .permission: detail = String(localized: "Une autorisation t'attend dans l'app Claude : \(projectName)")
+        case .permission: detail = String(localized: "Une autorisation t'attend dans l'app Claude : \(session)")
         case .waiting, .idle:
-            detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(projectName)")
+            detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(session)")
         }
         let shown = AppState.shared.showClaudeAppAlert(title: title, message: detail,
                                                        sound: kind == .permission ? "approval" : "question")
@@ -1713,13 +1740,22 @@ def main():
         '~/Library/Application Support/NotchBuddy/nb.sock'
     )
 
-    # --statusline mode: relay rate_limits to Klayer Island, then delegate to saved previous
+    # --statusline mode: relay rate_limits and the session's name to Klayer Island, then delegate
+    # to saved previous
     if '--statusline' in sys.argv[1:]:
         relay = {
             'klayer_kind': 'statusline',
             'session_id': payload.get('session_id', ''),
             'rate_limits': payload.get('rate_limits', {}),
         }
+        # session_name: the custom name of the session, else the title Claude generated; absent
+        # when it has neither. Trimmed, 120 characters at most.
+        try:
+            name = payload.get('session_name')
+            if isinstance(name, str) and name.strip():
+                relay['session_name'] = name.strip()[:120].rstrip()
+        except Exception:
+            pass
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(0.3)
