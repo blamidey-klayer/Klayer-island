@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5 (non publiée)
+
+Correctif de la 0.3.4. Build 19. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.11, point « Roue ».
+
+- **Plantage sous macOS 27, suite.** La liste des sessions revient à un défilement simple : l'effet d'arc est coupé, le temps de le vérifier sur macOS 27. La 0.3.4 plantait encore sous macOS 27. La liste de la maison défile comme dans la 0.3.2 : ni marge en haut et en bas, ni recalage, ni effet pendant le défilement, et rien ne lit sa position. Les lignes gardent leur contenu de la 0.3.3 : le nom de la session, sa dernière action en clair, l'icône de sa source. Au repos, la première ligne est en haut de la carte, face à la première icône du rail.
+- **Tests.** L'effet d'arc reste dans le code et ses règles restent testées ; il revient d'un seul réglage (`HomeLayout.wheelEnabled`), et le test de la maison vérifie qu'il reste coupé. Le 12e scénario de bout en bout (ouvrir, fermer et faire défiler la maison remplie) ne change pas.
+
 ## 0.3.4 (non publiée)
 
 Correctif de la 0.3.3. Build 18. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.11, point « Roue ».
