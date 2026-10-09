@@ -16,7 +16,9 @@ import ApplicationServices
 // - CPU: no timer while `ClaudeAppWatchState.needsPolling` is false. NSWorkspace notifications
 //   (activation, launch, quit) wake it. A read every 2 s while the Claude app is in front or an
 //   answer is under way (from behind: at most 15 unreadable reads in a row, at most 60 min), on one
-//   serial queue, bounded (depth 30, 5 000 nodes, 0.5 s per call). The state decides alone.
+//   serial queue, bounded (depth 30, 5 000 nodes, 0.5 s per call). The state decides alone. While
+//   the displays sleep or the user's session is not the active one, no timer and no read: one read
+//   when they come back, then the state decides again.
 // - Not trusted for Accessibility: nothing is read or scheduled.
 
 @MainActor
@@ -25,8 +27,9 @@ final class ClaudeAppWatcher {
 
     /// UserDefaults: « Suivre Chat et Cowork dans l'app Claude (expérimental) », on by default.
     nonisolated static let enabledKey = "claudeAppWatchEnabled"
-    /// UserDefaults: macOS's Accessibility prompt already showed once without a click of the user.
-    nonisolated private static let promptedKey = "claudeAppWatchPrompted"
+    /// UserDefaults: the build (CFBundleVersion) macOS's Accessibility prompt last showed for without
+    /// a click of the user.
+    nonisolated private static let promptedBuildKey = "claudeAppWatchPromptedBuild"
 
     nonisolated static var isEnabled: Bool {
         UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
@@ -50,6 +53,13 @@ final class ClaudeAppWatcher {
     private var nextRead: Task<Void, Never>?
     /// Bumped on every reset: the result of a read started before it is dropped.
     private var generation = 0
+    /// The displays sleep, or the user's session is not the active one (another user, the login
+    /// window): no timer and no read until both are back.
+    private var screensAsleep = false
+    private var sessionInactive = false
+    private var paused: Bool { screensAsleep || sessionInactive }
+    /// « Accessibility access not granted » was written to the log in this launch.
+    private var missingAccessLogged = false
 
     private init() {}
 
@@ -78,7 +88,25 @@ final class ClaudeAppWatcher {
                 let app = ClaudeAppWatcher.appRef(note)
                 MainActor.assumeIsolated { ClaudeAppWatcher.shared.appTerminated(app) }
             },
+            // The displays sleep and wake, the session goes inactive and comes back (M8).
+            center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil,
+                               queue: .main) { _ in
+                MainActor.assumeIsolated { ClaudeAppWatcher.shared.setPause(screensAsleep: true) }
+            },
+            center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil,
+                               queue: .main) { _ in
+                MainActor.assumeIsolated { ClaudeAppWatcher.shared.setPause(screensAsleep: false) }
+            },
+            center.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil,
+                               queue: .main) { _ in
+                MainActor.assumeIsolated { ClaudeAppWatcher.shared.setPause(sessionInactive: true) }
+            },
+            center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil,
+                               queue: .main) { _ in
+                MainActor.assumeIsolated { ClaudeAppWatcher.shared.setPause(sessionInactive: false) }
+            },
         ]
+        logMissingAccessOnce()
         if let app = Self.runningClaudeApp() {
             claudeSeen(pid: app.processIdentifier)
             if app.isActive { beginReading() }
@@ -96,6 +124,8 @@ final class ClaudeAppWatcher {
             observers = []
             resetReading()
             claudePid = nil
+            screensAsleep = false
+            sessionInactive = false
         }
         if waitForRestore { reader.quit() } else { reader.release() }
     }
@@ -127,16 +157,28 @@ final class ClaudeAppWatcher {
         AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
-    /// The prompt shows on its own at most once ever: the first time the watch is on and the Claude
-    /// app is seen running without access. Afterwards only from Settings.
+    /// The prompt shows on its own at most once per build: the first time the watch is on and the
+    /// Claude app is seen running without access, for a build it has not shown for yet (an ad hoc
+    /// signed build loses the access at each update). Afterwards only from Settings.
     private func promptForAccessIfFirstTime() {
+        logMissingAccessOnce()
         let defaults = UserDefaults.standard
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
         guard ClaudeAppWatchRules.promptsForAccess(trusted: Self.accessGranted,
-                                                   alreadyPrompted: defaults.bool(forKey: Self.promptedKey))
+                                                   promptedBuild: defaults.string(forKey: Self.promptedBuildKey),
+                                                   currentBuild: build)
         else { return }
-        defaults.set(true, forKey: Self.promptedKey)
-        log("Accessibility prompt shown (once)")
+        defaults.set(build, forKey: Self.promptedBuildKey)
+        log("Accessibility prompt shown (once for build \(build))")
         Self.showAccessPrompt()
+    }
+
+    /// Once per launch, while the watch is on: the log says that access is missing, so a watch that
+    /// reads nothing after an update shows in claude-app.log.
+    private func logMissingAccessOnce() {
+        guard running, !missingAccessLogged, !Self.accessGranted else { return }
+        missingAccessLogged = true
+        log("Accessibility access not granted: nothing is read (Settings, Agents, « Autoriser l'accès »)")
     }
 
     // MARK: - The Claude app comes and goes
@@ -190,16 +232,36 @@ final class ClaudeAppWatcher {
         promptForAccessIfFirstTime()
     }
 
+    // MARK: - Pause (M8)
+
+    /// The displays went to sleep or woke, the session went inactive or came back. Paused: the
+    /// timer goes and the Claude app's tree goes back off; a read under way finishes, nothing follows
+    /// it. Back: one read (with access), then the state decides as after any read.
+    private func setPause(screensAsleep asleep: Bool? = nil, sessionInactive inactive: Bool? = nil) {
+        guard running else { return }
+        let wasPaused = paused
+        if let asleep { screensAsleep = asleep }
+        if let inactive { sessionInactive = inactive }
+        if paused, !wasPaused {
+            log("Paused: the displays sleep or the session is inactive")
+            stopReading()
+        } else if !paused, wasPaused {
+            log("Resumed")
+            beginReading()
+        }
+    }
+
     // MARK: - Reading
 
-    /// The Claude app came in front: reads start, if access is granted. Not trusted: nothing runs.
+    /// The Claude app came in front, or the watch resumes: reads start, if access is granted. Not
+    /// trusted: nothing runs.
     private func beginReading() {
-        guard running, claudePid != nil, Self.accessGranted else { return }
+        guard running, !paused, claudePid != nil, Self.accessGranted else { return }
         readNow()
     }
 
     private func readNow() {
-        guard running, let pid = claudePid else { return }
+        guard running, !paused, let pid = claudePid else { return }
         nextRead?.cancel()
         nextRead = nil
         if readInFlight {
@@ -244,7 +306,10 @@ final class ClaudeAppWatcher {
             // A read that said nothing (no window, a timeout): the state decides whether to go on.
             state.observeUnreadable(appFrontmost: frontmost)
         }
-        if readAgain {
+        if paused {
+            // The displays went to sleep (or the session inactive) during the walk: nothing follows.
+            stopReading()
+        } else if readAgain {
             readAgain = false
             readNow()
         } else if state.needsPolling {
@@ -259,7 +324,7 @@ final class ClaudeAppWatcher {
         nextRead = Task { @MainActor in
             try? await Task.sleep(for: .seconds(ClaudeAppWatchRules.pollInterval))
             guard !Task.isCancelled else { return }
-            ClaudeAppWatcher.shared.readNow()
+            ClaudeAppWatcher.shared.readNow()   // nothing while paused
         }
     }
 

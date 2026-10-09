@@ -156,10 +156,12 @@ enum ClaudeAppWatchRules {
         return title
     }
 
-    /// The Accessibility prompt shows on its own at most once ever (the first time the watch is on
-    /// and the Claude app is seen running); afterwards only from Settings.
-    static func promptsForAccess(trusted: Bool, alreadyPrompted: Bool) -> Bool {
-        !trusted && !alreadyPrompted
+    /// The Accessibility prompt shows on its own at most once per build: the first time the watch is
+    /// on and the Claude app is seen running without access, for a build (`currentBuild`, its
+    /// CFBundleVersion) other than the one it last showed for (`promptedBuild`, nil when never). An
+    /// ad hoc signed build loses the access at each update. Afterwards only from Settings.
+    static func promptsForAccess(trusted: Bool, promptedBuild: String?, currentBuild: String) -> Bool {
+        !trusted && promptedBuild != currentBuild
     }
 
     /// The app launched by the end-to-end test (`KLAYER_ISLAND_TEST=1`): no watch, no prompt.

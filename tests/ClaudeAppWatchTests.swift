@@ -45,9 +45,10 @@ enum ClaudeAppWatchTests {
             ("an_answer_read_again_after_unreadable_reads_ends_with_a_confirmation",
              anAnswerReadAgainAfterUnreadableReadsEndsWithAConfirmation),
             ("an_answer_behind_for_over_60_min_is_dropped", anAnswerBehindForOver60MinIsDropped),
+            ("an_unreadable_read_in_front_starts_the_count_again", anUnreadableReadInFrontStartsTheCountAgain),
             // The alert, the permission prompt, the test launch
             ("the_alert_line_is_the_conversation_title_when_readable", theAlertLineIsTheConversationTitleWhenReadable),
-            ("the_accessibility_prompt_shows_once_ever_on_its_own", theAccessibilityPromptShowsOnceEverOnItsOwn),
+            ("the_accessibility_prompt_shows_once_per_build_on_its_own", theAccessibilityPromptShowsOncePerBuildOnItsOwn),
             ("a_test_launch_never_watches", aTestLaunchNeverWatches),
             // The diagnostic copied by Baptiste
             ("the_diagnostic_lists_unique_button_lines", theDiagnosticListsUniqueButtonLines),
@@ -492,6 +493,25 @@ enum ClaudeAppWatchTests {
         precondition(t.needsPolling)
     }
 
+    // Task 21 parked minor: an unreadable read made with the Claude app in front (no window yet, a
+    // timeout) starts the count of unreadable reads behind again: the 30 s are counted from the last
+    // time the app went behind, not across a visit to it.
+    static func anUnreadableReadInFrontStartsTheCountAgain() {
+        var s = ClaudeAppWatchState()
+        precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0)).isEmpty)
+        for _ in 1..<ClaudeAppWatchRules.unreadableReadLimit { s.observeUnreadable(appFrontmost: false) }
+        precondition(s.unreadableStreak == ClaudeAppWatchRules.unreadableReadLimit - 1)
+        s.observeUnreadable(appFrontmost: true)
+        precondition(s.unreadableStreak == 0, "read in front: the count starts again")
+        precondition(s.needsPolling)
+        for read in 1..<ClaudeAppWatchRules.unreadableReadLimit {
+            s.observeUnreadable(appFrontmost: false)
+            precondition(s.needsPolling, "unreadable read \(read) behind since the visit: the answer is still followed")
+        }
+        s.observeUnreadable(appFrontmost: false)
+        precondition(!s.needsPolling, "15 in a row behind again: dropped")
+    }
+
     // MARK: - The alert, the permission prompt, the test launch
 
     static func theAlertLineIsTheConversationTitleWhenReadable() {
@@ -503,12 +523,21 @@ enum ClaudeAppWatchTests {
         }
     }
 
-    static func theAccessibilityPromptShowsOnceEverOnItsOwn() {
-        precondition(ClaudeAppWatchRules.promptsForAccess(trusted: false, alreadyPrompted: false))
-        precondition(!ClaudeAppWatchRules.promptsForAccess(trusted: false, alreadyPrompted: true),
-                     "afterwards only from Settings")
-        precondition(!ClaudeAppWatchRules.promptsForAccess(trusted: true, alreadyPrompted: false))
-        precondition(!ClaudeAppWatchRules.promptsForAccess(trusted: true, alreadyPrompted: true))
+    // M6: an ad hoc signed build loses the Accessibility access at each update, so the prompt shows on
+    // its own once per build (the CFBundleVersion it showed for is stored), never twice for one build.
+    static func theAccessibilityPromptShowsOncePerBuildOnItsOwn() {
+        precondition(ClaudeAppWatchRules.promptsForAccess(trusted: false, promptedBuild: nil, currentBuild: "14"),
+                     "never shown: it shows")
+        precondition(!ClaudeAppWatchRules.promptsForAccess(trusted: false, promptedBuild: "14", currentBuild: "14"),
+                     "already shown for this build: afterwards only from Settings")
+        precondition(ClaudeAppWatchRules.promptsForAccess(trusted: false, promptedBuild: "13", currentBuild: "14"),
+                     "shown for an earlier build: this update lost the access, it shows once more")
+        precondition(ClaudeAppWatchRules.promptsForAccess(trusted: false, promptedBuild: "15", currentBuild: "14"),
+                     "any other build, even a later one put back")
+        for prompted in [nil, "13", "14"] as [String?] {
+            precondition(!ClaudeAppWatchRules.promptsForAccess(trusted: true, promptedBuild: prompted, currentBuild: "14"),
+                         "access granted: never")
+        }
     }
 
     static func aTestLaunchNeverWatches() {
