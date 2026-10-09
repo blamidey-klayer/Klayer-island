@@ -377,7 +377,7 @@ Pour les deux points qui lancent l'île depuis un terminal : quittez-la d'abord 
 - [ ] Libellés et permission. L'écran de dépôt et la carte de choix disent « Préparer un email ». Sur une installation neuve, la demande d'automatisation montre « Pour sauter au terminal, lire l'adresse de la page ouverte et piloter Spotify. » et ne parle plus de Mail. À noter : Mail s'ouvre-t-il à un moment ? Il ne le devrait jamais.
 - [ ] CPU. Île cachée après un brouillon : 0 % CPU.
 
-### 4.4 Retouches de fin de lot (7 min)
+### 4.4 Retouches de fin de lot (8 min)
 
 - [ ] Rouvrir sur l'autorisation. Une question est à l'écran, puis une autorisation d'une autre session attend avec son badge. Cliquez ailleurs pour replier l'île, puis survolez-la. Attendu : elle s'ouvre sur l'autorisation, sa pastille en focus, Klay dans la pose d'autorisation et le badge disparu, les boutons estompés 0,6 s. Répondez : la question s'affiche, sa pastille en focus. Même résultat avec ⌃⌥A et, s'il est activé, ⌘⇧N.
 - [ ] Pastille dans les Réglages. Île cachée, activez puis coupez une pastille dans les Réglages. Attendu : Klay ne sort pas, aucun son `peek`.
@@ -388,6 +388,7 @@ Pour les deux points qui lancent l'île depuis un terminal : quittez-la d'abord 
   - « Uninstall relay » montre la vôtre remise en place ;
   - avec votre ligne en place, « Uninstall relay » ne change rien ;
   - une sauvegarde datée existe après chaque écriture.
+- [ ] Ligne d'état qui est une simple chaîne. Copiez `~/.claude/settings.json`, puis remplacez-y la valeur de `statusLine` par une chaîne, par exemple `"statusLine": "~/bin/ma-ligne.sh"` (et non un objet). Cliquez « Install relay ». Attendu : l'aperçu montre cette chaîne, entre guillemets, sous « Before » (« Avant »), et non « (none) ». La partie « After » montre l'objet de Klayer Island. Ne confirmez que si vous voulez remplacer votre ligne ; restaurez ensuite votre copie du fichier.
 - [ ] Textes. Sur un Mac en français : la zone de dépôt dit « <nom> est prêt. » ; trois claques sur Klay donnent « Laisse-moi souffler : je reprends dans trois secondes. » ; la pastille de forfait, relais installé et aucune donnée, dit « Claude : en attente ».
 - [ ] Bordure de la zone de dépôt. Sur l'onglet +, les pointillés avancent et respirent comme avant.
 
