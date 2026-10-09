@@ -234,6 +234,48 @@ extension ClaudeCLI {
     }
 }
 
+// MARK: - Known Claude Code errors, said in French
+
+/// The error messages and subtypes Claude Code gives for a failed turn, said in French on the
+/// chat's error note and on the email card. Anything else passes through unchanged. Only error
+/// texts go through here, never what the model said in a turn that did not fail.
+enum ClaudeErrorText {
+    static let maxTurns = "Claude a atteint le nombre maximal d'étapes sans terminer."
+    static let duringExecution = "Claude Code a rencontré une erreur pendant l'exécution."
+    static let overloaded = "Les serveurs de Claude sont surchargés : réessaie dans un instant."
+    static let rateLimited = "Trop de demandes en peu de temps : réessaie dans un instant."
+    static let usageLimit = "Limite d'utilisation de ton forfait Claude atteinte : réessaie plus tard."
+    /// The chat's not-logged-in notice.
+    static let loggedOut = "Connecte Claude Code : ouvre un terminal, lance claude puis /login."
+
+    static func french(_ message: String) -> String {
+        let text = message.lowercased()
+        let isError = text.contains("error")
+        if text.contains("authentication_error") || text.contains("authentication failed")
+            || text.contains("invalid api key") || text.contains("invalid bearer token")
+            || text.contains("oauth token") || text.contains("please run /login")
+            || text.contains("not logged in") || (isError && text.contains("401")) {
+            return loggedOut
+        }
+        if text.contains("usage limit") || text.contains("hit your limit") || text.contains("limit reached") {
+            return usageLimit
+        }
+        if text.contains("rate limit") || text.contains("rate_limit") || (isError && text.contains("429")) {
+            return rateLimited
+        }
+        if text.contains("overloaded") || (isError && text.contains("529")) {
+            return overloaded
+        }
+        if text.contains("error_max_turns") || text.contains("max turns") || text.contains("maximum number of turns") {
+            return maxTurns
+        }
+        if text.contains("error_during_execution") {
+            return duringExecution
+        }
+        return message
+    }
+}
+
 // MARK: - What a dropped file becomes in the chat
 
 enum ChatAttachmentKind: Equatable {

@@ -879,7 +879,7 @@ struct ChooseView: View {
                 HStack(spacing: 8) {
                     PrimaryButton("Ask a question") { state.view = .prompt }
                     SecondaryButton("Préparer un email") {
-                        GmailDraftFlow.shared.startOver()
+                        GmailDraftFlow.shared.startOver(for: state.droppedFile)
                         state.view = .mail
                     }
                 }
@@ -900,6 +900,8 @@ struct MailView: View {
     @ObservedObject private var flow = GmailDraftFlow.shared
     /// Claude Code missing or not logged in: the same notice as the chat.
     @ObservedObject private var chat = ChatSession.shared
+    /// « À » has the focus: the address being typed is not flagged yet.
+    @FocusState private var editingTo: Bool
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -936,8 +938,11 @@ struct MailView: View {
                 form
             }
         case .working:
-            Text("Préparation du brouillon…")
-                .font(.system(size: 14, weight: .semibold))
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Préparation du brouillon…")
+                    .font(.system(size: 14, weight: .semibold))
+                SecondaryButton("Annuler") { flow.cancel(state: state) }
+            }
         case .done(let outcome):
             result(outcome)
         }
@@ -947,8 +952,8 @@ struct MailView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 6) {
-            MailField(label: "À", placeholder: "adresse@exemple.fr", text: $flow.to)
-            if let problem = DraftRecipients.problem(in: flow.to) {
+            MailField(label: "À", placeholder: "adresse@exemple.fr", text: $flow.to, focus: $editingTo)
+            if let problem = DraftRecipients.problem(in: flow.to, editing: editingTo) {
                 Text(verbatim: problem)
                     .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#FF8D97"))
@@ -2421,6 +2426,8 @@ struct MailField: View {
     let label: String
     let placeholder: String
     @Binding var text: String
+    /// Follows the field's focus, when the caller needs it.
+    var focus: FocusState<Bool>.Binding? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -2428,7 +2435,7 @@ struct MailField: View {
                 .font(.system(size: 12.5))
                 .foregroundColor(Color(hex: "#80858E"))
                 .frame(width: 44, alignment: .leading)
-            TextField(placeholder, text: $text)
+            field
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .foregroundColor(Color(hex: "#F5F6F8"))
@@ -2436,6 +2443,15 @@ struct MailField: View {
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        if let focus {
+            TextField(placeholder, text: $text).focused(focus)
+        } else {
+            TextField(placeholder, text: $text)
+        }
     }
 }
 

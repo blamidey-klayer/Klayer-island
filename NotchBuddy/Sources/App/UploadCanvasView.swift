@@ -69,7 +69,7 @@ struct UploadCanvasView: View {
 
             // Secondary: "Préparer un email" (a Gmail draft, never sent from the island)
             Button {
-                GmailDraftFlow.shared.startOver()
+                GmailDraftFlow.shared.startOver(for: state.droppedFile)
                 withAnimation(.easeInOut(duration: 0.22)) { state.view = .mail }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                     UploadSequenceEngine.shared.deactivate()

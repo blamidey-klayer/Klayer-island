@@ -6,7 +6,7 @@ import Combine
 // One long-lived `claude -p` process per conversation (`ClaudeCLI.chatArguments`: Haiku, no
 // tool, no hook, nothing saved), started on the first message. Each message is one
 // `stream-json` line on its stdin; the answer streams back on stdout, read by a
-// `readabilityHandler` into a `ClaudeStreamParser` and written into `AppState.chatHistory` on
+// reading thread into a `ClaudeStreamParser` and written into `AppState.chatHistory` on
 // the main actor. The island stores no key and no token: Claude Code uses the user's own
 // claude.ai login.
 //
@@ -338,7 +338,9 @@ final class ChatSession: ObservableObject {
             NotificationCenter.default.post(name: .triggerEmote, object: BotEmote.happy)
         case .failed(let message):
             scheduleIdleStop()
-            showError(current, message: message ?? process?.lastErrorLine ?? Self.genericError)
+            // The CLI's message is already in French when it is a known error (ChatAnswer); the
+            // last stderr line goes through the same words.
+            showError(current, message: message ?? process?.lastErrorLine.map(ClaudeErrorText.french) ?? Self.genericError)
         case .empty:
             scheduleIdleStop()
             showError(current, message: ChatAnswer.emptyMessage)
@@ -380,7 +382,7 @@ final class ChatSession: ObservableObject {
         guard let interrupted else { return }
         turn = nil
         isAnswering = false
-        showError(interrupted, message: errorLine ?? Self.genericError)
+        showError(interrupted, message: errorLine.map(ClaudeErrorText.french) ?? Self.genericError)
     }
 
     /// Stops the live process, if any, and moves to a new generation so that nothing it still
@@ -483,7 +485,7 @@ final class ChatSession: ObservableObject {
 // MARK: - A `claude` process
 
 /// A `claude` process of the island and its three pipes: the long-lived one of the chat, or the
-/// short one of a Gmail draft (GmailDraftJob). Its callbacks run on background queues: they only
+/// short one of a Gmail draft (GmailDraftJob). Its callbacks run on background threads: they only
 /// touch what is immutable here, or `errorTail` behind `lock`.
 final class ClaudeProcess: @unchecked Sendable {
     private let process = Process()
@@ -499,7 +501,7 @@ final class ClaudeProcess: @unchecked Sendable {
     private var inputClosed = false
 
     /// Starts the process. `onOutput` gets each read of stdout, `onOutputEnd` its end, `onExit`
-    /// the exit: all on background queues.
+    /// the exit: all on background threads.
     func start(binary: String, arguments: [String], environment: [String: String], directory: URL,
                onOutput: @escaping @Sendable (Data) -> Void,
                onOutputEnd: @escaping @Sendable () -> Void,
@@ -512,34 +514,42 @@ final class ClaudeProcess: @unchecked Sendable {
         process.standardOutput = output
         process.standardError = errors
 
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                // End of file: the handler would be called again and again, for nothing.
-                handle.readabilityHandler = nil
-                onOutputEnd()
-            } else {
-                onOutput(data)
-            }
-        }
-        errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-            } else {
-                self?.keepError(data)
-            }
-        }
         process.terminationHandler = { ended in onExit(ended.terminationStatus) }
 
         do {
             try process.run()
         } catch {
-            output.fileHandleForReading.readabilityHandler = nil
-            errors.fileHandleForReading.readabilityHandler = nil
             process.terminationHandler = nil
             throw error
         }
+
+        // stdout and stderr are each read by a thread of their own, blocked in read(2) until the
+        // process writes (no CPU while it waits). At the end of the stream the read end is closed
+        // right there: Foundation can keep the handle longer than this object, and its descriptor
+        // must not stay open after the run (a dispatch read source would not allow closing it).
+        let out = output.fileHandleForReading
+        let err = errors.fileHandleForReading
+        let reader = Thread {
+            while true {
+                let data = out.availableData
+                if data.isEmpty { break }
+                onOutput(data)
+            }
+            try? out.close()
+            onOutputEnd()
+        }
+        reader.name = "ai.klayer.island.claude.stdout"
+        reader.start()
+        let errorReader = Thread { [weak self] in
+            while true {
+                let data = err.availableData
+                if data.isEmpty { break }
+                self?.keepError(data)
+            }
+            try? err.close()
+        }
+        errorReader.name = "ai.klayer.island.claude.stderr"
+        errorReader.start()
     }
 
     /// Writes one line on stdin. A write that fails (the process is gone) is dropped: the end

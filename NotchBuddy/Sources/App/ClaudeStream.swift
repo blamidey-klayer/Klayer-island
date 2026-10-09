@@ -276,8 +276,8 @@ struct ChatAnswer: Equatable {
     enum End: Equatable {
         /// The text to keep in the bubble.
         case answered(String)
-        /// A failed turn, with the CLI's message when it gave one (nil: the caller says, from
-        /// the last line of stderr or its own message).
+        /// A failed turn, with the CLI's message when it gave one, in French when it is a known
+        /// error (nil: the caller says, from the last line of stderr or its own message).
         case failed(String?)
         /// The turn ended without any text.
         case empty
@@ -329,7 +329,8 @@ struct ChatAnswer: Equatable {
             case .turnEnded(let isError, let message):
                 let said = message.flatMap { Self.isBlank($0) ? nil : $0 }
                 if isError {
-                    end = .failed(said)
+                    // A known CLI error is said in French; an unknown one passes through.
+                    end = .failed(said.map(ClaudeErrorText.french))
                 } else if !Self.isBlank(text) {
                     end = .answered(text)
                 } else if let said {

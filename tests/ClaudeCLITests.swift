@@ -39,6 +39,9 @@ enum ClaudeCLITests {
             ("draft_answer_decides_gmail_missing_at_the_end", draftAnswerDecidesGmailMissingAtTheEnd),
             ("draft_answer_stops_on_any_other_tool", draftAnswerStopsOnAnyOtherTool),
             ("draft_answer_process_end_and_time_limit", draftAnswerProcessEndAndTimeLimit),
+            ("draft_answer_checks_the_call_against_the_request", draftAnswerChecksTheCallAgainstTheRequest),
+            ("draft_answer_flags_more_than_one_draft", draftAnswerFlagsMoreThanOneDraft),
+            ("cli_errors_in_french", cliErrorsInFrench),
         ]
         for (name, run) in cases {
             run()
@@ -714,7 +717,11 @@ enum ClaudeCLITests {
         // An error keeps its message; a blank one leaves it to the caller (stderr line).
         var failed = ChatAnswer()
         failed.read([delta("début"), .turnEnded(isError: true, message: "API Error: overloaded")])
-        precondition(failed.end == .failed("API Error: overloaded") && failed.text == "début")
+        precondition(failed.end == .failed("Les serveurs de Claude sont surchargés : réessaie dans un instant.")
+                     && failed.text == "début", "a known CLI error is said in French")
+        var unknown = ChatAnswer()
+        unknown.read([.turnEnded(isError: true, message: "Something odd")])
+        precondition(unknown.end == .failed("Something odd"), "an unknown error passes through")
         var silent = ChatAnswer()
         silent.read([.turnEnded(isError: true, message: "  ")])
         precondition(silent.end == .failed(nil))
@@ -833,6 +840,17 @@ enum ClaudeCLITests {
         precondition(DraftRecipients.problem(in: "a@b.fr, nope") == "Adresse invalide : nope")
         precondition(DraftRecipients.problem(in: "nope, c@d") == "Adresses invalides : nope, c@d")
 
+        // While the field has the focus, an address is flagged once a comma follows it: the one
+        // being typed is not.
+        precondition(DraftRecipients.problem(in: "j", editing: true) == nil)
+        precondition(DraftRecipients.problem(in: "jean@exemple", editing: true) == nil)
+        precondition(DraftRecipients.problem(in: "nope,", editing: true) == "Adresse invalide : nope")
+        precondition(DraftRecipients.problem(in: "nope , ", editing: true) == "Adresse invalide : nope")
+        precondition(DraftRecipients.problem(in: "nope, a@b.fr, c", editing: true) == "Adresse invalide : nope")
+        precondition(DraftRecipients.problem(in: "nope, a@b.fr, c", editing: false) == "Adresses invalides : nope, c",
+                     "once the field loses the focus, every address is checked")
+        precondition(DraftRecipients.problem(in: "a@b.fr, c@d.fr", editing: true) == nil)
+
         // « Préparer le brouillon »: at least one address, every one valid, and something to say.
         precondition(GmailDraftRequest.canPrepare(to: "a@b.fr", intent: "Envoie le devis"))
         precondition(GmailDraftRequest.canPrepare(to: "a@b.fr, c@d.fr", intent: "x"))
@@ -910,9 +928,9 @@ enum ClaudeCLITests {
 
     static func draftAnswerIsReadyWithItsPreview() {
         // The draft tool is called, Gmail answers with the draft: ready, with what was asked.
-        var answer = GmailDraftAnswer()
+        var answer = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         answer.read([.initialized(tools: ["Read", draftTool]), .assistantText("Je prépare le brouillon."),
-                     .toolUse(name: draftTool, inputJSON: "{\"subject\":\"Ancien\"}"),
+                     .toolUse(name: draftTool, inputJSON: "{\"to\":[\"a@b.fr\"],\"subject\":\"Ancien\",\"body\":\"x\"}"),
                      .toolResult(text: "Error: invalid body")])
         precondition(answer.end == nil, "a tool error is not a draft")
         answer.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: draftResult)])
@@ -926,13 +944,13 @@ enum ClaudeCLITests {
         answer.timedOut()
         precondition(answer.end == .ready(draftMade, preview))
 
-        // A draft whose call was not seen still counts; no preview then.
-        var bare = GmailDraftAnswer()
+        // A draft whose call was not seen cannot be checked against the request: never a success.
+        var bare = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         bare.read([.toolResult(text: draftResult)])
-        precondition(bare.end == .ready(draftMade, nil))
+        precondition(bare.end == .failed(GmailDraftAnswer.mismatchMessage))
 
         // A link outside mail.google.com is not a draft.
-        var evil = GmailDraftAnswer()
+        var evil = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         evil.read([.toolUse(name: draftTool, inputJSON: draftInput),
                    .toolResult(text: "{\"id\":\"r1\",\"viewUrl\":\"https://evil.example/r1\"}"),
                    .turnEnded(isError: false, message: "Brouillon créé.")])
@@ -940,7 +958,7 @@ enum ClaudeCLITests {
 
         // Read through the parser, as the job does (tool result as a list of text blocks).
         var parser = ClaudeStreamParser()
-        var streamed = GmailDraftAnswer()
+        var streamed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         let lines = [
             "{\"type\":\"system\",\"subtype\":\"init\",\"tools\":[\"\(draftTool)\"]}",
             "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"\(draftTool)\",\"input\":\(draftInput)}]}}",
@@ -952,7 +970,7 @@ enum ClaudeCLITests {
 
     static func draftAnswerDecidesGmailMissingAtTheEnd() {
         // No Gmail tool in the init event: nothing is decided yet (connectors may load later).
-        var late = GmailDraftAnswer()
+        var late = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         late.read([.initialized(tools: ["mcp__claude_ai_Slack__send_message"])])
         precondition(late.end == nil && !late.gmailToolSeen, "the init event alone decides nothing")
         late.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: draftResult)])
@@ -960,35 +978,36 @@ enum ClaudeCLITests {
                      "a connector that loads after the init event still gives the draft")
 
         // The turn ends with no Gmail tool ever seen: Gmail is not connected.
-        var missing = GmailDraftAnswer()
+        var missing = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         missing.read([.initialized(tools: []), .assistantText("Je n'ai pas d'outil Gmail."),
                       .turnEnded(isError: false, message: "Je n'ai pas d'outil Gmail.")])
         precondition(missing.end == .gmailMissing)
 
         // The Gmail tool was there (init or a call) but no draft came: failed with the turn's message.
-        var listed = GmailDraftAnswer()
+        var listed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         listed.read([.initialized(tools: [draftTool]), .turnEnded(isError: false, message: "Je ne peux pas faire ça.")])
         precondition(listed.end == .failed("Je ne peux pas faire ça."))
-        var called = GmailDraftAnswer()
+        var called = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         called.read([.initialized(tools: []), .toolUse(name: draftTool, inputJSON: draftInput),
                      .toolResult(text: "Permission denied"), .turnEnded(isError: true, message: "error_max_turns")])
-        precondition(called.gmailToolSeen && called.end == .failed("error_max_turns"))
+        precondition(called.gmailToolSeen && called.end == .failed("Claude a atteint le nombre maximal d'étapes sans terminer."),
+                     "the max-turns subtype is said in French")
         // The connector under another casing is the Gmail tool too.
-        var cased = GmailDraftAnswer()
+        var cased = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         cased.read([.initialized(tools: ["mcp__claude_ai_gmail__create_draft"]), .turnEnded(isError: false, message: nil)])
         precondition(cased.end == .failed(GmailDraftAnswer.noDraftMessage), "no message gives the default one")
         precondition(GmailDraftAnswer.noDraftMessage == "Le brouillon n'a pas pu être préparé.")
-        var blank = GmailDraftAnswer()
+        var blank = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         blank.read([.initialized(tools: [draftTool]), .turnEnded(isError: true, message: " \n ")])
         precondition(blank.end == .failed(GmailDraftAnswer.noDraftMessage), "a blank message gives the default one")
 
         // A turn that failed on its own (API error, usage limit) is not read as a missing Gmail.
-        var overloaded = GmailDraftAnswer()
+        var overloaded = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         overloaded.read([.initialized(tools: []), .turnEnded(isError: true, message: "API Error: overloaded")])
-        precondition(overloaded.end == .failed("API Error: overloaded"))
+        precondition(overloaded.end == .failed("Les serveurs de Claude sont surchargés : réessaie dans un instant."))
 
         // A long message is cut for the card.
-        var long = GmailDraftAnswer()
+        var long = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         long.read([.initialized(tools: [draftTool]), .turnEnded(isError: false, message: "  " + String(repeating: "m", count: 500) + "\n")])
         guard case .failed(let cut)? = long.end else { preconditionFailure("failed") }
         precondition(cut.count == 200 && cut.hasSuffix("…") && cut.hasPrefix("mmm"), "cut at 200 characters")
@@ -1004,14 +1023,14 @@ enum ClaudeCLITests {
         ]
         for name in others {
             precondition(!GmailDraftAnswer.isDraftTool(name), "\(name) is not the draft tool")
-            var answer = GmailDraftAnswer()
+            var answer = GmailDraftAnswer(requestedTo: ["a@b.fr"])
             answer.read([.initialized(tools: [draftTool]), .toolUse(name: name, inputJSON: "{}"),
                          .toolResult(text: draftResult)])
             precondition(answer.end == .failed(GmailDraftAnswer.otherToolMessage),
                          "\(name): stopped at once, even if a draft would follow")
         }
         // A send attempt after a draft call but before its result: stopped too.
-        var mixed = GmailDraftAnswer()
+        var mixed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         mixed.read([.toolUse(name: draftTool, inputJSON: draftInput),
                     .toolUse(name: "mcp__claude_ai_Gmail__send_message", inputJSON: "{}")])
         precondition(mixed.end == .failed(GmailDraftAnswer.otherToolMessage))
@@ -1021,27 +1040,27 @@ enum ClaudeCLITests {
         precondition(GmailDraftAnswer.isDraftTool("mcp__claude_ai_gmail__create_draft"))
         // Tools merely listed by the process are not calls: the other connectors of the account
         // are listed, and denied by the flags.
-        var listed = GmailDraftAnswer()
+        var listed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         listed.read([.initialized(tools: ["Bash", "mcp__claude_ai_Slack__send_message", draftTool])])
         precondition(listed.end == nil && listed.gmailToolSeen)
     }
 
     static func draftAnswerProcessEndAndTimeLimit() {
         // The process ends without a turn end: the last line of stderr, or a default message.
-        var crashed = GmailDraftAnswer()
+        var crashed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         crashed.read([.initialized(tools: [])])
         crashed.processEnded(lastErrorLine: "fatal: boom")
         precondition(crashed.end == .failed("fatal: boom"), "a crash is never read as a missing Gmail")
-        var silent = GmailDraftAnswer()
+        var silent = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         silent.processEnded(lastErrorLine: nil)
         precondition(silent.end == .failed(GmailDraftAnswer.stoppedMessage))
-        var blankLine = GmailDraftAnswer()
+        var blankLine = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         blankLine.processEnded(lastErrorLine: "  ")
         precondition(blankLine.end == .failed(GmailDraftAnswer.stoppedMessage), "a blank stderr line is no message")
         precondition(GmailDraftAnswer.stoppedMessage == "Claude Code s'est arrêté pendant la préparation du brouillon.")
 
         // The 90 s limit.
-        var slow = GmailDraftAnswer()
+        var slow = GmailDraftAnswer(requestedTo: ["a@b.fr"])
         slow.read([.initialized(tools: [draftTool])])
         slow.timedOut()
         precondition(slow.end == .failed("Délai dépassé."))
@@ -1054,5 +1073,118 @@ enum ClaudeCLITests {
                         GmailDraftAnswer.stoppedMessage, GmailDraftAnswer.noDraftMessage] {
             precondition(!message.contains("\u{2014}") && !message.contains("\u{2013}"), "no em or en dash")
         }
+    }
+
+    // MARK: - The Gmail draft, fix round 1
+
+    static func draftAnswerChecksTheCallAgainstTheRequest() {
+        precondition(GmailDraftAnswer.mismatchMessage
+                     == "Le brouillon ne correspond pas à ta demande : vérifie-le dans Gmail avant tout envoi.")
+        func end(_ requested: [String], _ input: String) -> GmailDraftOutcome? {
+            var answer = GmailDraftAnswer(requestedTo: requested)
+            answer.read([.initialized(tools: [draftTool]), .toolUse(name: draftTool, inputJSON: input),
+                         .toolResult(text: draftResult)])
+            return answer.end
+        }
+        let mismatch = GmailDraftOutcome.failed(GmailDraftAnswer.mismatchMessage)
+
+        // The same recipients, in any order and any case: the draft is ready.
+        let two = "{\"to\":[\"C@D.fr\",\"a@b.fr\"],\"subject\":\"S\",\"body\":\"B\"}"
+        guard case .ready(let made, _)? = end(["a@b.fr", "c@d.fr"], two) else {
+            preconditionFailure("the requested recipients, reordered: ready")
+        }
+        precondition(made == draftMade)
+        if case .ready? = end(["a@b.fr", "c@d.fr"], "{\"to\":\"c@d.fr, A@b.fr\",\"body\":\"B\"}") {} else {
+            preconditionFailure("`to` as one string is read too")
+        }
+        // Empty cc, bcc and attachments are nothing.
+        if case .ready? = end(["a@b.fr"], "{\"to\":[\"a@b.fr\"],\"cc\":[],\"bcc\":\"\",\"attachments\":[],\"replyToMessageId\":\"\",\"body\":\"B\"}") {} else {
+            preconditionFailure("empty extra fields do not count")
+        }
+
+        // Anything else than what was asked: failed, and the user checks Gmail before sending.
+        for input in [
+            "{\"to\":[\"a@b.fr\",\"x@evil.example\"],\"body\":\"B\"}",
+            "{\"to\":[\"x@evil.example\"],\"body\":\"B\"}",
+            "{\"to\":[],\"body\":\"B\"}",
+            "{\"body\":\"B\"}",
+            "{\"to\":[\"a@b.fr\"],\"cc\":[\"x@evil.example\"],\"body\":\"B\"}",
+            "{\"to\":[\"a@b.fr\"],\"bcc\":[\"x@evil.example\"],\"body\":\"B\"}",
+            "{\"to\":[\"a@b.fr\"],\"cc\":\"x@evil.example\",\"body\":\"B\"}",
+            "{\"to\":[\"a@b.fr\"],\"replyToMessageId\":\"m1\",\"body\":\"B\"}",
+            "{\"to\":[\"a@b.fr\"],\"attachments\":[{\"content\":\"QUJD\"}],\"body\":\"B\"}",
+            "not json",
+        ] {
+            precondition(end(["a@b.fr"], input) == mismatch, "\(input) does not match the request")
+        }
+        // Decided at the call, before any result.
+        var early = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        early.read([.toolUse(name: draftTool, inputJSON: "{\"to\":[\"a@b.fr\"],\"bcc\":[\"x@evil.example\"]}")])
+        precondition(early.end == mismatch, "the process is stopped at the call")
+    }
+
+    static func draftAnswerFlagsMoreThanOneDraft() {
+        precondition(GmailDraftAnswer.severalDraftsMessage == "Plusieurs brouillons ont pu être créés : vérifie-les dans Gmail.")
+        // Two draft calls before any result (one message, two tool_use blocks): stopped.
+        var parallel = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        parallel.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolUse(name: draftTool, inputJSON: draftInput),
+                       .toolResult(text: draftResult)])
+        precondition(parallel.end == .failed(GmailDraftAnswer.severalDraftsMessage))
+        // Through the parser: one assistant line with two tool_use blocks.
+        var parser = ClaudeStreamParser()
+        var streamed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        let block = "{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"\(draftTool)\",\"input\":\(draftInput)}"
+        streamed.read(feedLine(&parser, "{\"type\":\"assistant\",\"message\":{\"content\":[\(block),\(block)]}}"))
+        precondition(streamed.end == .failed(GmailDraftAnswer.severalDraftsMessage))
+
+        // A second call after the first one failed (its result is not a draft) is a retry: fine.
+        var retry = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        retry.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: "Error: quota"),
+                    .toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: draftResult)])
+        guard case .ready? = retry.end else { preconditionFailure("a retry after a failed call: ready, got \(String(describing: retry.end))") }
+    }
+
+    static func cliErrorsInFrench() {
+        let overloaded = "Les serveurs de Claude sont surchargés : réessaie dans un instant."
+        let rate = "Trop de demandes en peu de temps : réessaie dans un instant."
+        let usage = "Limite d'utilisation de ton forfait Claude atteinte : réessaie plus tard."
+        let login = "Connecte Claude Code : ouvre un terminal, lance claude puis /login."
+        let maxTurns = "Claude a atteint le nombre maximal d'étapes sans terminer."
+        let execution = "Claude Code a rencontré une erreur pendant l'exécution."
+        let cases: [(String, String)] = [
+            ("error_max_turns", maxTurns),
+            ("Reached maximum number of turns (3)", maxTurns),
+            ("error_during_execution", execution),
+            ("API Error: overloaded", overloaded),
+            ("API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}", overloaded),
+            ("API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}", rate),
+            ("Rate limit exceeded", rate),
+            ("Claude AI usage limit reached|1760000000", usage),
+            ("You've hit your limit · resets 3pm (Europe/Paris)", usage),
+            ("Invalid API key · Please run /login", login),
+            ("OAuth token has expired. Please obtain a new token or refresh your existing token.", login),
+            ("API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}", login),
+        ]
+        for (raw, french) in cases {
+            precondition(ClaudeErrorText.french(raw) == french, "\(raw) -> \(ClaudeErrorText.french(raw))")
+        }
+        for unknown in ["fatal: boom", "Something odd", "Le brouillon n'a pas pu être préparé.", "Compte 401 euros", ""] {
+            precondition(ClaudeErrorText.french(unknown) == unknown, "\(unknown) passes through")
+        }
+        for french in [overloaded, rate, usage, login, maxTurns, execution] {
+            precondition(!french.contains("\u{2014}") && !french.contains("\u{2013}"), "no em or en dash")
+        }
+
+        // The draft card: an error turn and a crash line are said in French; what the model said in
+        // a turn that did not fail is kept as it is.
+        var turn = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        turn.read([.initialized(tools: [draftTool]), .turnEnded(isError: true, message: "Claude AI usage limit reached|1760000000")])
+        precondition(turn.end == .failed(usage))
+        var crash = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        crash.processEnded(lastErrorLine: "Invalid API key · Please run /login")
+        precondition(crash.end == .failed(login))
+        var said = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        said.read([.initialized(tools: [draftTool]), .turnEnded(isError: false, message: "Le serveur est overloaded, désolé.")])
+        precondition(said.end == .failed("Le serveur est overloaded, désolé."), "the model's own words are not rewritten")
     }
 }
