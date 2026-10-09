@@ -26,6 +26,9 @@ struct HeldClaudeAppAlert: Equatable, Sendable {
     var sound: String
     /// When it was held: past `ClaudeAppAlertHold.lifetime` it says nothing current.
     var heldAt: Date
+    /// The Code tab session the alert is about; nil for the Chat and Cowork watch, whose alerts come
+    /// only with the Claude app behind (its activation drops them).
+    var sessionId: String? = nil
 
     /// The mark of the house tab: finished for a finished answer, approval for anything asked.
     var badge: PillBadge { sound == "finish" ? .finished : .approval }
@@ -60,6 +63,28 @@ struct ClaudeAppAlertHold: Equatable, Sendable {
     /// The home's list is on screen: its rows tell what the pill's badge said. A held alert stays.
     mutating func homeListShown() {
         unseenBadge = nil
+    }
+
+    /// A hook event of Code tab session `sessionId` other than a notification (a tool ran, a prompt,
+    /// an end, a new request): what its held alert asked was answered in the Claude app, or is asked
+    /// again by its own card. The held alert of that session goes, and its mark on the house tab.
+    mutating func sessionMovedOn(_ sessionId: String) {
+        if held?.sessionId == sessionId { held = nil }
+    }
+
+    /// The Claude app pill's own badge was cleared (its request shows, or left): the house tab, which
+    /// mirrors it, loses the unseen mark. A held alert keeps its own.
+    mutating func pillBadgeCleared() {
+        unseenBadge = nil
+    }
+
+    /// Past 30 min the held alert goes (the island calls this once, at that time). Returns true when
+    /// it dropped one.
+    @discardableResult
+    mutating func dropExpired(now: Date) -> Bool {
+        guard let alert = held, Self.expired(alert, now: now) else { return false }
+        held = nil
+        return true
     }
 
     /// The Claude app came in front: the user is there, what it had to say is seen.

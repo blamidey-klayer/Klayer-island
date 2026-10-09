@@ -476,9 +476,11 @@ final class AppState: ObservableObject {
     /// tab carries its badge meanwhile (ClaudeAppAlertHold). Nothing here clicks in the Claude app,
     /// answers, or approves. Returns true when the note is on its way to the screen.
     /// `sound`: the sound that plays, `question` for Claude waiting (the default), `approval` for a
-    /// permission, `finish` for a finished answer.
+    /// permission, `finish` for a finished answer. `sessionId`: the Code tab session the alert is
+    /// about (nil for the Chat and Cowork watch): a held alert goes when that session moves on.
     @discardableResult
-    func showClaudeAppAlert(title: String, message: String, sound: String = "question") -> Bool {
+    func showClaudeAppAlert(title: String, message: String, sound: String = "question",
+                            sessionId: String? = nil) -> Bool {
         let alert = ClaudeAppAlert(title: title, message: message)
         // The same alert is already on screen: no second sound, no new hold on the island.
         if mode == .expanded, view == .note, claudeAppAlert == alert { return true }
@@ -487,10 +489,12 @@ final class AppState: ObservableObject {
             expanded: mode == .expanded, view: view.rawValue, pinned: isPinned,
             requestPending: pendingApproval != nil || pendingQuestion != nil)
         // Blocked, it is held for when the island frees; shown, it replaces the one held.
-        claudeAppAlertHold.alertCame(HeldClaudeAppAlert(title: title, message: message, sound: sound, heldAt: Date()),
+        claudeAppAlertHold.alertCame(HeldClaudeAppAlert(title: title, message: message, sound: sound,
+                                                        heldAt: Date(), sessionId: sessionId),
                                      presentation: presentation)
         guard presentation == .open else {
             setPillBadge(.approval, for: HookRouting.desktopPillId)
+            scheduleHeldAlertExpiry()
             return false
         }
         putClaudeAppAlertOnNote(alert)
@@ -527,6 +531,36 @@ final class AppState: ObservableObject {
         if focusId != pill, tasks.contains(where: { $0.id == pill }) {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { setFocus(pill) }
         }
+    }
+
+    /// Token of the one wake-up at the held alert's 30 min: a later hold replaces it.
+    private var heldAlertExpiryToken = 0
+
+    /// One wake-up, just past the held alert's 30 min, drops it and its mark on the house tab
+    /// (ClaudeAppAlertHold.dropExpired). No polling: one timer per held alert, the last one only.
+    private func scheduleHeldAlertExpiry() {
+        heldAlertExpiryToken += 1
+        let token = heldAlertExpiryToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + ClaudeAppAlertHold.lifetime + 1) {
+            let state = AppState.shared
+            guard state.heldAlertExpiryToken == token, state.claudeAppAlertHold.held != nil else { return }
+            state.claudeAppAlertHold.dropExpired(now: Date())
+        }
+    }
+
+    /// A hook event of Code tab session `sessionId` other than a notification, or a new request of
+    /// it: its held alert was answered in the Claude app (or its own card asks it again). It goes,
+    /// with its mark on the house tab. Nothing is published when no alert of that session is held.
+    func claudeAppSessionMovedOn(_ sessionId: String) {
+        guard claudeAppAlertHold.held?.sessionId == sessionId else { return }
+        claudeAppAlertHold.sessionMovedOn(sessionId)
+    }
+
+    /// The Claude app pill's own badge was cleared (its request shows, or left): the house tab,
+    /// which mirrors it, loses the unseen mark.
+    func claudeAppPillBadgeCleared() {
+        guard claudeAppAlertHold.unseenBadge != nil else { return }
+        claudeAppAlertHold.pillBadgeCleared()
     }
 
     /// The Claude app came in front: the user is there. The held alert is dropped and the house tab

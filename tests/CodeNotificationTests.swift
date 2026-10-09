@@ -55,6 +55,12 @@ enum CodeNotificationTests {
             ("an_unseen_claude_app_badge_stays_until_the_list_shows", anUnseenClaudeAppBadgeStaysUntilTheListShows),
             ("the_house_tab_shows_the_strongest_badge", theHouseTabShowsTheStrongestBadge),
             ("the_claude_app_in_front_clears_the_house_tab", theClaudeAppInFrontClearsTheHouseTab),
+            // Residuals of the final re-review (I-1, M-1)
+            ("a_held_alert_of_a_session_that_moved_on_is_dropped", aHeldAlertOfASessionThatMovedOnIsDropped),
+            ("another_session_moving_on_keeps_the_held_alert", anotherSessionMovingOnKeepsTheHeldAlert),
+            ("a_watch_alert_has_no_session_to_move_on", aWatchAlertHasNoSessionToMoveOn),
+            ("the_pill_badge_cleared_clears_the_unseen_mark", thePillBadgeClearedClearsTheUnseenMark),
+            ("a_held_alert_past_30_min_is_dropped_at_its_expiry", aHeldAlertPast30MinIsDroppedAtItsExpiry),
         ]
         for (name, run) in cases {
             run()
@@ -564,6 +570,80 @@ enum CodeNotificationTests {
         hold.claudeAppCameToFront()
         precondition(hold.houseBadge(now: at(0)) == nil)
         precondition(hold.held == nil && hold.unseenBadge == nil)
+    }
+
+    // MARK: - Residuals of the final re-review
+
+    static func codeTabAlert(_ session: String?, at seconds: TimeInterval = 0) -> HeldClaudeAppAlert {
+        HeldClaudeAppAlert(title: "Claude attend ta réponse",
+                           message: "Une autorisation t'attend dans l'app Claude : essai-a",
+                           sound: "approval", heldAt: at(seconds), sessionId: session)
+    }
+
+    // I-1: A's permission was held under B's card; Baptiste answers A in the Claude app (its tool
+    // runs: PostToolUse of A), then answers B's card. The island must not show « Une autorisation
+    // t'attend » for A: its session moved on. The house tab loses the mark with it.
+    static func aHeldAlertOfASessionThatMovedOnIsDropped() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(codeTabAlert("A"), presentation: .badgeOnly)
+        precondition(hold.houseBadge(now: at(5)) == .approval)
+        hold.sessionMovedOn("A")
+        precondition(hold.held == nil, "A answered in the app: nothing waits any more")
+        precondition(hold.houseBadge(now: at(6)) == nil)
+        precondition(hold.takeForHome(presentation: home, now: at(10)) == nil, "B's card leaves: the home")
+    }
+
+    static func anotherSessionMovingOnKeepsTheHeldAlert() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(codeTabAlert("A"), presentation: .badgeOnly)
+        hold.sessionMovedOn("B")
+        precondition(hold.held == codeTabAlert("A"), "B's events say nothing about A")
+        precondition(hold.takeForHome(presentation: home, now: at(10)) == codeTabAlert("A"))
+        // The unseen pill badge is another signal: a session moving on leaves it.
+        var badged = ClaudeAppAlertHold()
+        badged.pillBadged(.finished)
+        badged.sessionMovedOn("A")
+        precondition(badged.houseBadge(now: at(0)) == .finished)
+    }
+
+    // A Chat or Cowork alert (the watch) belongs to no hook session: only the Claude app in front,
+    // a newer alert or the 30 min drop it.
+    static func aWatchAlertHasNoSessionToMoveOn() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(codeTabAlert(nil), presentation: .badgeOnly)
+        hold.sessionMovedOn("A")
+        precondition(hold.held == codeTabAlert(nil))
+        precondition(alert("Claude a fini de répondre").sessionId == nil, "no session unless given")
+    }
+
+    // M-1: the house tab mirrors the Claude app pill's badge: when the pill's badge is cleared (its
+    // request shows, or leaves), the unseen mark goes too. A held alert keeps its own mark.
+    static func thePillBadgeClearedClearsTheUnseenMark() {
+        var hold = ClaudeAppAlertHold()
+        hold.pillBadged(.approval)
+        hold.pillBadgeCleared()
+        precondition(hold.houseBadge(now: at(0)) == nil)
+        hold.pillBadged(.finished)
+        hold.alertCame(codeTabAlert("A"), presentation: .badgeOnly)
+        hold.pillBadgeCleared()
+        precondition(hold.houseBadge(now: at(1)) == .approval, "the held alert's own mark stays")
+        precondition(hold.unseenBadge == nil)
+    }
+
+    // M-1: at 30 min the island drops the held alert itself (one wake-up, no polling), so its mark
+    // goes without waiting for something else to redraw the header.
+    static func aHeldAlertPast30MinIsDroppedAtItsExpiry() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(codeTabAlert("A"), presentation: .badgeOnly)
+        precondition(!hold.dropExpired(now: at(1_800)), "30 min to the second: kept")
+        precondition(hold.held != nil)
+        precondition(hold.dropExpired(now: at(1_801)), "past 30 min: dropped, and it says so")
+        precondition(hold.held == nil && hold.houseBadge(now: at(1_801)) == nil)
+        precondition(!hold.dropExpired(now: at(1_802)), "nothing left to drop")
+        // A newer alert held since keeps its own 30 min.
+        hold.alertCame(codeTabAlert("A", at: 1_000), presentation: .badgeOnly)
+        precondition(!hold.dropExpired(now: at(1_801)))
+        precondition(hold.held == codeTabAlert("A", at: 1_000))
     }
 }
 

@@ -502,6 +502,9 @@ final class HookServer: @unchecked Sendable {
         // opens below; a session that left needs no record.
         if name == "Stop" || name == "StopFailure" { shownFinishes.ended(sessionId, shown: false) }
         if name == "SessionEnd" { shownFinishes.forget(sessionId) }
+        // Any other event of a Claude app session means it moved on (a tool ran, a prompt, an end):
+        // what its held alert asked was answered in the Claude app (ClaudeAppAlertHold.sessionMovedOn).
+        if validAgent != nil, name != "Notification" { state.claudeAppSessionMovedOn(sessionId) }
 
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
@@ -848,7 +851,11 @@ final class HookServer: @unchecked Sendable {
             }
             return
         }
-        if validateAgent(rawAgent) != nil { lastDesktopHookAt = Date() }
+        if validateAgent(rawAgent) != nil {
+            lastDesktopHookAt = Date()
+            // A new request of the session: its own card asks it now, its held alert goes.
+            AppState.shared.claudeAppSessionMovedOn(sessionId)
+        }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
         noteSessionTitle(in: payload, sessionId: sessionId)
@@ -1009,7 +1016,11 @@ final class HookServer: @unchecked Sendable {
             }
             return
         }
-        if validateAgent(rawAgent) != nil { lastDesktopHookAt = Date() }
+        if validateAgent(rawAgent) != nil {
+            lastDesktopHookAt = Date()
+            // A new request of the session: its own card asks it now, its held alert goes.
+            AppState.shared.claudeAppSessionMovedOn(sessionId)
+        }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
         noteSessionTitle(in: payload, sessionId: sessionId)
@@ -1180,9 +1191,11 @@ final class HookServer: @unchecked Sendable {
         state.tasks[idx].pillBadge = badge
     }
 
+    /// The house tab mirrors the Claude app pill's badge: it loses the unseen mark with it.
     @MainActor
     private func clearPillBadge(id: String) {
         let state = AppState.shared
+        if id == HookRouting.desktopPillId { state.claudeAppPillBadgeCleared() }
         guard let idx = state.tasks.firstIndex(where: { $0.id == id }) else { return }
         state.tasks[idx].pillBadge = nil
     }
@@ -1361,7 +1374,8 @@ final class HookServer: @unchecked Sendable {
             detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(session)")
         }
         let shown = AppState.shared.showClaudeAppAlert(title: title, message: detail,
-                                                       sound: kind == .permission ? "approval" : "question")
+                                                       sound: kind == .permission ? "approval" : "question",
+                                                       sessionId: sessionId)
         nbLog("Notification \(kind) from the Claude app (\(sessionId.prefix(8))): "
               + (shown ? "shown" : "held, the island is busy"))
     }
