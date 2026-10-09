@@ -1145,13 +1145,19 @@ final class BotEngine: ObservableObject {
         if tilt != 0 { ctx.rotate(by: .radians(Double(tilt))) }
         ctx.scaleBy(x: sx * s, y: sy * s)
         let showLimbs = W * KlayPaint.glyphSpan >= KlayPaint.limbsMinPx
-        // Searching: binoculars up in front of the eyes, held by both hands.
+        // Searching: binoculars up around the eyes, which show magnified in them, over the
+        // arms and the cheeks; the hands grip their sides in front.
         let binoculars = state == .searching
-        KlayPaint.drawFigure(ctx, limbs: showLimbs ? limbs : nil,
-                             binoculars: binoculars ? yaw : nil)
-        KlayPaint.drawBlush(ctx, amount: blush,
-                            dx: KlayMotion.gaze(yaw: yaw, pitch: pitch).eye.x * 0.8)
-        if !binoculars { drawEyes(ctx, mult: 1, center: .zero) }
+            ? KlayPaint.Binoculars(look: yaw, shape: currentEyeShape(),
+                                   gaze: KlayMotion.gaze(yaw: yaw, pitch: pitch), scale: es, open: open,
+                                   time: CGFloat(CACurrentMediaTime()))
+            : nil
+        KlayPaint.drawFigure(ctx, limbs: showLimbs ? limbs : nil, binoculars: binoculars)
+        if binoculars == nil {
+            KlayPaint.drawBlush(ctx, amount: blush,
+                                dx: KlayMotion.gaze(yaw: yaw, pitch: pitch).eye.x * 0.8)
+            drawEyes(ctx, mult: 1, center: .zero)
+        }
     }
 
     /// Mini Klay: the white glyph and eyes on a disc of the agent's or service's colour.

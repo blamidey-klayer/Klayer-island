@@ -94,31 +94,33 @@ const HAND_R = 26;
 const FOOT_RX = 32;
 const FOOT_RY = 15;
 /**
- * Binoculars of the searching state, held up over the eyes and seen a little from
- * above, so the length of the barrels shows: two teal-deep barrels, a narrow
- * eyepiece tube on top (behind) over a wider objective tube whose end faces the
- * viewer, with the teal-light glass in a brume rim; a central hinge with a focus
- * knob joins them. Right side; the left mirrors.
+ * Binoculars of the searching state, seen from the front and fitted just around the
+ * eyes: a round glass centred on each eye (the eye with its rim fits inside), in a
+ * brume rim, in a teal-deep ring. The two rings join over the bridge of the nose into
+ * one teal-deep shape, a divider between the glasses and a short bridge on top with
+ * the focus knob. Klay's eye shows magnified in each glass. Right lens; the left
+ * mirrors.
  */
 const BINO = {
-  /** Barrel axis. */
-  x: 84,
-  /** Eyepiece tube: top, bottom, half width, corner radius; brume ring across it. */
-  eyeTop: -142, eyeBottom: -94, eyeHW: 24, eyeR: 10, ringY: -128, ringH: 8,
-  /** Objective tube: top, half width, top corner radius; its end (ellipse) at objY. */
-  objTop: -104, objY: 0, objHW: 52, objR: 18, objRY: 22,
-  /** Glass in the objective end: half axes, brume rim width. */
-  glassRX: 40, glassRY: 15, glassRim: 8,
-  /** White streak of light on the glass: an arc of a smaller ellipse, angles in π. */
-  shineRX: 28, shineRY: 9, shineFrom: 1.08, shineTo: 1.42, shineW: 6,
-  /** Central hinge, the bridge between the eyepiece tubes, the focus knob on top. */
-  hingeHW: 10, hingeTop: -138, hingeBottom: -36,
-  bridgeHW: 62, bridgeTop: -124, bridgeBottom: -106,
-  knobY: -142, knobHW: 23, knobHH: 13, knobR: 9, knobBand: 8,
-  /** The sweep: x offset = yaw × sweep, rotation = yaw × turn about the pivot. */
-  sweep: 45, turn: 0.13, pivot: { x: 0, y: -60 } as P,
-  /** Where each hand grips the outer side of an objective tube. */
-  hand: { x: 146, y: -52 } as P,
+  /** Lens centre: on the eye. */
+  x: EYE_DX, y: EYE_DY,
+  /** Glass radius, then the brume rim and the teal-deep ring around it. */
+  glassR: 64, rim: 7, ring: 12,
+  /** Half width of the teal-deep divider between the two glasses, over the nose. */
+  dividerHW: 6,
+  /** The eye in the glass: the whole eye scaled by zoom about the lens centre. */
+  zoom: 1.3,
+  /** Teal-light veil at the glass edge: clear inside veilFrom × glassR, veilAlpha at the edge. */
+  veilFrom: 0.62, veilAlpha: 0.75,
+  /** White streak of light on the glass, over the eye: an arc about the lens centre, angles in π. */
+  shineR: 52, shineFrom: 1.1, shineTo: 1.4, shineW: 7,
+  /** Short bridge over the nose between the rings, the focus knob on top of it. */
+  bridgeHW: 28, bridgeTop: -84, bridgeBottom: -60,
+  knobY: -92, knobHW: 23, knobHH: 13, knobR: 9, knobBand: 8,
+  /** The sweep: x offset = yaw × sweep, turn = yaw × turn (rad) about the pivot. */
+  sweep: 12, turn: 0.08, pivot: { x: 0, y: EYE_DY } as P,
+  /** Where each hand grips the outer side of a lens. */
+  hand: { x: 146, y: -6 } as P,
 } as const;
 /** Top and bottom of the whole character (glyph top, soles), relative to the hub. */
 const TOP = -HUB_Y;
@@ -148,9 +150,9 @@ const BODY = "#FFFFFF";
 /** Eyes: Klayer teal-deep. */
 export const INK = "rgb(7,27,32)"; // #071B20
 const MINI_INK = "rgb(7,27,32)";
-/** Klayer brume, the rings and the rim of the binocular lenses. */
+/** Klayer brume, the rim of the binocular glasses and the band of their focus knob. */
 const BRUME = "#ECEDE7";
-/** Binocular lenses: Klayer teal-light. */
+/** Binocular glasses: Klayer teal-light, a veil at their edge. */
 const LENS = "#3E7280";
 
 /**
@@ -423,6 +425,25 @@ export function drawKlayArms(x: CanvasRenderingContext2D, lh: P, rh: P, ink: str
   x.restore();
 }
 
+/**
+ * The hands again, in front of what was drawn over the arms (the binoculars): the arms
+ * redrawn inside a disc a little wider than each hand, so the hands grip in front while
+ * the arms stay behind, with no seam at the wrist. In Klay's frame. Mirror of
+ * KlayPaint.drawHands on the Mac.
+ */
+export function drawKlayHands(x: CanvasRenderingContext2D, lh: P, rh: P, ink: string = INK) {
+  const r = HAND_R + 2 * LIMB_RIM;
+  x.save();
+  x.beginPath();
+  for (const h of [lh, rh]) {
+    x.moveTo(h.x + r, h.y);
+    x.arc(h.x, h.y, r, 0, Math.PI * 2);
+  }
+  x.clip();
+  drawKlayArms(x, lh, rh, ink);
+  x.restore();
+}
+
 /** Where a point of the binoculars (Klay's frame, at rest) is once they follow `look`. */
 export function binocularsPoint(p: P, look: number): P {
   const k = Math.max(-1, Math.min(1, look));
@@ -436,55 +457,70 @@ export function binocularsPoint(p: P, look: number): P {
 }
 
 /**
- * The binoculars Klay holds up in the searching state, over the eyes (which are not
- * drawn meanwhile). `look` is the yaw (−1…1): they follow the look sweep, x offset =
- * yaw × 45 and a turn of yaw × 0.13 rad about the pivot (±0.08 rad at the scan's
- * ±0.6). The hands grip them at BINO.hand (limbTargets). In Klay's frame. Mirror of
+ * The binoculars Klay holds up in the searching state, around his eyes, which show
+ * magnified in the glasses (the engine draws no other eyes meanwhile). `look` is the
+ * yaw (−1…1): they follow the look sweep, x offset = yaw × 12 and a turn of
+ * yaw × 0.08 rad about the pivot, and the eyes move with them. `eye` is the eye's
+ * shape, blink and scale; the pupils follow `g` (klayGaze) as in drawKlayEyesGaze.
+ * The hands grip them at BINO.hand (limbTargets). In Klay's frame. Mirror of
  * KlayPaint.drawBinoculars on the Mac.
  */
-export function drawKlayBinoculars(x: CanvasRenderingContext2D, look: number) {
+export function drawKlayBinoculars(
+  x: CanvasRenderingContext2D, look: number, eye: Omit<EyeLook, "yaw" | "pitch">, g: Gaze,
+) {
   const k = Math.max(-1, Math.min(1, look));
   const B = BINO;
+  const outer = B.glassR + B.rim + B.ring;
   x.save();
   x.translate(B.pivot.x + k * B.sweep, B.pivot.y);
   x.rotate(k * B.turn);
   x.translate(-B.pivot.x, -B.pivot.y);
-  // Hinge, bridge and the eyepiece tubes with their brume rings, behind.
+  // One teal-deep shape: the two rings, joined over the nose, and the short bridge on top.
   x.fillStyle = INK;
-  roundRectPath(x, -B.hingeHW, B.hingeTop, B.hingeHW * 2, B.hingeBottom - B.hingeTop, B.hingeHW);
-  x.fill();
+  for (const sd of [-1, 1]) {
+    x.beginPath();
+    x.arc(sd * B.x, B.y, outer, 0, Math.PI * 2);
+    x.fill();
+  }
   x.fillRect(-B.bridgeHW, B.bridgeTop, B.bridgeHW * 2, B.bridgeBottom - B.bridgeTop);
   for (const sd of [-1, 1]) {
-    x.fillStyle = INK;
-    roundRectPath(x, sd * B.x - B.eyeHW, B.eyeTop, B.eyeHW * 2, B.eyeBottom - B.eyeTop, B.eyeR);
-    x.fill();
+    // Each lens stops at the divider: the brume rim, then the glass inside it.
+    const side = (from: number) => {
+      x.beginPath();
+      x.rect(sd > 0 ? from : -from - outer * 2, B.y - outer, outer * 2, outer * 2);
+      x.clip();
+    };
+    x.save();
+    side(B.dividerHW);
+    x.beginPath();
+    x.arc(sd * B.x, B.y, B.glassR + B.rim, 0, Math.PI * 2);
     x.fillStyle = BRUME;
-    x.fillRect(sd * B.x - B.eyeHW, B.ringY - B.ringH / 2, B.eyeHW * 2, B.ringH);
-  }
-  // Objective tubes, their ends towards the viewer: glass in a brume rim, a streak of light.
-  for (const sd of [-1, 1]) {
-    const cx = sd * B.x;
-    x.fillStyle = INK;
-    roundRectPath(x, cx - B.objHW, B.objTop, B.objHW * 2, B.objY - B.objTop + B.objR, B.objR);
     x.fill();
+    side(B.dividerHW + B.rim);
     x.beginPath();
-    x.ellipse(cx, B.objY, B.objHW, B.objRY, 0, 0, Math.PI * 2);
-    x.fill();
+    x.arc(sd * B.x, B.y, B.glassR, 0, Math.PI * 2);
+    x.clip();
+    x.translate(sd * B.x, B.y);
+    // The eye, magnified: the whole of it scaled about the lens centre, the pupil on the gaze.
+    x.save();
+    x.scale(B.zoom, B.zoom);
+    drawKlayEye(x, eye, { x: g.pupilX, y: g.pupilY }, sd, 1);
+    x.restore();
+    // The teal-light glass, as a veil at its edge, and a streak of light over the eye.
+    const veil = x.createRadialGradient(0, 0, B.glassR * B.veilFrom, 0, 0, B.glassR);
+    veil.addColorStop(0, rgba(hexToRGB(LENS), 0));
+    veil.addColorStop(1, rgba(hexToRGB(LENS), B.veilAlpha));
+    x.fillStyle = veil;
+    x.fillRect(-B.glassR, -B.glassR, B.glassR * 2, B.glassR * 2);
     x.beginPath();
-    x.ellipse(cx, B.objY, B.glassRX, B.glassRY, 0, 0, Math.PI * 2);
-    x.fillStyle = LENS;
-    x.fill();
-    x.lineWidth = B.glassRim;
-    x.strokeStyle = BRUME;
-    x.stroke();
-    x.beginPath();
-    x.ellipse(cx, B.objY, B.shineRX, B.shineRY, 0, Math.PI * B.shineFrom, Math.PI * B.shineTo);
+    x.arc(0, 0, B.shineR, Math.PI * B.shineFrom, Math.PI * B.shineTo);
     x.lineWidth = B.shineW;
     x.lineCap = "round";
     x.strokeStyle = BODY;
     x.stroke();
+    x.restore();
   }
-  // Focus knob on top of the hinge.
+  // Focus knob on top of the bridge.
   roundRectPath(x, -B.knobHW, B.knobY - B.knobHH, B.knobHW * 2, B.knobHH * 2, B.knobR);
   x.fillStyle = INK;
   x.fill();
@@ -619,32 +655,43 @@ export function drawKlayEyesGaze(
   x: CanvasRenderingContext2D, e: Omit<EyeLook, "yaw" | "pitch">, g: Gaze,
   mult: number, cxu: number, cyu: number,
 ) {
-  const ew = EYE_W * e.es * mult;
-  const eh = EYE_H * e.es * mult;
-  const er = EYE_R * e.es * mult;
   const dx = EYE_DX * mult * g.spacing;
   x.save();
   for (const sd of [-1, 1]) {
     x.save();
     x.translate(cxu + sd * dx + g.eyeX * mult, cyu + EYE_DY * mult + g.eyeY * mult);
     x.scale(sd < 0 ? g.squeezeL : g.squeezeR, 1);
-    x.beginPath();
-    x.arc(0, 0, er, 0, Math.PI * 2);
-    x.fillStyle = "#FFFFFF";
-    x.fill();
-    x.lineWidth = EYE_RIM * mult;
-    x.strokeStyle = e.ink;
-    x.stroke();
-    // The pupil stays inside the white, inside the rim.
-    x.beginPath();
-    x.arc(0, 0, Math.max(0, er - (EYE_RIM * mult) / 2), 0, Math.PI * 2);
-    x.clip();
-    x.translate(g.pupilX * mult, g.pupilY * mult);
-    x.fillStyle = e.ink;
-    x.strokeStyle = e.ink;
-    drawEyeShape(x, e.shape, ew, eh, sd, e.open);
+    drawKlayEye(x, e, { x: g.pupilX, y: g.pupilY }, sd, mult);
     x.restore();
   }
+  x.restore();
+}
+
+/**
+ * One eye on the origin: the white with its teal-deep rim, and the eye shape moved by
+ * `pupil` (glyph units, before `mult`), kept inside the white, inside the rim. `sd` is
+ * −1 for the left eye, +1 for the right. Mirror of KlayPaint.drawEye on the Mac.
+ */
+function drawKlayEye(
+  x: CanvasRenderingContext2D, e: Omit<EyeLook, "yaw" | "pitch">, pupil: P, sd: number, mult: number,
+) {
+  const er = EYE_R * e.es * mult;
+  x.save();
+  x.beginPath();
+  x.arc(0, 0, er, 0, Math.PI * 2);
+  x.fillStyle = "#FFFFFF";
+  x.fill();
+  x.lineWidth = EYE_RIM * mult;
+  x.strokeStyle = e.ink;
+  x.stroke();
+  // The pupil stays inside the white, inside the rim.
+  x.beginPath();
+  x.arc(0, 0, Math.max(0, er - (EYE_RIM * mult) / 2), 0, Math.PI * 2);
+  x.clip();
+  x.translate(pupil.x * mult, pupil.y * mult);
+  x.fillStyle = e.ink;
+  x.strokeStyle = e.ink;
+  drawEyeShape(x, e.shape, EYE_W * e.es * mult, EYE_H * e.es * mult, sd, e.open);
   x.restore();
 }
 
@@ -1481,14 +1528,18 @@ export class BotEngine {
     x.scale(this.sx * s, this.sy * s);
 
     const limbs = W * GLYPH_SPAN >= LIMBS_MIN_PX;
-    // Searching: binoculars up in front of the eyes, held by both hands.
-    const binoculars = this.state === "searching";
     if (limbs) drawKlayLegs(x, this.lf, this.rf);
     drawKlayGlyph(x);
-    if (binoculars) drawKlayBinoculars(x, this.yaw);
     if (limbs) drawKlayArms(x, this.lh, this.rh);
-    drawKlayBlush(x, this.blush, klayGaze(this.yaw, this.pitch).eyeX * 0.8);
-    if (!binoculars) this.drawEyes(x, 1, 0, 0);
+    if (this.state === "searching") {
+      // Binoculars up around the eyes, which show magnified in them, over the arms and the
+      // cheeks; the hands grip their sides in front.
+      drawKlayBinoculars(x, this.yaw, this.eyeStyle(), klayGaze(this.yaw, this.pitch));
+      if (limbs) drawKlayHands(x, this.lh, this.rh);
+    } else {
+      drawKlayBlush(x, this.blush, klayGaze(this.yaw, this.pitch).eyeX * 0.8);
+      this.drawEyes(x, 1, 0, 0);
+    }
     x.restore();
   }
 
@@ -1532,10 +1583,13 @@ export class BotEngine {
     return shape;
   }
 
+  /** The eyes' shape, blink, scale and ink this frame. */
+  private eyeStyle(): Omit<EyeLook, "yaw" | "pitch"> {
+    return { shape: this.eyeShape(), open: this.open, es: this.es, ink: this.isMini ? MINI_INK : INK };
+  }
+
   private drawEyes(x: CanvasRenderingContext2D, mult: number, cxu: number, cyu: number) {
-    drawKlayEyesGaze(x, {
-      shape: this.eyeShape(), open: this.open, es: this.es, ink: this.isMini ? MINI_INK : INK,
-    }, klayGaze(this.yaw, this.pitch), mult, cxu, cyu);
+    drawKlayEyesGaze(x, this.eyeStyle(), klayGaze(this.yaw, this.pitch), mult, cxu, cyu);
   }
 
   private drawBadge(x: CanvasRenderingContext2D, badge: Badge, R: number, cx: number, cy: number) {

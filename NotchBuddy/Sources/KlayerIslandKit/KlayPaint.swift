@@ -39,55 +39,47 @@ enum KlayPaint {
     static let handR: CGFloat = 26
     static let footRX: CGFloat = 32
     static let footRY: CGFloat = 15
-    /// Binoculars of the searching state, held up over the eyes and seen a little from
-    /// above, so the length of the barrels shows: two teal-deep barrels, a narrow
-    /// eyepiece tube on top (behind) over a wider objective tube whose end faces the
-    /// viewer, with the teal-light glass in a brume rim; a central hinge with a focus
-    /// knob joins them. Right side; the left mirrors. Mirror of BINO in engine.ts.
+    /// Binoculars of the searching state, seen from the front and fitted just around the
+    /// eyes: a round glass centred on each eye (the eye with its rim fits inside), in a
+    /// brume rim, in a teal-deep ring. The two rings join over the bridge of the nose into
+    /// one teal-deep shape, a divider between the glasses and a short bridge on top with
+    /// the focus knob. Klay's eye shows magnified in each glass. Right lens; the left
+    /// mirrors. Mirror of BINO in engine.ts.
     enum Bino {
-        /// Barrel axis.
-        static let x: CGFloat = 84
-        /// Eyepiece tube: top, bottom, half width, corner radius; brume ring across it.
-        static let eyeTop: CGFloat = -142
-        static let eyeBottom: CGFloat = -94
-        static let eyeHW: CGFloat = 24
-        static let eyeR: CGFloat = 10
-        static let ringY: CGFloat = -128
-        static let ringH: CGFloat = 8
-        /// Objective tube: top, half width, top corner radius; its end (ellipse) at objY.
-        static let objTop: CGFloat = -104
-        static let objY: CGFloat = 0
-        static let objHW: CGFloat = 52
-        static let objR: CGFloat = 18
-        static let objRY: CGFloat = 22
-        /// Glass in the objective end: half axes, brume rim width.
-        static let glassRX: CGFloat = 40
-        static let glassRY: CGFloat = 15
-        static let glassRim: CGFloat = 8
-        /// White streak of light on the glass: an arc of a smaller ellipse, angles in π.
-        static let shineRX: CGFloat = 28
-        static let shineRY: CGFloat = 9
-        static let shineFrom: CGFloat = 1.08
-        static let shineTo: CGFloat = 1.42
-        static let shineW: CGFloat = 6
-        /// Central hinge, the bridge between the eyepiece tubes, the focus knob on top.
-        static let hingeHW: CGFloat = 10
-        static let hingeTop: CGFloat = -138
-        static let hingeBottom: CGFloat = -36
-        static let bridgeHW: CGFloat = 62
-        static let bridgeTop: CGFloat = -124
-        static let bridgeBottom: CGFloat = -106
-        static let knobY: CGFloat = -142
+        /// Lens centre: on the eye.
+        static let x: CGFloat = KlayPaint.eyeDX
+        static let y: CGFloat = KlayPaint.eyeDY
+        /// Glass radius, then the brume rim and the teal-deep ring around it.
+        static let glassR: CGFloat = 64
+        static let rim: CGFloat = 7
+        static let ring: CGFloat = 12
+        /// Half width of the teal-deep divider between the two glasses, over the nose.
+        static let dividerHW: CGFloat = 6
+        /// The eye in the glass: the whole eye scaled by zoom about the lens centre.
+        static let zoom: CGFloat = 1.3
+        /// Teal-light veil at the glass edge: clear inside veilFrom × glassR, veilAlpha at the edge.
+        static let veilFrom: CGFloat = 0.62
+        static let veilAlpha: CGFloat = 0.75
+        /// White streak of light on the glass, over the eye: an arc about the lens centre, angles in π.
+        static let shineR: CGFloat = 52
+        static let shineFrom: CGFloat = 1.1
+        static let shineTo: CGFloat = 1.4
+        static let shineW: CGFloat = 7
+        /// Short bridge over the nose between the rings, the focus knob on top of it.
+        static let bridgeHW: CGFloat = 28
+        static let bridgeTop: CGFloat = -84
+        static let bridgeBottom: CGFloat = -60
+        static let knobY: CGFloat = -92
         static let knobHW: CGFloat = 23
         static let knobHH: CGFloat = 13
         static let knobR: CGFloat = 9
         static let knobBand: CGFloat = 8
-        /// The sweep: x offset = yaw × sweep, rotation = yaw × turn (rad) about the pivot.
-        static let sweep: CGFloat = 45
-        static let turn: CGFloat = 0.13
-        static let pivot = CGPoint(x: 0, y: -60)
-        /// Where each hand grips the outer side of an objective tube.
-        static let hand = CGPoint(x: 146, y: -52)
+        /// The sweep: x offset = yaw × sweep, turn = yaw × turn (rad) about the pivot.
+        static let sweep: CGFloat = 12
+        static let turn: CGFloat = 0.08
+        static let pivot = CGPoint(x: 0, y: KlayPaint.eyeDY)
+        /// Where each hand grips the outer side of a lens.
+        static let hand = CGPoint(x: 146, y: -6)
     }
     /// Top and bottom of the whole character (glyph top, soles), relative to the hub.
     static let top: CGFloat = -400
@@ -116,9 +108,9 @@ enum KlayPaint {
     static let body = Color.white
     /// Eyes and pupils: Klayer teal-deep #071B20.
     static let ink = Color(red: 7 / 255, green: 27 / 255, blue: 32 / 255)
-    /// Klayer brume #ECEDE7, the rings and the rim of the binocular lenses.
+    /// Klayer brume #ECEDE7, the rim of the binocular glasses and the band of their focus knob.
     static let brume = Color(red: 236 / 255, green: 237 / 255, blue: 231 / 255)
-    /// Binocular lenses: Klayer teal-light #3E7280.
+    /// Binocular glasses: Klayer teal-light #3E7280, a veil at their edge.
     static let lensColor = Color(red: 62 / 255, green: 114 / 255, blue: 128 / 255)
     static let heartColor = Color(red: 232 / 255, green: 68 / 255, blue: 94 / 255)   // #E8445E
     static let starColor = Color(red: 227 / 255, green: 162 / 255, blue: 26 / 255)   // #E3A21A
@@ -288,16 +280,45 @@ enum KlayPaint {
         }
     }
 
-    /// Klay's body, in his frame: the legs behind the glyph, the glyph, then the
-    /// binoculars (searching) and the arms in front of it, as the bench draws him.
-    /// `limbs` nil leaves the legs and arms out (too small to read). `binoculars` is the
-    /// yaw the binoculars follow, nil when Klay is not holding them. The caller draws
-    /// the blush and the eyes on top, and no eyes while the binoculars are up.
-    static func drawFigure(_ ctx: GraphicsContext, limbs: Limbs?, binoculars look: CGFloat? = nil) {
+    /// The hands again, in front of what was drawn over the arms (the binoculars): the arms
+    /// redrawn inside a disc a little wider than each hand, so the hands grip in front while
+    /// the arms stay behind, with no seam at the wrist. Port of drawKlayHands in
+    /// tools/klay-preview/src/engine.ts.
+    static func drawHands(_ ctx: GraphicsContext, lh: CGPoint, rh: CGPoint) {
+        let r = handR + 2 * limbRim
+        var discs = circle(lh, r)
+        discs.addPath(circle(rh, r))
+        var c = ctx
+        c.clip(to: discs)
+        drawArms(c, lh: lh, rh: rh)
+    }
+
+    /// What the binoculars of the searching state show: the yaw they follow and the eye
+    /// magnified in their glasses (its shape, the gaze its pupils follow, its scale, its
+    /// blink, the time for the animated shapes).
+    struct Binoculars {
+        var look: CGFloat
+        var shape: EyeShape
+        var gaze: KlayGaze
+        var scale: CGFloat = 1
+        var open: CGFloat = 1
+        var time: CGFloat
+    }
+
+    /// Klay's body, in his frame: the legs behind the glyph, the glyph, the arms in front of
+    /// it, as the bench draws him. While searching (`binoculars`), the binoculars come over
+    /// the arms, Klay's eyes magnified in them, and the hands grip their sides in front.
+    /// `limbs` nil leaves the legs and arms out (too small to read). The caller draws the
+    /// blush and the eyes on top when the binoculars are not up.
+    static func drawFigure(_ ctx: GraphicsContext, limbs: Limbs?, binoculars: Binoculars? = nil) {
         if let limbs { drawLegs(ctx, lf: limbs.lf, rf: limbs.rf) }
         drawGlyph(ctx)
-        if let look { drawBinoculars(in: ctx, look: look) }
         if let limbs { drawArms(ctx, lh: limbs.lh, rh: limbs.rh) }
+        if let b = binoculars {
+            drawBinoculars(in: ctx, look: b.look, shape: b.shape, gaze: b.gaze,
+                           scale: b.scale, open: b.open, time: b.time)
+            if let limbs { drawHands(ctx, lh: limbs.lh, rh: limbs.rh) }
+        }
     }
 
     /// Where a point of the binoculars (Klay's frame, at rest) is once they follow `look`.
@@ -310,51 +331,60 @@ enum KlayPaint {
                        y: Bino.pivot.y + dx * sin(a) + dy * cos(a))
     }
 
-    /// The binoculars Klay holds up in the searching state, over the eyes (which are not
-    /// drawn meanwhile). `look` is the yaw (−1…1): they follow the look sweep, x offset =
-    /// yaw × 45 and a turn of yaw × 0.13 rad about the pivot (±0.08 rad at the scan's
-    /// ±0.6). The hands grip them at Bino.hand (limbTargets). Port of
-    /// drawKlayBinoculars in tools/klay-preview/src/engine.ts.
-    static func drawBinoculars(in ctx: GraphicsContext, look: CGFloat) {
+    /// The binoculars Klay holds up in the searching state, around his eyes, which show
+    /// magnified in the glasses (the engine draws no other eyes meanwhile). `look` is the
+    /// yaw (−1…1): they follow the look sweep, x offset = yaw × 12 and a turn of
+    /// yaw × 0.08 rad about the pivot, and the eyes move with them. `shape`, `scale` and
+    /// `open` are the eye's; its pupils follow `gaze` as in drawEyes(gaze:). The hands grip
+    /// them at Bino.hand (limbTargets). Port of drawKlayBinoculars in
+    /// tools/klay-preview/src/engine.ts.
+    static func drawBinoculars(in ctx: GraphicsContext, look: CGFloat, shape: EyeShape, gaze g: KlayGaze,
+                               scale es: CGFloat = 1, open: CGFloat = 1, time: CGFloat) {
         typealias B = Bino
         let k = max(-1, min(1, look))
+        let outer = B.glassR + B.rim + B.ring
         var c = ctx
         c.translateBy(x: B.pivot.x + k * B.sweep, y: B.pivot.y)
         c.rotate(by: .radians(Double(k * B.turn)))
         c.translateBy(x: -B.pivot.x, y: -B.pivot.y)
-        // Hinge, bridge and the eyepiece tubes with their brume rings, behind.
-        c.fill(roundedRect(CGRect(x: -B.hingeHW, y: B.hingeTop,
-                                  width: B.hingeHW * 2, height: B.hingeBottom - B.hingeTop), B.hingeHW),
-               with: .color(ink))
+        // One teal-deep shape: the two rings, joined over the nose, and the short bridge on top.
+        for sd: CGFloat in [-1, 1] {
+            c.fill(circle(CGPoint(x: sd * B.x, y: B.y), outer), with: .color(ink))
+        }
         c.fill(Path(CGRect(x: -B.bridgeHW, y: B.bridgeTop,
                            width: B.bridgeHW * 2, height: B.bridgeBottom - B.bridgeTop)),
                with: .color(ink))
+        let veil = Gradient(stops: [
+            .init(color: lensColor.opacity(0), location: 0),
+            .init(color: lensColor.opacity(Double(B.veilAlpha)), location: 1),
+        ])
         for sd: CGFloat in [-1, 1] {
-            let cx = sd * B.x
-            c.fill(roundedRect(CGRect(x: cx - B.eyeHW, y: B.eyeTop,
-                                      width: B.eyeHW * 2, height: B.eyeBottom - B.eyeTop), B.eyeR),
-                   with: .color(ink))
-            c.fill(Path(CGRect(x: cx - B.eyeHW, y: B.ringY - B.ringH / 2, width: B.eyeHW * 2, height: B.ringH)),
-                   with: .color(brume))
-        }
-        // Objective tubes, their ends towards the viewer: glass in a brume rim, a streak of light.
-        for sd: CGFloat in [-1, 1] {
-            let end = CGPoint(x: sd * B.x, y: B.objY)
-            c.fill(roundedRect(CGRect(x: end.x - B.objHW, y: B.objTop,
-                                      width: B.objHW * 2, height: B.objY - B.objTop + B.objR), B.objR),
-                   with: .color(ink))
-            c.fill(ellipse(end, B.objHW, B.objRY), with: .color(ink))
-            let glass = ellipse(end, B.glassRX, B.glassRY)
-            c.fill(glass, with: .color(lensColor))
-            c.stroke(glass, with: .color(brume), style: StrokeStyle(lineWidth: B.glassRim))
+            let center = CGPoint(x: sd * B.x, y: B.y)
+            // Each lens stops at the divider: the brume rim, then the glass inside it.
+            func side(_ from: CGFloat) -> Path {
+                Path(CGRect(x: sd > 0 ? from : -from - outer * 2, y: B.y - outer,
+                            width: outer * 2, height: outer * 2))
+            }
+            var lens = c
+            lens.clip(to: side(B.dividerHW))
+            lens.fill(circle(center, B.glassR + B.rim), with: .color(brume))
+            lens.clip(to: side(B.dividerHW + B.rim))
+            lens.clip(to: circle(center, B.glassR))
+            lens.translateBy(x: center.x, y: center.y)
+            // The eye, magnified: the whole of it scaled about the lens centre, the pupil on the gaze.
+            var eye = lens
+            eye.scaleBy(x: B.zoom, y: B.zoom)
+            drawEye(eye, shape: shape, mult: 1, pupil: g.pupil, side: sd, scale: es, open: open, time: time)
+            // The teal-light glass, as a veil at its edge, and a streak of light over the eye.
+            lens.fill(circle(.zero, B.glassR),
+                      with: .radialGradient(veil, center: .zero,
+                                            startRadius: B.glassR * B.veilFrom, endRadius: B.glassR))
             var shine = Path()
-            shine.addArc(center: .zero, radius: 1, startAngle: .radians(Double(.pi * B.shineFrom)),
+            shine.addArc(center: .zero, radius: B.shineR, startAngle: .radians(Double(.pi * B.shineFrom)),
                          endAngle: .radians(Double(.pi * B.shineTo)), clockwise: false)
-            c.stroke(shine.applying(CGAffineTransform(translationX: end.x, y: end.y)
-                                        .scaledBy(x: B.shineRX, y: B.shineRY)),
-                     with: .color(body), style: StrokeStyle(lineWidth: B.shineW, lineCap: .round))
+            lens.stroke(shine, with: .color(body), style: StrokeStyle(lineWidth: B.shineW, lineCap: .round))
         }
-        // Focus knob on top of the hinge.
+        // Focus knob on top of the bridge.
         c.fill(roundedRect(CGRect(x: -B.knobHW, y: B.knobY - B.knobHH,
                                   width: B.knobHW * 2, height: B.knobHH * 2), B.knobR),
                with: .color(ink))
@@ -419,24 +449,31 @@ enum KlayPaint {
     static func drawEyes(_ ctx: GraphicsContext, shape: EyeShape, mult: CGFloat,
                          center: CGPoint = .zero, gaze g: KlayGaze,
                          scale es: CGFloat = 1, open: CGFloat = 1, time: CGFloat) {
-        let ew = eyeW * es * mult
-        let eh = eyeH * es * mult
-        let er = eyeR * es * mult
         let dx = eyeDX * mult * g.spacing
-        let rimStyle = StrokeStyle(lineWidth: eyeRim * mult)
         for sd: CGFloat in [-1, 1] {
             var c = ctx
             c.translateBy(x: center.x + sd * dx + g.eye.x * mult,
                           y: center.y + eyeDY * mult + g.eye.y * mult)
             c.scaleBy(x: g.squeeze(side: sd), y: 1)
-            let eye = Path(ellipseIn: CGRect(x: -er, y: -er, width: er * 2, height: er * 2))
-            c.fill(eye, with: .color(body))
-            c.stroke(eye, with: .color(ink), style: rimStyle)
-            // The pupil stays inside the white, inside the rim.
-            c.clip(to: circle(.zero, max(0, er - eyeRim * mult / 2)))
-            c.translateBy(x: g.pupil.x * mult, y: g.pupil.y * mult)
-            drawEyeShape(&c, shape: shape, w: ew, h: eh, sd: sd, open: open, time: time)
+            drawEye(c, shape: shape, mult: mult, pupil: g.pupil, side: sd, scale: es, open: open, time: time)
         }
+    }
+
+    /// One eye on the origin: the white with its teal-deep rim, and the eye shape moved by
+    /// `pupil` (glyph units, before `mult`), kept inside the white, inside the rim. `sd` is
+    /// -1 for the left eye, +1 for the right. Port of drawKlayEye in
+    /// tools/klay-preview/src/engine.ts.
+    static func drawEye(_ ctx: GraphicsContext, shape: EyeShape, mult: CGFloat, pupil: CGPoint,
+                        side sd: CGFloat, scale es: CGFloat = 1, open: CGFloat = 1, time: CGFloat) {
+        let er = eyeR * es * mult
+        var c = ctx
+        let eye = circle(.zero, er)
+        c.fill(eye, with: .color(body))
+        c.stroke(eye, with: .color(ink), style: StrokeStyle(lineWidth: eyeRim * mult))
+        // The pupil stays inside the white, inside the rim.
+        c.clip(to: circle(.zero, max(0, er - eyeRim * mult / 2)))
+        c.translateBy(x: pupil.x * mult, y: pupil.y * mult)
+        drawEyeShape(&c, shape: shape, w: eyeW * es * mult, h: eyeH * es * mult, sd: sd, open: open, time: time)
     }
 
     /// One eye's pupil shape, centred on the origin. `sd` is -1 for the left eye, +1 for the right.
@@ -521,11 +558,6 @@ enum KlayPaint {
     /// A circle of radius `r` around `c`.
     static func circle(_ c: CGPoint, _ r: CGFloat) -> Path {
         Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-    }
-
-    /// An ellipse of half axes (`rx`, `ry`) around `c`.
-    static func ellipse(_ c: CGPoint, _ rx: CGFloat, _ ry: CGFloat) -> Path {
-        Path(ellipseIn: CGRect(x: c.x - rx, y: c.y - ry, width: rx * 2, height: ry * 2))
     }
 
     /// A rounded rectangle whose radius never exceeds half its width or height.
