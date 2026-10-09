@@ -1475,11 +1475,39 @@ struct NoteView: View {
     var body: some View {
         ZStack(alignment: .leading) {
             CardBackground(wash: nil)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(state.noteMessage ?? "")
-                    .font(.system(size: 15, weight: .semibold))
+            if let alert = state.claudeAppAlert {
+                // The Claude app waits for the user (AppState.showClaudeAppAlert): the note holds
+                // until the pointer has been on the island and left, like a finished session's.
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(alert.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(alert.message)
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(hex: "#9398A1"))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    HStack(spacing: 8) {
+                        PrimaryButton("Open Claude") {
+                            openClaudeDesktopApp()
+                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                        }
+                        SecondaryButton("OK") {
+                            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                        }
+                    }
+                }
+                .padding(.leading, 98)
+                .padding(.trailing, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(state.noteMessage ?? "")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .padding(.leading, 98)
             }
-            .padding(.leading, 98)
         }
     }
 }

@@ -121,7 +121,15 @@ final class AppState: ObservableObject {
     @Published var droppedFile: DroppedFile? = nil
 
     // Short note message (shown in NoteView)
-    @Published var noteMessage: String? = nil
+    @Published var noteMessage: String? = nil {
+        // A note set on its own (« Handled in Claude. », a chat error) is not the Claude app's
+        // alert: the alert only lasts while its message is the note.
+        didSet { if let alert = claudeAppAlert, alert.message != noteMessage { claudeAppAlert = nil } }
+    }
+
+    /// The alert the note view shows while the app asks something of the user: a title, a line,
+    /// and « Ouvrir Claude ». Set by `showClaudeAppAlert` only; nil for every other note.
+    @Published private(set) var claudeAppAlert: ClaudeAppAlert? = nil
 
     // Auto-close delay: persisted
     @Published var autoCloseInterval: TimeInterval = 15 {
@@ -421,6 +429,40 @@ final class AppState: ObservableObject {
         tasks[idx].pillBadge = badge
     }
 
+    // MARK: - The Claude app waits for the user (lot 6 spec §5 and §6)
+
+    /// The one entry that tells the user the Claude app waits for them (a permission or a question
+    /// of the Code tab, and later Chat and Cowork): the note view shows `title` and `message` with
+    /// « Ouvrir Claude », which opens the Claude app, then folds the island. The island opens the
+    /// way a finished session's does (`.hookExpand`): the state machine holds it until the pointer
+    /// has been on it and left, and `FinishPresentation` decides whether it may open at all: it
+    /// never covers a draft of the chat or of a mail, a card that waits, or a pinned island. Then
+    /// only the Claude app pill is badged and the sound plays. Nothing here clicks in the Claude
+    /// app, answers, or approves. Returns true when the note is on its way to the screen.
+    @discardableResult
+    func showClaudeAppAlert(title: String, message: String) -> Bool {
+        let alert = ClaudeAppAlert(title: title, message: message)
+        // The same alert is already on screen: no second sound, no new hold on the island.
+        if mode == .expanded, view == .note, claudeAppAlert == alert { return true }
+        SoundEngine.shared.play("approval")
+        let presentation = FinishPresentation.decide(
+            expanded: mode == .expanded, view: view.rawValue, pinned: isPinned,
+            requestPending: pendingApproval != nil || pendingQuestion != nil)
+        guard presentation == .open else {
+            setPillBadge(.approval, for: HookRouting.desktopPillId)
+            return false
+        }
+        noteMessage = message        // first: a note that was showing loses its own alert
+        claudeAppAlert = alert
+        // The Claude app pill, when it is loaded, takes Klay's pose and colour, as for a finish.
+        let pill = HookRouting.desktopPillId
+        if focusId != pill, tasks.contains(where: { $0.id == pill }) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { setFocus(pill) }
+        }
+        NotificationCenter.default.post(name: .hookExpand, object: IslandView.note)
+        return true
+    }
+
     /// Called on main thread after each GitHub pulse poll. Fires badge + sound based on events.
     func handleGitHubEvents(_ events: [GitHubEvent]) {
         guard !events.isEmpty else { return }
@@ -550,6 +592,12 @@ enum PromptContext {
 struct DroppedFile {
     var url: URL
     var name: String
+}
+
+/// What the note view says when the Claude app waits for the user: a title and one line.
+struct ClaudeAppAlert: Equatable {
+    var title: String
+    var message: String
 }
 
 // MARK: - GitHub

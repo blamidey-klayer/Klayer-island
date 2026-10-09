@@ -10385,6 +10385,36 @@
           }
         }
       }
+    },
+    "Claude attend ta réponse": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude attend ta réponse"
+          }
+        }
+      }
+    },
+    "Une autorisation t'attend dans l'app Claude : %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autorisation t'attend dans l'app Claude : %@"
+          }
+        }
+      }
+    },
+    "Claude a besoin de toi dans l'app Claude : %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude a besoin de toi dans l'app Claude : %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -167,7 +167,10 @@ final class HookServer: @unchecked Sendable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self else { return }
             let state = AppState.shared
-            let end = PendingRequest.noteEnd(noteStillOnScreen: self.noteToken == token && state.view == .note,
+            // The Claude app's alert took the note view since (AppState.showClaudeAppAlert): it holds
+            // until the pointer has been on the island, this timer never ends it.
+            let end = PendingRequest.noteEnd(noteStillOnScreen: self.noteToken == token && state.view == .note
+                                                && state.claudeAppAlert == nil,
                                              approval: state.pendingApproval != nil,
                                              question: state.pendingQuestion != nil)
             switch end {
@@ -572,9 +575,11 @@ final class HookServer: @unchecked Sendable {
 
         case "PostToolUse":
             resumeWork(pillId: agentId)
+            resumeAskedSession(sessionId)
 
         case "PostToolUseFailure":
             resumeWork(pillId: agentId)
+            resumeAskedSession(sessionId)
             appendStep(id: agentId, step: "⚠ failed")
 
         case "Notification":
@@ -582,6 +587,25 @@ final class HookServer: @unchecked Sendable {
             if Self.isRateLimit(message) {
                 state.updateTask(id: agentId, state: .ratelimit)
                 SoundEngine.shared.play("rate")
+            } else if let kind = askedRequest(in: payload, sessionId: sessionId) {
+                // A permission or a wait of a session of the Claude app, with no card of it held
+                // (spec §5): the island opens on it with « Ouvrir Claude », unless it may not open
+                // (then the pill is badged). Never for the terminal: askedRequest is nil for it.
+                // The row was put on approval or question by trackSession above, and Klay follows
+                // it; a finished session's row that stays finished leaves the pill alone.
+                if let row = state.sessions.first(where: { $0.id == sessionId }),
+                   row.phase == .approval || row.phase == .question,
+                   let pose = BotState(rawValue: row.phase.rawValue) {
+                    state.updateTask(id: agentId, state: pose)
+                }
+                let title = String(localized: "Claude attend ta réponse")
+                let detail: String
+                switch kind {
+                case .permission: detail = String(localized: "Une autorisation t'attend dans l'app Claude : \(projectName)")
+                case .waiting:    detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(projectName)")
+                }
+                nbLog("Notification \(kind) from the Claude app (\(sessionId.prefix(8)))")
+                state.showClaudeAppAlert(title: title, message: detail)
             } else if message.hasSuffix("?") {
                 state.updateTask(id: agentId, state: .question)
                 appendStep(id: agentId, step: message)
@@ -1189,8 +1213,15 @@ final class HookServer: @unchecked Sendable {
             phase = SessionPhase.of(tool: tool, input: input)   // « Cherche » for a search
             action = SessionRoster.line(localizedStep(tool: tool, input: input))
         case "Notification":
-            guard Self.isRateLimit(payload["message"] as? String ?? "") else { return }
-            phase = .ratelimit
+            if Self.isRateLimit(payload["message"] as? String ?? "") {
+                phase = .ratelimit
+            } else if let asked = askedPhase(of: payload, sessionId: sessionId) {
+                // The Claude app asks something and no card of that session shows it: the home's
+                // list does (« Attend ton accord », « Te pose une question »).
+                phase = asked
+            } else {
+                return
+            }
         case "Stop":
             phase = .finished
             action = SessionRoster.line(Self.finalText(of: payload))
@@ -1217,6 +1248,44 @@ final class HookServer: @unchecked Sendable {
               row.phase == .approval || row.phase == .question else { return }
         state.updateSession(sessionId: sessionId, pillId: row.pillId, title: row.title,
                             phase: .working, lastAction: nil)
+    }
+
+    /// A tool of the session ran, so the user answered what the Claude app asked (the notification
+    /// put its row on « Attend ton accord » or « Te pose une question »): the row goes back to
+    /// working, as it does when a card is answered. Not while a card of that session is held: that
+    /// request is still open, and another tool finishing does not answer it.
+    @MainActor
+    private func resumeAskedSession(_ sessionId: String) {
+        if !sessionHoldsCard(sessionId) { resumeSession(sessionId) }
+    }
+
+    /// True while a permission or a question card of this session is held (on screen, or waiting for
+    /// the pointer): what Claude asks is then already shown, a notification adds nothing.
+    @MainActor
+    private func sessionHoldsCard(_ sessionId: String) -> Bool {
+        let state = AppState.shared
+        return state.pendingApproval?.sessionId == sessionId
+            || (state.pendingQuestion != nil && questionSessionId == sessionId)
+    }
+
+    /// The request a Notification hook of a session of the Claude app carries when the island has
+    /// to show it (`CodeNotification`): nil for the terminal, for a notification that asks nothing,
+    /// and for a session whose card is held.
+    @MainActor
+    private func askedRequest(in payload: [String: Any], sessionId: String) -> CodeNotification.Kind? {
+        guard let kind = CodeNotification.alert(message: payload["message"] as? String ?? "",
+                                                notificationType: payload["notification_type"] as? String),
+              CodeNotification.shouldOpen(kind: kind, sessionHasCard: sessionHoldsCard(sessionId),
+                                          agent: payload["klayer_agent"] as? String ?? "")
+        else { return nil }
+        return kind
+    }
+
+    /// The phase that request puts its session's row in, nil when the row stays as it is.
+    @MainActor
+    private func askedPhase(of payload: [String: Any], sessionId: String) -> SessionPhase? {
+        guard let kind = askedRequest(in: payload, sessionId: sessionId) else { return nil }
+        return CodeNotification.rowPhase(for: kind, current: AppState.shared.sessions.first { $0.id == sessionId }?.phase)
     }
 
     /// One line of the last assistant message of a Stop ("" when there is none).
