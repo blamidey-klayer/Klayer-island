@@ -32,14 +32,32 @@ extension StateColor {
 extension View {
     /// The home's list as a wheel (`ListWheel`, Task 27): a row near the centre of the list is whole,
     /// towards the top and the bottom it shrinks, fades and moves slightly right. Computed by the
-    /// scroll view while the list moves, nothing at rest.
+    /// scroll view while the list moves, nothing at rest. Only when `HomeLayout.wheelEnabled` (off since
+    /// 0.3.5): otherwise the row is left as it is, no scroll transition in the tree.
+    @ViewBuilder
     func listWheel() -> some View {
-        scrollTransition(.interactive.threshold(.centered), axis: .vertical) { content, phase in
-            let look = ListWheel.look(phase: phase.value)
-            return content
-                .scaleEffect(CGFloat(look.scale), anchor: .leading)
-                .opacity(look.opacity)
-                .offset(x: CGFloat(look.xOffset), y: 0)
+        if HomeLayout.wheelEnabled {
+            scrollTransition(.interactive.threshold(.centered), axis: .vertical) { content, phase in
+                let look = ListWheel.look(phase: phase.value)
+                return content
+                    .scaleEffect(CGFloat(look.scale), anchor: .leading)
+                    .opacity(look.opacity)
+                    .offset(x: CGFloat(look.xOffset), y: 0)
+            }
+        } else {
+            self
+        }
+    }
+
+    /// The home list's margin above the first row and below the last one, so each can reach the
+    /// centre of the wheel (`ListWheel.homeMargin`, a layout constant, never a measure). Only when
+    /// `HomeLayout.wheelEnabled` (off since 0.3.5): otherwise the scroll view has no content margins.
+    @ViewBuilder
+    func listWheelMargins(_ margin: CGFloat) -> some View {
+        if HomeLayout.wheelEnabled {
+            contentMargins(.vertical, margin, for: .scrollContent)
+        } else {
+            self
         }
     }
 }

@@ -131,14 +131,12 @@ struct OverviewView: View {
     /// The list, right of Klay: the running sessions, then the day's finished ones in grey
     /// (`SessionRoster.listed`), then the 3 last choices. What does not fit in the card scrolls
     /// inside it, the card never grows. A permission or a question waiting has its own view.
-    /// A wheel (Task 27, `ListWheel`): the rows near the centre are whole, those towards the top and
-    /// the bottom smaller, fainter and slightly to the right; margins let the first and the last row
-    /// reach the centre. The last choices turn on the wheel as one block. Nothing runs at rest.
-    /// Hotfix 0.3.4: nothing here writes state from the scroll view's geometry, and the scroll does not
-    /// settle on a row. The margins are a layout constant (`ListWheel.homeMargin`): in 0.3.3 a measured
-    /// height fed them back into the list's own layout and the row snapping retargeted the offset in
-    /// the window's layout pass, a loop AppKit ended with an exception on macOS 27. The wheel itself is
-    /// a scroll transition: it changes only how the rows are drawn, never the layout.
+    /// Hotfix 0.3.5: a plain scroll view, as in 0.3.2. Nothing here reads the scroll view's geometry
+    /// or writes state from it, nothing sets its offset, no margins, no snapping, no scroll transition:
+    /// 0.3.3 and 0.3.4 crashed on macOS 27 in the scroll view's layout. The wheel of Task 27
+    /// (`ListWheel`: the rows near the centre whole, those towards the edges smaller, fainter, slightly
+    /// to the right, margins letting the first and the last row reach the centre) waits behind
+    /// `HomeLayout.wheelEnabled`, off; `listWheel` and `listWheelMargins` add nothing while it is.
     private var homeContent: some View {
         let sessions = SessionRoster.listed(state.sessions)
         return ScrollView(.vertical, showsIndicators: false) {
@@ -154,8 +152,8 @@ struct OverviewView: View {
             // Room for the rows' hover background, 4 pt past each side
             .padding(.horizontal, 4)
         }
-        // Without a session, the empty line and the choices stay at the top, as before.
-        .contentMargins(.vertical, sessions.isEmpty ? 0 : ListWheel.homeMargin, for: .scrollContent)
+        // Wheel only (off): without a session, the empty line and the choices stay at the top.
+        .listWheelMargins(sessions.isEmpty ? 0 : ListWheel.homeMargin)
         .scrollBounceBehavior(.basedOnSize)
         // The list's height, `ListWheel.homeListHeight`: change both together.
         .padding(.top, 9)

@@ -26,6 +26,7 @@ enum HomeLayoutTests {
             ("the_wheel_changes_smoothly", theWheelChangesSmoothly),
             ("the_first_and_last_rows_can_reach_the_centre", theFirstAndLastRowsCanReachTheCentre),
             ("the_home_margins_come_from_the_layout", theHomeMarginsComeFromTheLayout),
+            ("the_wheel_is_off_until_checked_on_macos_27", theWheelIsOffUntilCheckedOnMacOS27),
         ]
         for (name, run) in cases {
             run()
@@ -289,6 +290,15 @@ enum HomeLayoutTests {
         precondition(ListWheel.homeMargin == 62.5, "the first row rests at the centre, got \(ListWheel.homeMargin)")
         precondition(ListWheel.homeMargin + ListWheel.rowHeight / 2 == ListWheel.homeListHeight / 2,
                      "the first row's middle is the list's middle")
+    }
+
+    // MARK: - Hotfix 0.3.5: the wheel is off
+    // 0.3.4 still crashed on macOS 27: the home list is a plain scroll view again, as in 0.3.2. The
+    // wheel's look above stays tested for when it comes back; turning it on is a decision taken after
+    // a check on macOS 27, and changes this case with the constant.
+
+    static func theWheelIsOffUntilCheckedOnMacOS27() {
+        precondition(!HomeLayout.wheelEnabled, "the wheel stays off until it is checked on macOS 27")
     }
 }
 

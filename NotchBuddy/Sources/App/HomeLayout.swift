@@ -132,6 +132,12 @@ struct HomeLayout {
     /// Where the list starts.
     static let listStartX: CGFloat = edgeInset + rail + klay
 
+    /// The list turns as a wheel (`ListWheel`): its scroll transition on each row and its centring
+    /// margins. Off since 0.3.5: the home list is a plain scroll view, as in 0.3.2, until the wheel is
+    /// checked on macOS 27 (0.3.3 and 0.3.4 crashed there in the scroll view's layout). True puts both
+    /// modifiers back (`listWheel`, `listWheelMargins`); false leaves them out of the view tree.
+    static let wheelEnabled = false
+
     /// The rail, Klay and the list (to the island's 10 pt right edge, the card's inner margin
     /// included), never negative. The icons shown never change them: an empty rail keeps its width.
     static func widths(islandWidth: CGFloat) -> (rail: CGFloat, klay: CGFloat, list: CGFloat) {
@@ -150,6 +156,9 @@ struct HomeLayout {
 // the scroll view, and the scroll no longer settles on a row. In 0.3.3 the measured height fed the
 // margins, the margins the layout and the row snapping the offset, inside the window's layout pass:
 // AppKit stopped the loop by raising an exception (the crash on macOS 27).
+// 0.3.5: the wheel is off (`HomeLayout.wheelEnabled`), 0.3.4 still crashed on macOS 27. The home list
+// is a plain scroll view, with no scroll transition and no margins; this look stays, tested, for when
+// the wheel comes back after a check on macOS 27.
 
 enum ListWheel {
     /// Height of a row of the list.

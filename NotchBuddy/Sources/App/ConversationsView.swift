@@ -6,9 +6,9 @@ import AppKit
 /// The Claude sessions, on the home of the open island (spec §6, lot 6 spec §2): one row per
 /// session of `AppState.sessions`, the running ones first (latest activity first), then the ones
 /// that finished or failed today, in grey (latest end first). All of them: the home scrolls past
-/// what fits, as a wheel (`listWheel`). The rows are this view's own children, so the list's stack
-/// lays them out and the wheel turns each one. Without any, one line in grey says so, and a second one
-/// says when the Claude Code hooks are missing, with a way to Settings.
+/// what fits. The rows are this view's own children, so the list's stack lays them out and the wheel
+/// (`listWheel`, off since 0.3.5: `HomeLayout.wheelEnabled`) can turn each one. Without any, one line
+/// in grey says so, and a second one says when the Claude Code hooks are missing, with a way to Settings.
 struct ConversationsView: View {
     /// The roster in the order of the list (`SessionRoster.listed`).
     let sessions: [SessionRow]
