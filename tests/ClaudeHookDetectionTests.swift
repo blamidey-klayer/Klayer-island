@@ -159,6 +159,8 @@ enum ClaudeHookDetectionTests {
         let permission = groups.first { $0.event == "PermissionRequest" }
         precondition(((permission?.group["hooks"] as? [[String: Any]])?.first?["timeout"] as? Int) == 120)
 
+        statusLine()
+
         // MARK: Agents
 
         // Agents: only the Claude desktop app gets a pill of its own
@@ -187,5 +189,99 @@ enum ClaudeHookDetectionTests {
         precondition(!isUnrecognisedAgent("claude-desktop"))
 
         print("Claude hook detection: all checks passed")
+    }
+
+    /// A JSON value written with sorted keys, to compare objects.
+    static func json(_ value: Any?) -> String {
+        guard let value else { return "nil" }
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed])
+        else { return "?" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    // MARK: The status line (Claude plan gauge)
+
+    /// Detection and preview of the status line follow the hooks' rule: only the command that runs
+    /// Klayer Island's own script, never a command of the user's that merely says "nb-hook".
+    static func statusLine() {
+        let written = #""/Users/me/Library/Application Support/NotchBuddy/nb-hook" --statusline"#
+        precondition(ours.statusLineWritten == written)
+        precondition(ours.isOurs(ours.statusLineWritten))
+
+        // Installed: the status line the app writes, or the one an earlier build wrote
+        precondition(klayerStatusLinePresent(inSettings: settings("""
+        {"statusLine":{"type":"command","command":"\\"/Users/me/Library/Application Support/NotchBuddy/nb-hook\\" --statusline","padding":0}}
+        """), ours: ours))
+        precondition(klayerStatusLinePresent(inSettings: settings("""
+        {"statusLine":{"type":"command","command":"$HOME/.claude/klayer/nb-hook --statusline"}}
+        """), ours: ours))
+
+        // Not installed: the user's own status lines, even when their command says "nb-hook"
+        let theirs = [
+            "~/bin/nb-hook-status.sh",
+            "/usr/local/bin/nb-hook --statusline",
+            "python3 ~/scripts/nb-hook.py --statusline",
+            "~/.claude/klayer/nb-hook.py --statusline",
+            "echo nb-hook",
+            #""/Users/me/Library/Application Support/NotchBuddy/nb-hook" --statusline | head -1"#,
+            #""/Users/me/Library/Application Support/NotchBuddy/nb-hook" --statusline && ~/bin/mine.sh"#,
+        ]
+        for command in theirs {
+            let object: [String: Any] = ["statusLine": ["type": "command", "command": command]]
+            precondition(!klayerStatusLinePresent(inSettings: object, ours: ours),
+                         "the user's status line was taken for ours: \(command)")
+        }
+        // No status line, or one of a shape we do not know
+        for raw in ["{}", #"{"statusLine":"nb-hook"}"#, #"{"statusLine":{"type":"command"}}"#,
+                    #"{"statusLine":{"type":"command","command":42}}"#] {
+            precondition(!klayerStatusLinePresent(inSettings: settings(raw), ours: ours), "\(raw) is not ours")
+        }
+
+        // MARK: What the preview proposes to write
+
+        let mine: [String: Any] = ["type": "command", "command": "~/bin/nb-hook-status.sh", "padding": 2]
+        let oursLine: [String: Any] = ["type": "command", "command": written, "padding": 1]
+        let other: [String: Any] = ["model": "opus"]
+
+        // Install over the user's own status line, even one that says "nb-hook": ours takes its
+        // place with its other fields, and theirs is kept aside to be put back on removal.
+        var change = ours.statusLineChange(in: other.merging(["statusLine": mine]) { $1 }, install: true, keptAside: nil)
+        precondition(json(change.settings["statusLine"]) == json(["type": "command", "command": written, "padding": 2]),
+                     "ours replaces the command only: \(json(change.settings["statusLine"]))")
+        precondition(json(change.keepAside) == json(mine), "the user's status line is kept aside")
+        precondition(!change.putBack && change.settings["model"] as? String == "opus")
+
+        // Install over ours, written by an earlier build: the command is brought up to date, and
+        // nothing is kept aside (the user's own line, if any, is already there).
+        let legacy: [String: Any] = ["type": "command", "command": "$HOME/.claude/klayer/nb-hook --statusline"]
+        change = ours.statusLineChange(in: ["statusLine": legacy], install: true, keptAside: nil)
+        precondition(json(change.settings["statusLine"]) == json(["type": "command", "command": written]))
+        precondition(change.keepAside == nil && !change.putBack)
+
+        // Install with no status line: ours alone
+        change = ours.statusLineChange(in: other, install: true, keptAside: nil)
+        precondition(json(change.settings["statusLine"]) == json(["type": "command", "command": written]))
+        precondition(change.keepAside == nil && !change.putBack && change.settings["model"] as? String == "opus")
+
+        // Remove ours: the user's line kept aside comes back, or the key goes
+        change = ours.statusLineChange(in: other.merging(["statusLine": oursLine]) { $1 }, install: false, keptAside: mine)
+        precondition(json(change.settings["statusLine"]) == json(mine) && change.putBack && change.keepAside == nil)
+        change = ours.statusLineChange(in: other.merging(["statusLine": oursLine]) { $1 }, install: false, keptAside: nil)
+        precondition(change.settings["statusLine"] == nil && !change.putBack)
+        precondition(change.settings["model"] as? String == "opus", "the rest of settings.json is kept")
+
+        // Remove when the status line is the user's, even one that says "nb-hook": nothing changes,
+        // and the line kept aside stays where it is.
+        for theirsLine in [mine, ["type": "command", "command": "/usr/local/bin/nb-hook --statusline"]] {
+            let before = other.merging(["statusLine": theirsLine]) { $1 }
+            change = ours.statusLineChange(in: before, install: false, keptAside: ["type": "command", "command": "x"])
+            precondition(json(change.settings) == json(before), "the user's status line is left alone")
+            precondition(!change.putBack && change.keepAside == nil)
+        }
+        // Remove with no status line, or one of a shape we do not know: nothing changes
+        for before in [other, ["statusLine": "nb-hook"] as [String: Any]] {
+            change = ours.statusLineChange(in: before, install: false, keptAside: mine)
+            precondition(json(change.settings) == json(before) && !change.putBack)
+        }
     }
 }

@@ -1407,15 +1407,16 @@ final class HookServer: @unchecked Sendable {
         Self.supportDir.appendingPathComponent("statusline-previous.json")
     }
 
-    /// Returns true if our statusLine command is installed in ~/.claude/settings.json.
+    /// Returns true if our statusLine command is installed in ~/.claude/settings.json: the
+    /// command that runs our script (`KlayerHookCommand`, as for the hooks), never a command of
+    /// the user's that merely contains "nb-hook".
     static func statusLineInstalled() -> Bool {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
         guard let data = try? Data(contentsOf: url),
-              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let sl = settings["statusLine"] as? [String: Any],
-              let cmd = sl["command"] as? String else { return false }
-        return cmd.contains("nb-hook")
+              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return false }
+        return klayerStatusLinePresent(inSettings: settings, ours: ownHooks)
     }
 
     private var _pendingStatusLineData: Data?
@@ -1431,16 +1432,10 @@ final class HookServer: @unchecked Sendable {
         // Unreadable or invalid settings must stop here, never count as empty.
         let snapshot = try ClaudeSettingsFile.read(at: settingsURL)
         let settings = snapshot.object
-        let hookPath = Self.hookScriptPath
-        let quotedPath = hookPath.replacingOccurrences(of: "\"", with: "\\\"")
-        let quotedCmd = "\"\(quotedPath)\" --statusline"
 
         // Reset pending side-effects
         _pendingPreviousData = nil
         _pendingDeletePrevious = false
-
-        let oldSL = settings["statusLine"] as? [String: Any]
-        let newSL: [String: Any]?
 
         if install {
             // Check that Python 3 is available (requires Command Line Tools)
@@ -1456,47 +1451,22 @@ final class HookServer: @unchecked Sendable {
                               userInfo: [NSLocalizedDescriptionKey:
                                   "Command Line Tools are required but not installed. Run: xcode-select --install"])
             }
-
-            if let existing = oldSL,
-               let cmd = existing["command"] as? String, !cmd.contains("nb-hook") {
-                // Keep existing object but swap command; save old for later restoration
-                var updated = existing
-                updated["command"] = quotedCmd
-                newSL = updated
-                _pendingPreviousData = try? JSONSerialization.data(withJSONObject: existing,
-                                                                   options: [.prettyPrinted, .sortedKeys])
-            } else if let existing = oldSL,
-                      let cmd = existing["command"] as? String, cmd.contains("nb-hook") {
-                // Already installed: rebuild to update path if needed, keep other fields
-                var updated = existing
-                updated["command"] = quotedCmd
-                newSL = updated
-            } else {
-                newSL = ["type": "command", "command": quotedCmd]
-            }
-        } else {
-            // Uninstall: only if it's ours
-            if let cur = oldSL, let cmd = cur["command"] as? String, cmd.contains("nb-hook") {
-                if let prevData = try? Data(contentsOf: statusLinePreviousURL),
-                   let prevObj = (try? JSONSerialization.jsonObject(with: prevData)) as? [String: Any] {
-                    newSL = prevObj
-                    _pendingDeletePrevious = true
-                } else {
-                    newSL = nil
-                }
-            } else {
-                newSL = oldSL  // not ours: leave unchanged
-            }
         }
+
+        // Only our own status line is replaced or removed (KlayerHookCommand.statusLineChange):
+        // the user's own is kept aside on install, put back on removal, never matched on a word.
+        let keptAside = install ? nil
+            : (try? Data(contentsOf: statusLinePreviousURL))
+                .flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        let change = Self.ownHooks.statusLineChange(in: settings, install: install, keptAside: keptAside)
+        if let aside = change.keepAside {
+            _pendingPreviousData = try? JSONSerialization.data(withJSONObject: aside,
+                                                               options: [.prettyPrinted, .sortedKeys])
+        }
+        _pendingDeletePrevious = change.putBack
 
         // Build the full settings.json with the new statusLine
-        var newSettings = settings
-        if let sl = newSL {
-            newSettings["statusLine"] = sl
-        } else {
-            newSettings.removeValue(forKey: "statusLine")
-        }
-        let data = try JSONSerialization.data(withJSONObject: newSettings,
+        let data = try JSONSerialization.data(withJSONObject: change.settings,
                                               options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         _pendingStatusLineData = data
         _pendingStatusLineOriginal = snapshot.bytes
@@ -1507,8 +1477,8 @@ final class HookServer: @unchecked Sendable {
             let d = try JSONSerialization.data(withJSONObject: v, options: [.prettyPrinted, .sortedKeys])
             return String(data: d, encoding: .utf8) ?? "(none)"
         }
-        let before = try slJSON(oldSL)
-        let after  = try slJSON(newSL)
+        let before = try slJSON(settings["statusLine"] as? [String: Any])
+        let after  = try slJSON(change.settings["statusLine"] as? [String: Any])
         return "statusLine\nBefore:\n\(before)\n\nAfter:\n\(after)"
     }
 

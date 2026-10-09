@@ -8,7 +8,8 @@ import Foundation
 /// folder (`HookServer.hookScriptPath`), or the `~/.claude/klayer/nb-hook` of earlier builds.
 /// It may go through `/bin/sh`, spell the home folder `~`, `$HOME` or `${HOME}`, quote the path,
 /// and pass plain arguments (`--ask`, `--agent claude-desktop`); anything else after the script,
-/// such as `&&`, a pipe or a redirection, makes the entry the user's.
+/// such as `&&`, a pipe or a redirection, makes the entry the user's. The status line of the plan
+/// gauge (`--statusline`) is recognised by the same rule.
 /// Foundation only, tested by scripts/test-claude-hooks.sh and scripts/test-claude-settings.sh.
 struct KlayerHookCommand: Sendable, Equatable {
     /// Where the app writes its script today.
@@ -145,6 +146,65 @@ func klayerHooksNeedUpdate(inSettings settings: [String: Any], ours: KlayerHookC
     if permission.contains(where: { ($0.hook["timeout"] as? Int).map { $0 < 120 } ?? false }) { return true }
     let ask = hookCommands(hooks["PreToolUse"], matcher: "AskUserQuestion").contains { ours.isOurs($0.command) }
     return !ask
+}
+
+// MARK: - The status line (Claude plan gauge)
+
+/// What installing or removing Klayer Island's status line does to ~/.claude/settings.json.
+struct StatusLineChange {
+    /// settings.json with the change made: only its `statusLine` key ever differs.
+    let settings: [String: Any]
+    /// The user's own status line, to keep in `statusline-previous.json` (install over theirs):
+    /// nb-hook runs it after relaying, and removing ours puts it back. Nil: nothing to keep.
+    let keepAside: [String: Any]?
+    /// Removing ours put back the status line kept aside: its file can go.
+    let putBack: Bool
+}
+
+extension KlayerHookCommand {
+    /// The status line command the app writes: its script, quoted, with `--statusline`.
+    var statusLineWritten: String { written + " --statusline" }
+
+    /// True when a `statusLine` value of settings.json runs Klayer Island's script, by the hooks'
+    /// rule (`isOurs`): a command of the user's own that merely contains "nb-hook" is theirs.
+    func isOurs(statusLine: Any?) -> Bool {
+        guard let object = statusLine as? [String: Any], let command = object["command"] as? String
+        else { return false }
+        return isOurs(command)
+    }
+
+    /// The status line change the preview shows and the write makes. Install: ours takes the
+    /// place of any status line, keeping its other fields; the user's own is kept aside. Remove:
+    /// only ours goes, and the one kept aside (`keptAside`) comes back; a status line of the
+    /// user's is never touched.
+    func statusLineChange(in settings: [String: Any], install: Bool,
+                          keptAside: [String: Any]?) -> StatusLineChange {
+        let current = settings["statusLine"] as? [String: Any]
+        let currentIsOurs = isOurs(statusLine: current)
+        var after = settings
+        if install {
+            if var line = current, line["command"] is String {
+                // Keep the object, swap the command; the user's own line is kept aside.
+                line["command"] = statusLineWritten
+                after["statusLine"] = line
+                return StatusLineChange(settings: after, keepAside: currentIsOurs ? nil : current, putBack: false)
+            }
+            after["statusLine"] = ["type": "command", "command": statusLineWritten]
+            return StatusLineChange(settings: after, keepAside: nil, putBack: false)
+        }
+        guard currentIsOurs else { return StatusLineChange(settings: settings, keepAside: nil, putBack: false) }
+        if let keptAside {
+            after["statusLine"] = keptAside
+            return StatusLineChange(settings: after, keepAside: nil, putBack: true)
+        }
+        after.removeValue(forKey: "statusLine")
+        return StatusLineChange(settings: after, keepAside: nil, putBack: false)
+    }
+}
+
+/// True when a parsed ~/.claude/settings.json runs Klayer Island's status line.
+func klayerStatusLinePresent(inSettings settings: [String: Any], ours: KlayerHookCommand) -> Bool {
+    ours.isOurs(statusLine: settings["statusLine"])
 }
 
 /// The `klayer_agent` value of a session that gets its own pill, or nil.
