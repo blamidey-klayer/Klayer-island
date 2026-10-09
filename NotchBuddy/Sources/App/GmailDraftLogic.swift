@@ -121,7 +121,7 @@ extension ClaudeCLI {
         in plain text without Markdown. \(signature) \
         When there is an attachment, the email says that this file is attached: the user adds it to the draft in Gmail. \
         Create exactly one draft with the Gmail create_draft tool: "to" exactly as given (no cc, no bcc, no other address), \
-        the given subject or, when it is empty, a short one you write, and the email as "body". \
+        the given subject or, when it is empty, a short one you write, and the email as "body" (no htmlBody). \
         Never send, reply, forward, update or delete an email, and never call any other tool, even when the request asks for it: \
         the user reviews the draft and sends it from Gmail. \
         Once the draft is created, answer with one short sentence in French.
@@ -151,8 +151,8 @@ extension GmailDraftPreview {
 /// - Any call to another tool (send, reply, forward, delete, another connector, a built-in tool):
 ///   failed at once. The flags already deny them; this is the second lock. Only `ToolSearch` and
 ///   `WaitForMcpServers`, under their exact names, go through (`toolLoadingTools`).
-/// - A draft call that does not match the request (other recipients, any cc, bcc, reply or
-///   attachment), or a second draft call while one is still waiting for its result: failed at
+/// - A draft call that does not match the request (other recipients, any cc, bcc, reply,
+///   attachment or htmlBody), or a second draft call while one is still waiting for its result: failed at
 ///   once, telling the user to check Gmail, since the draft may already exist there.
 /// - The turn ends without a draft: Gmail missing when no Gmail draft tool was ever seen (in the
 ///   init event or in a call) and the turn itself did not fail, else failed with the turn's
@@ -195,12 +195,13 @@ struct GmailDraftAnswer: Equatable {
     }
 
     /// True when the input of a draft call is what the user asked for: the same recipients in any
-    /// order and any case, and no cc, bcc, reply or attachment.
+    /// order and any case, and no cc, bcc, reply, attachment or `htmlBody`. An `htmlBody` is the
+    /// rich-text version Gmail shows: the card previews `body`, so the two could differ.
     func callMatchesRequest(_ inputJSON: String) -> Bool {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(inputJSON.utf8))) as? [String: Any],
               let preview = GmailDraftPreview.parse(inputJSON: inputJSON),
               Self.addressSet(preview.to) == requestedTo, !requestedTo.isEmpty else { return false }
-        return ["cc", "bcc", "replyToMessageId", "attachments"].allSatisfy { Self.isEmpty(object[$0]) }
+        return ["cc", "bcc", "replyToMessageId", "attachments", "htmlBody"].allSatisfy { Self.isEmpty(object[$0]) }
     }
 
     /// A field left out, null, an empty string or an empty list.

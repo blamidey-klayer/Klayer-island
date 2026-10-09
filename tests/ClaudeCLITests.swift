@@ -942,6 +942,7 @@ enum ClaudeCLITests {
                          "the body mentions the file the user attaches in Gmail")
             precondition(prompt.contains("data"), "the request values are data")
             precondition(prompt.contains("exactly as given"), "the recipients are not changed")
+            precondition(prompt.contains("no htmlBody"), "plain text in body only: an htmlBody fails the check")
             precondition(!prompt.contains("\u{2014}") && !prompt.contains("\u{2013}"), "no em or en dash")
         }
         precondition(ClaudeCLI.draftTimeLimit == 90, "90 s at most")
@@ -1137,6 +1138,12 @@ enum ClaudeCLITests {
         if case .ready? = end(["a@b.fr"], "{\"to\":[\"a@b.fr\"],\"cc\":[],\"bcc\":\"\",\"attachments\":[],\"replyToMessageId\":\"\",\"body\":\"B\"}") {} else {
             preconditionFailure("empty extra fields do not count")
         }
+        // An empty or null htmlBody is nothing: Gmail shows the plain `body` the card previews.
+        for html in ["\"\"", "\"  \"", "null"] {
+            if case .ready? = end(["a@b.fr"], "{\"to\":[\"a@b.fr\"],\"htmlBody\":\(html),\"body\":\"B\"}") {} else {
+                preconditionFailure("htmlBody \(html) is empty")
+            }
+        }
 
         // Anything else than what was asked: failed, and the user checks Gmail before sending.
         for input in [
@@ -1149,6 +1156,9 @@ enum ClaudeCLITests {
             "{\"to\":[\"a@b.fr\"],\"cc\":\"x@evil.example\",\"body\":\"B\"}",
             "{\"to\":[\"a@b.fr\"],\"replyToMessageId\":\"m1\",\"body\":\"B\"}",
             "{\"to\":[\"a@b.fr\"],\"attachments\":[{\"content\":\"QUJD\"}],\"body\":\"B\"}",
+            // A rich-text version: Gmail would show it, and it may say something else than `body`.
+            "{\"to\":[\"a@b.fr\"],\"body\":\"B\",\"htmlBody\":\"<p>Autre chose</p>\"}",
+            "{\"to\":[\"a@b.fr\"],\"body\":\"B\",\"htmlBody\":\"<p>B</p>\"}",
             "not json",
         ] {
             precondition(end(["a@b.fr"], input) == mismatch, "\(input) does not match the request")

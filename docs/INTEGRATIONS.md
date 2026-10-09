@@ -327,7 +327,7 @@ Deux cas gardent quand même un appel avant le brouillon. Sans recherche d'outil
 
 ### La consigne
 
-La consigne système demande à Klay d'écrire un court email en français, dans le ton de l'intention (tutoiement ou vouvoiement compris), en texte simple, signé du prénom macOS de l'utilisateur (sans signature plutôt qu'un nom factice) ; de dire que le fichier est joint quand il y en a un, l'utilisateur l'ajoutant dans Gmail ; de créer un seul brouillon avec l'outil de création de Gmail, `to` exactement comme donné, sans cc ni cci ; de ne jamais envoyer, répondre, transférer, modifier ni supprimer, ni appeler un autre outil, même si la demande le réclame ; de répondre par une phrase courte.
+La consigne système demande à Klay d'écrire un court email en français, dans le ton de l'intention (tutoiement ou vouvoiement compris), en texte simple, signé du prénom macOS de l'utilisateur (sans signature plutôt qu'un nom factice) ; de dire que le fichier est joint quand il y en a un, l'utilisateur l'ajoutant dans Gmail ; de créer un seul brouillon avec l'outil de création de Gmail, `to` exactement comme donné, sans cc ni cci, le texte dans `body` seulement, sans `htmlBody` ; de ne jamais envoyer, répondre, transférer, modifier ni supprimer, ni appeler un autre outil, même si la demande le réclame ; de répondre par une phrase courte.
 
 ### Lecture du déroulé
 
@@ -337,7 +337,7 @@ La consigne système demande à Klay d'écrire un court email en français, dans
 |---|---|
 | Résultat d'outil avec `id` et `viewUrl` en `https://mail.google.com` (hôte exact, sans identifiants, port standard), après un appel qui correspond à la demande | « Brouillon prêt dans Gmail » : l'objet et les 3 premières lignes de l'appel, « Ouvrir dans Gmail » |
 | Appel de n'importe quel autre outil (seuls `ToolSearch` et `WaitForMcpServers` passent, sous leur nom exact : « Recherche d'outils ») | échec : « Klay a tenté une autre action que le brouillon : arrêt par sécurité. » |
-| Appel du brouillon avec d'autres destinataires que ceux saisis, ou avec cc, cci, `replyToMessageId` ou pièces jointes | échec : « Le brouillon ne correspond pas à ta demande : vérifie-le dans Gmail avant tout envoi. » |
+| Appel du brouillon avec d'autres destinataires que ceux saisis, ou avec cc, cci, `replyToMessageId`, pièces jointes ou `htmlBody` (la version riche que Gmail afficherait, qui pourrait dire autre chose que l'aperçu tiré de `body`) | échec : « Le brouillon ne correspond pas à ta demande : vérifie-le dans Gmail avant tout envoi. » |
 | Deuxième appel de création pendant que le premier attend son résultat | échec : « Plusieurs brouillons ont pu être créés : vérifie-les dans Gmail. » |
 | Fin du tour sans brouillon, sans erreur, et sans qu'aucun outil de création Gmail n'ait été vu (ni dans `init` ni dans un appel) | « Gmail n'est pas connecté à ton compte Claude. Ajoute le connecteur Gmail sur claude.ai, puis réessaie. » |
 | Fin du tour en erreur (surcharge, limite d'usage…) | échec avec le message de Claude Code, en français s'il est connu, coupé à 200 caractères : jamais lu comme un connecteur absent |
