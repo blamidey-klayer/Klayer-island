@@ -230,7 +230,7 @@ Deux processus `claude -p` existent : celui du chat (un par conversation, décri
 
 ### Trouver Claude Code et vérifier la connexion
 
-- Chemins essayés dans cet ordre : `~/.local/bin/claude`, `~/.claude/local/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, `~/.npm-global/bin/claude`, `~/.bun/bin/claude`. Sinon, une seule fois par lancement de l'app, `zsh -lc 'command -v claude'` (3 s au plus) : une app ne reçoit pas le PATH du shell.
+- Chemins essayés dans cet ordre : `~/.local/bin/claude`, `~/.claude/local/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, `~/.npm-global/bin/claude`, `~/.bun/bin/claude`, `~/.volta/bin/claude`, `~/.asdf/shims/claude`, puis `~/.nvm/versions/node/<version>/bin/claude` pour chaque version de Node installée par nvm, la plus récente d'abord (par numéro de version : `v22.10.0` avant `v22.3.0`). Sinon, une seule fois par lancement de l'app, `zsh -lc 'command -v claude'` (3 s au plus) : une app ne reçoit pas le PATH du shell. Ce shell lit `~/.zprofile` et non `~/.zshrc`, où Volta, asdf et nvm posent souvent leur PATH : d'où leurs dossiers dans la liste.
 - Avant le chat, `claude auth status` (5 s au plus). L'île lit `authMethod` (et `loggedIn` quand il est présent) et veut `claude.ai`, la seule connexion qui donne accès aux connecteurs.
   - Binaire absent, ou qui ne démarre pas (sortie 126 ou 127) : « Claude Code n'est pas installé sur ce Mac. » et un bouton « Installer Claude Code » (https://code.claude.com/docs/en/quickstart).
   - Autre méthode de connexion : « Connecte Claude Code : ouvre un terminal, lance claude puis /login. ».

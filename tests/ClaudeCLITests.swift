@@ -46,6 +46,7 @@ enum ClaudeCLITests {
             ("draft_environment_turns_tool_search_off", draftEnvironmentTurnsToolSearchOff),
             ("draft_answer_lets_tool_search_through", draftAnswerLetsToolSearchThrough),
             ("chat_environment_starts_no_connector", chatEnvironmentStartsNoConnector),
+            ("candidates_cover_node_version_managers", candidatesCoverNodeVersionManagers),
         ]
         for (name, run) in cases {
             run()
@@ -77,7 +78,9 @@ enum ClaudeCLITests {
             "/usr/local/bin/claude",
             "/Users/test/.npm-global/bin/claude",
             "/Users/test/.bun/bin/claude",
-        ], "the candidates keep the documented order")
+            "/Users/test/.volta/bin/claude",
+            "/Users/test/.asdf/shims/claude",
+        ], "the candidates keep the documented order (no nvm folder listed here)")
 
         precondition(ClaudeCLI.locate(home: home, isExecutable: { $0 == "/opt/homebrew/bin/claude" })
                      == "/opt/homebrew/bin/claude")
@@ -1412,5 +1415,59 @@ enum ClaudeCLITests {
         // Per process: the draft keeps the connectors (it needs Gmail), the auth check gets nothing added.
         precondition(ClaudeCLI.draftEnvironment(from: base, binary: binary)["ENABLE_CLAUDEAI_MCP_SERVERS"] == "true")
         precondition(ClaudeCLI.environment(from: base, binary: binary)["ENABLE_CLAUDEAI_MCP_SERVERS"] == "true")
+    }
+
+    // MARK: - Final review of lot 4: Claude Code installed by a Node version manager (M6)
+
+    static func candidatesCoverNodeVersionManagers() {
+        let home = "/Users/test"
+        let nvm = "/Users/test/.nvm/versions/node"
+        // What `ls ~/.nvm/versions/node` could hold, in no order, with a few stray entries.
+        let listing = ["v18.19.1", "v22.3.0", ".DS_Store", "v20.11.0", "system", "v22.10.0", "v9.0",
+                       "vx.1.2", "v22.3.0-rc", "", "v", "22.12.1", "v-1.0.0", "v20..1"]
+        var listed: [String] = []
+        let paths = ClaudeCLI.candidatePaths(home: home, listDirectory: { folder in
+            listed.append(folder)
+            return folder == nvm ? listing : []
+        })
+        precondition(listed == [nvm], "only nvm's Node folder is listed, got \(listed)")
+        precondition(paths == [
+            "/Users/test/.local/bin/claude",
+            "/Users/test/.claude/local/claude",
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+            "/Users/test/.npm-global/bin/claude",
+            "/Users/test/.bun/bin/claude",
+            "/Users/test/.volta/bin/claude",
+            "/Users/test/.asdf/shims/claude",
+            "\(nvm)/22.12.1/bin/claude",
+            "\(nvm)/v22.10.0/bin/claude",
+            "\(nvm)/v22.3.0/bin/claude",
+            "\(nvm)/v20.11.0/bin/claude",
+            "\(nvm)/v18.19.1/bin/claude",
+            "\(nvm)/v9.0/bin/claude",
+        ], "the usual folders, Volta, asdf, then nvm's versions newest first by number, got \(paths)")
+        precondition(ClaudeCLI.newestFirst(nodeVersions: ["v22.3.0", "v22.10.0", "v4.2.1"]) == ["v22.10.0", "v22.3.0", "v4.2.1"],
+                     "by number, not by text")
+        precondition(ClaudeCLI.newestFirst(nodeVersions: []) == [])
+        precondition(ClaudeCLI.newestFirst(nodeVersions: ["v20.1.0", "20.1.0"]) == ["20.1.0", "v20.1.0"],
+                     "the same version twice: a stable order")
+
+        // locate: the first executable candidate in that order.
+        let list: (String) -> [String] = { $0 == nvm ? listing : [] }
+        precondition(ClaudeCLI.locate(home: home, listDirectory: list, isExecutable: { $0 == "\(nvm)/v20.11.0/bin/claude" })
+                     == "\(nvm)/v20.11.0/bin/claude", "an older Node version that holds claude is found")
+        let several: Set<String> = ["\(nvm)/v18.19.1/bin/claude", "\(nvm)/v22.3.0/bin/claude"]
+        precondition(ClaudeCLI.locate(home: home, listDirectory: list, isExecutable: { several.contains($0) })
+                     == "\(nvm)/v22.3.0/bin/claude", "the newest Node version that holds claude wins")
+        precondition(ClaudeCLI.locate(home: home, listDirectory: list,
+                                      isExecutable: { $0 == "/Users/test/.volta/bin/claude" || several.contains($0) })
+                     == "/Users/test/.volta/bin/claude", "Volta comes before nvm")
+        precondition(ClaudeCLI.locate(home: home, listDirectory: list,
+                                      isExecutable: { $0 == "/Users/test/.bun/bin/claude" || $0 == "/Users/test/.asdf/shims/claude" })
+                     == "/Users/test/.bun/bin/claude", "the usual folders come first")
+        precondition(ClaudeCLI.locate(home: home, listDirectory: list, isExecutable: { _ in false }) == nil)
+        precondition(ClaudeCLI.locate(home: home, listDirectory: { _ in [] },
+                                      isExecutable: { $0.hasPrefix(nvm) }) == nil, "no nvm folder: no nvm candidate")
     }
 }

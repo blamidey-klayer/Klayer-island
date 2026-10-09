@@ -99,13 +99,15 @@ final class ChatSession: ObservableObject {
         return result
     }
 
-    /// The `claude` binary: the usual install folders first, then once for the app's life a
-    /// login shell (`command -v claude`, 3 s at most, off the main thread). The Gmail draft
+    /// The `claude` binary: the usual install folders first (Volta, asdf and nvm included), then
+    /// once for the app's life a login shell (`command -v claude`, 3 s at most, off the main thread). The Gmail draft
     /// (GmailDraftJob) finds Claude Code here too.
     func locateBinary() async -> String? {
         let files = FileManager.default
         if let path = binaryPath, files.isExecutableFile(atPath: path) { return path }
-        binaryPath = ClaudeCLI.locate(home: NSHomeDirectory(), isExecutable: { files.isExecutableFile(atPath: $0) })
+        binaryPath = ClaudeCLI.locate(home: NSHomeDirectory(),
+                                      listDirectory: { (try? files.contentsOfDirectory(atPath: $0)) ?? [] },
+                                      isExecutable: { files.isExecutableFile(atPath: $0) })
         if let path = binaryPath { return path }
 
         let lookup: Task<String?, Never>

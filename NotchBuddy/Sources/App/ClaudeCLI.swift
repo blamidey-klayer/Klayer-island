@@ -13,22 +13,46 @@ enum ClaudeCLI {
     static let model = "claude-haiku-5-5"
 
     /// Where the island looks for `claude`, in this order. A GUI app does not inherit the
-    /// user's shell PATH, so the usual install folders are tried one by one.
-    static func candidatePaths(home: String) -> [String] {
-        [
+    /// user's shell PATH, so the usual install folders are tried one by one, then those of the
+    /// Node version managers an npm install may sit under: Volta, asdf, and each Node version of
+    /// nvm, newest first. `listDirectory` lists a folder (empty when it is missing); only nvm's
+    /// `~/.nvm/versions/node` is listed. The login shell lookup (`shellLookupArguments`) comes
+    /// after all of them.
+    static func candidatePaths(home: String, listDirectory: (String) -> [String] = { _ in [] }) -> [String] {
+        let nvmNode = "\(home)/.nvm/versions/node"
+        return [
             "\(home)/.local/bin/claude",
             "\(home)/.claude/local/claude",
             "/opt/homebrew/bin/claude",
             "/usr/local/bin/claude",
             "\(home)/.npm-global/bin/claude",
             "\(home)/.bun/bin/claude",
-        ]
+            "\(home)/.volta/bin/claude",
+            "\(home)/.asdf/shims/claude",
+        ] + newestFirst(nodeVersions: listDirectory(nvmNode)).map { "\(nvmNode)/\($0)/bin/claude" }
+    }
+
+    /// The Node versions nvm installed (`v22.3.0`…), newest first by number, not by text
+    /// (`v22.10.0` before `v22.3.0`); the same version twice keeps a stable order. A name that is
+    /// not a version (a stray file, `v22.3.0-rc`) is left out.
+    static func newestFirst(nodeVersions: [String]) -> [String] {
+        let versions: [(name: String, number: [Int])] = nodeVersions.compactMap { name in
+            let digits = name.hasPrefix("v") ? name.dropFirst() : Substring(name)
+            let parts = digits.split(separator: ".", omittingEmptySubsequences: false)
+            guard !parts.isEmpty,
+                  parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } }) else { return nil }
+            return (name, parts.map { Int($0) ?? 0 })
+        }
+        return versions.sorted { a, b in
+            a.number == b.number ? a.name < b.name : b.number.lexicographicallyPrecedes(a.number)
+        }.map(\.name)
     }
 
     /// The first candidate that is executable, nil when Claude Code is not installed in any
     /// of the usual places (the caller then shows the install message, it never guesses).
-    static func locate(home: String, isExecutable: (String) -> Bool) -> String? {
-        candidatePaths(home: home).first(where: isExecutable)
+    static func locate(home: String, listDirectory: (String) -> [String] = { _ in [] },
+                       isExecutable: (String) -> Bool) -> String? {
+        candidatePaths(home: home, listDirectory: listDirectory).first(where: isExecutable)
     }
 
     /// Variables that make `claude -p` bill another account or hide the claude.ai connectors:
