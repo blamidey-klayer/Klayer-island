@@ -1020,7 +1020,10 @@ struct ChooseView: View {
                     .font(.system(size: 14, weight: .semibold))
                 Text("What do you want to do with it?").font(.system(size: 12.5)).foregroundColor(Color(hex: "#9398A1"))
                 HStack(spacing: 8) {
-                    PrimaryButton("Ask a question") { state.view = .prompt }
+                    PrimaryButton("Ask a question") {
+                        state.askAboutDroppedFile()
+                        state.view = .prompt
+                    }
                     SecondaryButton("Préparer un email") {
                         GmailDraftFlow.shared.startOver(for: state.droppedFile)
                         state.view = .mail

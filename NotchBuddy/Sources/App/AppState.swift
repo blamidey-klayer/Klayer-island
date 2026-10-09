@@ -112,7 +112,9 @@ final class AppState: ObservableObject {
         return langs?.first ?? ""
     }()
 
-    // Context for prompt (window attach / file)
+    // Context for prompt (window attach / file). Only an explicit act sets it (lot 6 spec §3): Klay
+    // dropped on a window (or ⌃⌥W), or « Poser une question » on a dropped file. Opening the chat
+    // never captures the previous app's window.
     @Published var promptContext: PromptContext? = nil
 
     // Dropped file (set during upload flow)
@@ -383,6 +385,14 @@ final class AppState: ObservableObject {
         guard HomeRail.showsCard(focusId: focusTask?.id) else { return }
         focusId = HomeRail.listFocus(saved: focusBeforeCard, loaded: tasks.map(\.id), main: mainPillId)
         focusBeforeCard = nil
+    }
+
+    /// « Poser une question » on a dropped file: the file becomes the chat's context. Dropping a
+    /// file alone adds nothing to the chat: after « Préparer un email », the chat opens without it.
+    func askAboutDroppedFile() {
+        if let file = droppedFile {
+            promptContext = .file(name: file.name, fileURL: file.url)
+        }
     }
 
     /// A permission or a question left: the focus goes back to `saved`, the pill it took the screen

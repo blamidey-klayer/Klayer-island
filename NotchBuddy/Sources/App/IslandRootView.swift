@@ -471,11 +471,8 @@ struct IslandHeader: View {
                 TabButton(icon: "house.fill", view: .overview, state: state, preAction: {
                     state.showHomeList()
                 })
-                TabButton(icon: "bubble.left.fill", view: .prompt, state: state, preAction: {
-                    if state.promptContext == nil {
-                        state.promptContext = WindowContextCapture.captureActive(from: state.lastExternalApp)
-                    }
-                })
+                // The chat opens without capturing the previous app's window (lot 6 spec §3).
+                TabButton(icon: "bubble.left.fill", view: .prompt, state: state)
                 TabButton(icon: "plus", view: .upload, state: state)
             }
             .padding(.leading, 14)

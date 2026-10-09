@@ -53,7 +53,7 @@ enum FileDropHandler {
         state.droppedFile = DroppedFile(url: url, name: name)
         state.uploadProgress = 0
         state.fileDragOver = false
-        state.promptContext = .file(name: name, fileURL: url)
+        // The file enters the chat only on « Poser une question » (AppState.askAboutDroppedFile).
 
         let dur = 2.4
         UploadSequenceEngine.shared.performDrop(uploadDuration: dur)
@@ -67,7 +67,10 @@ enum FileDropHandler {
             if (try? FileManager.default.copyItem(at: url, to: dest)) != nil {
                 await MainActor.run {
                     state.droppedFile = DroppedFile(url: dest, name: name)
-                    state.promptContext = .file(name: name, fileURL: dest)
+                    // « Poser une question » came before the copy: the chat takes the copy too.
+                    if case .file(let asked, _)? = state.promptContext, asked == name {
+                        state.promptContext = .file(name: name, fileURL: dest)
+                    }
                 }
             }
         }

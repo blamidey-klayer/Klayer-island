@@ -54,6 +54,7 @@ struct UploadCanvasView: View {
         ZStack(alignment: .topLeading) {
             // Primary: "Ask a question about it"
             Button {
+                state.askAboutDroppedFile()
                 withAnimation(.easeInOut(duration: 0.22)) { state.view = .prompt }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                     UploadSequenceEngine.shared.deactivate()
