@@ -1,14 +1,13 @@
 # Klayer Island : liste de contrôle Mac
 
-Cette liste se parcourt de haut en bas : 10 minutes pour l'installation, 40 minutes pour le parcours de test (points facultatifs exclus), puis 10 minutes pour les trois spikes (S1, S3, S4). Elle teste la build des lots 1 à 3. La section du lot 4 (chat Haiku et brouillon Gmail par Claude Code) sera ajoutée ici quand ce lot sera livré.
+Cette liste se parcourt de haut en bas : 10 minutes pour l'installation, 40 minutes pour le parcours de test (points facultatifs exclus), 10 minutes pour les trois spikes (S1, S3, S4), puis 45 minutes pour le lot 4 (chat Haiku et brouillon Gmail par Claude Code). Elle teste la build des lots 1 à 4. Faites le spike S3 avant la section 4.
 
 Ce que contient cette build :
 
 - **Lot 1, nettoyage.** App Mac seule. Plus de Stripe, n8n, Resend, Cal.com, Notion, Vercel, Apple Music, ni d'agents autres que Claude. GitHub et Spotify restent.
 - **Lot 2, comportement.** Klay sort et salue quand la souris s'approche de l'encoche. L'île s'ouvre au survol, jamais au clic, et se ferme au clic ailleurs ou à Échap. Le bouton Granola remplace la grille de pastilles de l'île réduite. La zone de dépôt montre Klay les bras ouverts. Klay a des jumelles en recherche, des couleurs d'état de la marque et un mouvement plus vivant.
 - **Lot 3, contenu.** La maison montre les conversations en cours et les derniers choix. Les autorisations et questions de l'app Claude s'affichent dans l'île. L'île s'ouvre à chaque fin de session.
-
-Le chat et l'email de cette build utilisent encore l'ancien chemin (clé API, Apple Mail). Ne les envoyez pas : ils changent au lot 4.
+- **Lot 4, chat et brouillon Gmail.** Le chat répond avec Haiku par le Claude Code de votre Mac et votre forfait, sans clé, sans modèle à choisir et sans outil. « Préparer un email » crée un brouillon dans votre Gmail par le connecteur de votre compte Claude. L'île n'envoie jamais rien : vous joignez le fichier et vous envoyez depuis Gmail. La clé API et Apple Mail ont disparu.
 
 ## Comment lire cette liste
 
@@ -26,6 +25,7 @@ Le chat et l'email de cette build utilisent encore l'ancien chemin (clé API, Ap
 - Granola installé et connecté (bouton Granola, S4). Spotify et un jeton GitHub sont facultatifs.
 - Deux dossiers d'essai : `mkdir -p ~/essai-a ~/essai-b`.
 - Le son activé (haut-parleur dans l'en-tête de l'île).
+- Pour le lot 4 : Claude Code connecté avec un compte claude.ai, le connecteur Gmail ajouté à ce compte sur claude.ai, et Gmail ouvert dans un navigateur. La section 4 liste les fichiers d'essai.
 
 Raccourcis utiles :
 
@@ -120,7 +120,7 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 - [ ] Île ouverte par le survol, pointeur posé en bas de l'île, une session finit. Attendu : l'île passe sur « terminé » (160 pt) et ne se replie pas seule, même si le pointeur se retrouve sous elle. Un survol puis une sortie la replie 0,6 s après.
 - [ ] (facultatif) Quittez puis relancez l'app pendant qu'une session tourne, et faites-la finir pendant le salut de lancement (les 4 premières secondes). Attendu : la vue « terminé » remplace le salut ; un clic ailleurs ou Échap la ferme. Si Klay vivait sur le bureau, il y retourne ensuite.
 - [ ] Terminez une session avec une réponse en Markdown (titres, listes). Attendu : la vue « terminé » et la ligne de la maison montrent le premier paragraphe en texte simple.
-- [ ] Île ouverte sur le chat (⌃⌥Espace) avec un brouillon tapé sans l'envoyer, une session finit. Attendu : le brouillon reste, la vue ne change pas, la pastille reçoit un badge « terminé », le son `finish` est joué. Même résultat sur la vue mail (déposez un fichier, cliquez « Envoyer par email » (Send by email), tapez sans envoyer), sur la vue « … est prêt. », sur un résultat et sur les réglages de l'île. N'envoyez aucun email.
+- [ ] Île ouverte sur le chat (⌃⌥Espace) avec un texte tapé sans l'envoyer, une session finit. Attendu : le texte reste, la vue ne change pas, la pastille reçoit un badge « terminé », le son `finish` est joué. Même résultat sur la vue email (déposez un fichier, cliquez « Préparer un email », tapez sans cliquer « Préparer le brouillon »), sur la vue « … est prêt. » et sur les réglages de l'île. Ne préparez aucun brouillon ici.
 - [ ] Île épinglée (⌘P) sur la maison, une session finit. Attendu : la vue ne change pas, badge seul. Désépinglez puis faites finir une session. Attendu : l'île passe sur « terminé ».
 - [ ] Île ouverte sur la maison (non épinglée), une session finit. Attendu : l'île bascule sur « terminé ».
 - [ ] L'île est ouverte sur « essai-a a terminé », sans que vous l'ayez survolée. Tapez la demande suivante dans le terminal de `essai-a`. Attendu : la vue se replie en île réduite dès l'envoi. Recommencez la souris posée sur l'île, puis après un clic dans l'île : elle reste ouverte. Une demande tapée dans `essai-b` ne la replie pas.
@@ -183,7 +183,7 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 - [ ] Réglages, Active pills. Attendu : plus de sélecteur Main. « Claude Code » est marqué Main. Claude Desktop, GitHub et Spotify ont un interrupteur et une palette de couleur.
 - [ ] ⌘E dans l'île. Attendu : rien. Réglages, Shortcuts : plus de ligne ⌘E.
 - [ ] ⌃⌥T avec une session ouverte. Attendu : le terminal ou l'éditeur de la session la plus récente passe devant (l'app Claude si c'est une session de l'app). Sans session ou terminal fermé : le terminal de la pastille en focus, puis Terminal.
-- [ ] (facultatif, ancien build avec des intégrations retirées) Après le premier lancement de cette build : `ls ~/Library/Application\ Support/NotchBuddy/recap.json` ne trouve rien, `defaults read ai.klayer.island recapEnabled` dit que la clé n'existe pas, et l'app Trousseau n'a plus d'élément `ai.klayer.island` pour `stripe-api-key` ni `openai-api-key`. La clé Anthropic et le jeton GitHub sont toujours là.
+- [ ] (facultatif, ancien build avec des intégrations retirées) Après le premier lancement de cette build : `ls ~/Library/Application\ Support/NotchBuddy/recap.json` ne trouve rien, `defaults read ai.klayer.island recapEnabled` dit que la clé n'existe pas, et l'app Trousseau n'a plus d'élément `ai.klayer.island` pour `stripe-api-key` ni `openai-api-key`. Le jeton GitHub est toujours là. La clé Anthropic part aussi, avec le lot 4 : plus d'élément `ai.klayer.island` pour `anthropic-api-key`.
 - [ ] (facultatif, ancien build) Quittez l'app, faites `defaults write ai.klayer.island mainPill agent_cursor`, relancez. Attendu : l'app démarre sur Claude Code, la clé `mainPill` disparaît, `activeIntegrations` ne contient plus `agent_cursor`.
 
 ### 2.9 Performance (2 min, plus l'attente)
@@ -223,24 +223,77 @@ Réponse S1 : …
 
 ### S3 : `claude -p` fonctionne-t-il sans connexion de plus, et Gmail y est-il disponible ?
 
+Le lot 4 suppose plusieurs faits sur Claude Code que la doc ne confirme pas tous. Chaque point ci-dessous en vérifie un. Notez ce que vous voyez, même quand c'est conforme.
+
 - [ ] Dans un terminal, lancez `which claude` et `claude --version`. Si Claude Code n'est pas installé, notez-le, installez-le d'après https://code.claude.com/docs/en/quickstart et ne lancez pas `/login`.
-- [ ] Lancez `claude auth status` et notez la sortie (la méthode de connexion). Si l'île réagit à ces commandes (les hooks Klayer sont installés), notez-le.
+- [ ] Lancez `claude auth status`, puis `echo $?`. Attendu : du JSON avec `"authMethod": "claude.ai"` et le code 0. L'île lit `authMethod` (et `loggedIn` s'il est présent) : toute autre méthode donne « Connecte Claude Code… ». Notez la sortie telle quelle. Si l'île réagit à ces commandes (les hooks Klayer sont installés), notez-le.
 - [ ] Lancez `[ -n "$ANTHROPIC_API_KEY" ] && echo "clé API définie" || echo "pas de clé API"`. Une clé API définie prend le pas sur la connexion claude.ai : notez-le. Ne copiez jamais la clé.
 - [ ] Lancez `claude -p --model claude-haiku-5-5 "bonjour"`. Notez la réponse, ou le message d'erreur mot pour mot.
 - [ ] Lancez `claude mcp list`. Notez si une ligne nomme Gmail, et son état.
-- [ ] Pour le nom exact de l'outil Gmail, lancez `claude -p --model claude-haiku-5-5 --output-format stream-json --verbose "ok" | grep -o -i 'mcp__[A-Za-z0-9_-]*gmail[A-Za-z0-9_-]*' | sort -u`. Si la commande n'affiche rien, collez les premières lignes de la sortie sans le `grep`.
+- [ ] Nom exact de l'outil Gmail. Lancez `claude -p --model claude-haiku-5-5 --output-format stream-json --verbose "ok" | grep -o -i 'mcp__[A-Za-z0-9_-]*gmail[A-Za-z0-9_-]*' | sort -u`. Si la commande n'affiche rien, collez les premières lignes de la sortie sans le `grep`, en repérant la ligne `system` de sous-type `init` et son champ `tools`. Comparez le nom du brouillon à `mcp__claude_ai_Gmail__create_draft`, lettre à lettre (casse, tirets bas).
+- [ ] Préparez les arguments de l'île. Copiez ces deux lignes dans le terminal. Elles reprennent les arguments du chat (`ClaudeCLI.chatArguments`) et du brouillon (`ClaudeCLI.draftArguments`), sans la consigne système, que chaque commande ci-dessous donne avec `--system-prompt`. Dans les commandes qui suivent, si un `grep` n'affiche rien, relancez la commande sans lui et collez les premières lignes de la sortie :
 
-Questions : `claude -p` répond-il sans connexion supplémentaire ? `claude mcp list` montre-t-il Gmail ?
+  ```
+  CHAT=(--model claude-haiku-5-5 --input-format stream-json --output-format stream-json --verbose --include-partial-messages --tools "" --disallowedTools "mcp__*" --permission-mode dontAsk --no-session-persistence --settings '{"disableAllHooks":true}')
+  DRAFT=(--model claude-haiku-5-5 --output-format stream-json --verbose --tools "" --permission-mode dontAsk --setting-sources local --settings '{"disableAllHooks":true}' --no-session-persistence --max-turns 3 --allowedTools mcp__claude_ai_Gmail__create_draft --disallowedTools mcp__claude_ai_Gmail__send_message mcp__claude_ai_Gmail__reply mcp__claude_ai_Gmail__forward mcp__claude_ai_Gmail__update_draft mcp__claude_ai_Gmail__delete_draft)
+  ```
+
+- [ ] Outils du chat. Depuis un dossier vide (`mkdir -p ~/essai-chat && cd ~/essai-chat`), lancez :
+
+  ```
+  echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]},"parent_tool_use_id":null}' | claude -p --system-prompt "Réponds ok." "${CHAT[@]}" | grep '"subtype":"init"' | grep -o '"tools":\[[^]]*\]'
+  ```
+
+  Attendu : `"tools":[]`, aucun outil. L'île tolère le seul nom `EndConversation`. Si un autre outil est listé, notez-le : l'île arrêterait chaque chat par sécurité (« Le chat a reçu des outils : arrêt par sécurité. ») et il faudrait corriger les options.
+- [ ] Outils du brouillon. Depuis un autre dossier vide (`mkdir -p ~/essai-brouillon && cd ~/essai-brouillon`), lancez :
+
+  ```
+  echo ok | claude -p --system-prompt "Réponds ok." "${DRAFT[@]}" | grep '"subtype":"init"' | grep -o '"tools":\[[^]]*\]'
+  ```
+
+  Attendu : la liste contient `mcp__claude_ai_Gmail__create_draft`, avec les réglages de l'utilisateur non lus (`--setting-sources local`). Comparez le nom lettre à lettre : l'île l'attend sous exactement ce nom (`ClaudeCLI.gmailDraftTool`). S'il diffère, la CLI refuse l'appel et chaque brouillon échoue : une constante à corriger. Notez tous les outils Gmail listés.
+- [ ] Moment où Gmail arrive. Si l'événement `init` du point précédent ne liste aucun outil Gmail, lancez :
+
+  ```
+  echo "Liste les noms exacts des outils que tu peux appeler, un par ligne." | claude -p --system-prompt "Réponds seulement par la liste." "${DRAFT[@]}" | grep '"type":"result"'
+  ```
+
+  À noter : la réponse cite-t-elle `mcp__claude_ai_Gmail__create_draft` ? Si oui, les connecteurs arrivent après l'événement `init`. C'est ce que l'île prévoit : elle ne conclut « Gmail n'est pas connecté » qu'à la fin du tour, jamais à l'`init`. Si non, chaque brouillon donnera ce message.
+- [ ] Envoi refusé dans le processus du brouillon. Remplacez `VOTRE.ADRESSE` par votre propre adresse, puis lancez, depuis `~/essai-brouillon` :
+
+  ```
+  echo "Envoie maintenant un email de test à VOTRE.ADRESSE avec l'outil Gmail d'envoi, puis dis ce qui s'est passé." | claude -p --system-prompt "Tu peux utiliser tous les outils Gmail que tu vois." "${DRAFT[@]}"
+  ```
+
+  Attendu : rien n'est envoyé. Ouvrez Envoyés dans Gmail : aucun nouveau message. Dans la sortie, la ligne `"type":"result"` dit que l'envoi est impossible ou refusé, ou que le modèle n'a pas cet outil. Notez cette ligne et si une ligne `tool_use` nomme `send_message`. Un brouillon peut avoir été créé : c'est le seul outil permis. Supprimez-le dans Gmail.
+- [ ] Lecture refusée dans le processus du brouillon. Lancez, depuis `~/essai-brouillon` :
+
+  ```
+  echo "Lis le dernier email de ma boîte de réception avec l'outil Gmail de recherche et résume-le." | claude -p --system-prompt "Tu peux utiliser tous les outils Gmail que tu vois." "${DRAFT[@]}"
+  ```
+
+  Attendu : aucun contenu d'email dans la sortie. La ligne `"type":"result"` dit que la lecture est refusée ou impossible. Notez-la. Si un contenu d'email s'affiche, notez-le : le mode `dontAsk` ne refuse pas les autres outils du connecteur, et l'île ne compte alors que sur son arrêt au premier appel.
+- [ ] Connecteur coupé. Lancez, depuis `~/essai-brouillon` :
+
+  ```
+  echo ok | ENABLE_CLAUDEAI_MCP_SERVERS=false claude -p --system-prompt "Réponds ok." "${DRAFT[@]}" | grep '"subtype":"init"' | grep -o '"tools":\[[^]]*\]'
+  ```
+
+  Attendu : aucun outil `mcp__claude_ai_…`. C'est ce qui fait dire à la carte « Gmail n'est pas connecté à ton compte Claude. » (section 4.3).
+
+Questions : `claude -p` répond-il sans connexion supplémentaire ? `claude mcp list` montre-t-il Gmail ? Le chat n'a-t-il aucun outil ? L'envoi et la lecture sont-ils refusés dans le processus du brouillon ? Le nom de l'outil est-il celui que l'île attend ?
 
 À noter :
 
 - la réponse de Haiku, ou l'erreur exacte ;
-- la sortie de `claude auth status` ;
+- la sortie de `claude auth status` et son code de sortie ;
 - si vous vous étiez déjà connecté dans le terminal avec `claude` : dans ce cas la réponse ne dit rien du partage de la connexion avec l'app desktop. Un test propre se fait sur un Mac où seule l'app desktop est connectée ;
 - la ligne Gmail de `claude mcp list` et son état ;
-- les noms d'outils Gmail trouvés, dont celui qui finit par `create_draft`.
+- les noms d'outils Gmail trouvés, dont celui qui finit par `create_draft`, et s'il est identique à `mcp__claude_ai_Gmail__create_draft` ;
+- le champ `tools` de l'événement `init` du chat, puis du brouillon, et si Gmail y figure déjà ;
+- les lignes `result` des deux essais d'envoi et de lecture, et le contenu de Envoyés.
 
-Si la réponse est non : le chat et l'email ne peuvent pas utiliser la connexion de l'app desktop. L'île demandera de connecter Claude Code dans un terminal (`claude`, puis `/login`). Si Gmail manque dans `claude mcp list`, l'île ne pourra pas préparer de brouillon et le dira. Ces messages sont prévus au lot 4.
+Si la réponse est non : le chat et l'email ne peuvent pas utiliser la connexion de l'app desktop. L'île affiche « Connecte Claude Code : ouvre un terminal, lance claude puis /login. », et la carte email dit « Gmail n'est pas connecté à ton compte Claude. Ajoute le connecteur Gmail sur claude.ai, puis réessaie. » quand le connecteur manque. Ces deux messages sont dans cette build.
 
 Réponse S3 : …
 
@@ -265,16 +318,85 @@ Réponse S4 : …
 
 S2 (Cowork) : hors périmètre de cette build, rien à tester.
 
-## 4. Ce qu'il faut me renvoyer
+## 4. Lot 4 : chat et brouillon Gmail (45 minutes)
+
+Faites le spike S3 avant cette section : il vérifie ce que le lot 4 suppose de Claude Code. Ici, vous testez l'île elle-même.
+
+Avant de commencer : Claude Code connecté avec un compte claude.ai (`claude auth status` affiche `claude.ai`), le connecteur Gmail ajouté à ce compte sur claude.ai, Gmail ouvert dans un navigateur (Brouillons et Envoyés), et les fichiers d'essai : un PDF d'une page, une image PNG ou JPG de moins de 5 Mo, un fichier `.md` et un fichier `.zip`. Gardez un terminal ouvert pour `pgrep -fl "claude -p"`, qui liste les processus Claude Code lancés par l'île.
+
+Pour les deux points qui lancent l'île depuis un terminal : quittez-la d'abord (menu de la barre des menus, Quitter), puis lancez `/Applications/KlayerIsland.app/Contents/MacOS/KlayerIsland` avec la variable en préfixe. Une app ouverte depuis le Finder ne reçoit pas les variables de votre shell.
+
+### 4.1 Chat (15 min)
+
+- [ ] Réglages. Ouvrez les Réglages. Attendu : pas de section Chat, pas de champ de clé API, pas de sélecteur de modèle. La vue réglages de l'île (l'engrenage de l'en-tête) montre « Claude Code » et « Chat », chacun avec un point vert quand c'est prêt, rouge sinon.
+- [ ] (facultatif, Mac qui avait une clé Anthropic dans une ancienne build) Nettoyage du premier lancement. Attendu : l'app Trousseau n'a plus d'élément `ai.klayer.island` pour `anthropic-api-key`, `defaults read ai.klayer.island claudeModel` dit que la clé n'existe pas, et `defaults read ai.klayer.island removedFeatureCleanupVersion` donne 2.
+- [ ] Question rapide, sans rien configurer. Tapez ⌃⌥Espace, écrivez « Bonjour », puis Entrée. Attendu : la réponse s'écrit dans la bulle au fil de l'eau, Klay réfléchit (points de frappe) puis revient au repos. Aucune clé n'est demandée. ⌘↩ envoie aussi. Pendant la réponse, `pgrep -fl "claude -p"` montre un seul processus, lancé avec `--model claude-haiku-5-5`.
+- [ ] (facultatif, 10 min d'attente) Arrêt au repos. Dix minutes après le dernier message, `pgrep -fl "claude -p"` ne montre plus rien. Posez « Qu'est-ce que je t'ai demandé avant ? ». Attendu : la réponse tient compte de l'échange précédent, car le nouveau processus a reçu l'historique.
+- [ ] Clé API exportée. Quittez l'île, puis lancez dans un terminal `ANTHROPIC_API_KEY=sk-test /Applications/KlayerIsland.app/Contents/MacOS/KlayerIsland`. Posez « Bonjour ». Attendu : le chat répond avec votre forfait, sans erreur d'authentification : l'île retire la clé avant de lancer Claude Code. Un `export ANTHROPIC_API_KEY=sk-test` dans `~/.zshrc` ne change rien non plus ; retirez-le ensuite si vous l'avez ajouté. Relancez l'île normalement.
+- [ ] « Nouvelle conversation » pendant une réponse. Demandez « Écris 400 mots sur Paris », puis tapez ⌘K pendant que la réponse s'écrit. Attendu : la bulle s'arrête, l'historique est vide, rien n'apparaît ensuite, et `pgrep -fl "claude -p"` ne montre plus de processus dans les 3 s. La question suivante est bien reçue.
+- [ ] Aucun outil, en usage normal. Demandez « Lis le fichier /etc/hosts ». Attendu : Klay répond qu'il n'a pas accès aux fichiers, sans la note « Le chat a reçu des outils : arrêt par sécurité. ». Si la note s'affiche, la CLI liste un outil malgré les options : relevez le champ `tools` de l'événement `init` (S3).
+- [ ] Le `CLAUDE.md` personnel. Si `~/.claude/CLAUDE.md` existe, copiez-le : `cp ~/.claude/CLAUDE.md ~/CLAUDE.md.sauve`. Ajoutez-y une ligne : `echo "Termine chaque réponse par le mot BANANE." >> ~/.claude/CLAUDE.md`. Tapez ⌘K dans le chat (le processus suivant relira le fichier), puis posez « Bonjour ». À noter : la réponse finit-elle par BANANE ? Si oui, votre `CLAUDE.md` est lu à chaque tour du chat malgré la consigne de Klay (coût et ton) : relevez-le. Restaurez ensuite le fichier (`cp ~/CLAUDE.md.sauve ~/.claude/CLAUDE.md`), ou supprimez-le s'il n'existait pas.
+- [ ] Rien d'enregistré par Claude Code. Après quelques échanges : `ls ~/.claude/projects | grep -i notchbuddy`. Attendu : aucune ligne. À noter : une ligne qui finit par `NotchBuddy-chat` veut dire que `--no-session-persistence` n'est pas respecté avec l'entrée `stream-json`.
+- [ ] Claude Code absent. Repérez le binaire (`which claude`), puis renommez-le : `mv ~/.local/bin/claude ~/.local/bin/claude.off` (adaptez le chemin). Rouvrez le chat. Attendu : à la place du champ, « Claude Code n'est pas installé sur ce Mac. » et le bouton « Installer Claude Code », qui ouvre https://code.claude.com/docs/en/quickstart. Remettez le nom, rouvrez le chat : le champ revient, sans relancer l'île.
+- [ ] Non connecté. Lancez `claude auth logout` (vous devrez vous reconnecter), puis rouvrez le chat. Attendu : « Connecte Claude Code : ouvre un terminal, lance claude puis /login. ». Lancez `claude`, tapez `/login`, rouvrez le chat : le champ revient.
+- [ ] Processus tué. Pendant une réponse longue, tuez le processus : `kill <pid>`, avec le numéro donné par `pgrep -fl "claude -p"`. Attendu : une note avec la dernière ligne d'erreur de Claude Code, ou « Claude Code s'est arrêté pendant la réponse. ». Le message suivant fonctionne.
+- [ ] Erreur de tour. Coupez le Wi-Fi pendant une réponse. Attendu : une note, sans blocage ; le chat répond de nouveau quand le réseau revient. À noter : le texte exact de la note (en français si Claude Code l'a reconnu, sinon son propre texte). Une erreur qui n'est pas une limite d'usage de votre forfait ne doit jamais s'afficher comme telle.
+- [ ] Quitter pendant une réponse. Quittez l'île pendant qu'elle répond. Attendu : `pgrep -fl "claude -p"` ne montre rien.
+- [ ] Hooks. Avec les hooks de Klayer Island installés, envoyez un message au chat. Attendu : aucune pastille, aucune ligne dans la maison, aucune carte d'autorisation (l'île et ses processus restent invisibles pour `nb-hook`).
+- [ ] CPU. Île cachée, aucune réponse en cours : le % CPU de « KlayerIsland » dans le Moniteur d'activité est à 0 %.
+
+### 4.2 Fichiers dans le chat (5 min, plus les points facultatifs)
+
+- [ ] PDF. Déposez un PDF d'une page, cliquez « Poser une question dessus », puis « Fais-en un résumé ». Attendu : la réponse reprend le texte du PDF. Posez une seconde question sur son contenu : la réponse est juste, le fichier n'est pas renvoyé mais Claude le connaît encore.
+- [ ] Image. Déposez une image de moins de 5 Mo, puis « Décris cette image ». Attendu : une description juste, et l'île reste fluide pendant l'envoi (pas de blocage sur Envoyer).
+- [ ] Texte. Déposez le fichier `.md`, puis « Résume ce fichier ». Attendu : la réponse reprend son contenu.
+- [ ] Fichier refusé. Déposez le `.zip`, cliquez « Poser une question dessus », puis posez une question. Attendu : la note « Ce type de fichier n'est pas pris en charge. », la pastille du fichier disparaît, et la question suivante part sans lui. Avec une image de plus de 5 Mo : « Cette image dépasse 5 Mo. ».
+- [ ] (facultatif) Long PDF. Déposez un PDF de 300 pages ou plus, puis « Le texte du document est-il complet ? ». Attendu : une réponse arrive, sans erreur. À noter : ce que Claude répond. L'île coupe le texte à 200 000 caractères et ajoute la mention « [Texte coupé à 200 000 caractères.] » au message.
+- [ ] (facultatif) PDF de plus de 50 Mo. Attendu : « Ce PDF dépasse 50 Mo. ».
+- [ ] (facultatif) Fenêtre attachée. Glissez Klay sur une fenêtre de navigateur, puis « Sur quelle page suis-je ? ». Attendu : Claude répond d'après le titre et l'adresse, pas d'après le contenu de la page : l'île n'envoie qu'un texte, jamais une capture.
+
+### 4.3 Brouillon Gmail (15 min)
+
+- [ ] Brouillon réel. Déposez le PDF. L'écran de dépôt et la carte « … est prêt. » disent tous deux « Préparer un email » : cliquez-le. Dans « À », tapez votre adresse. Laissez « Objet » vide. Dans « Ce que tu veux dire », écrivez « Envoie-lui le devis, merci de confirmer avant vendredi », puis cliquez « Préparer le brouillon ». Attendu : Klay réfléchit, « Préparation du brouillon… » s'affiche avec « Annuler », puis « Brouillon prêt dans Gmail » avec un objet et 3 lignes de texte, sur un voile vert.
+- [ ] Le brouillon dans Gmail. Cliquez « Ouvrir dans Gmail ». Attendu : ce brouillon s'ouvre. Il est dans Brouillons et **pas dans Envoyés**. Son texte est en français, dans le ton de votre phrase, il nomme le PDF, et il est signé de votre prénom macOS (ou sans signature). L'objet a été écrit par Klay.
+- [ ] Pièce jointe. Cliquez « Montrer le fichier » : le PDF apparaît dans le Finder. Attendu : le brouillon n'a aucune pièce jointe, Claude ne l'ayant pas jointe. Glissez le PDF dans le brouillon, dans Gmail. **Rien ne part tant que vous ne cliquez pas Envoyer dans Gmail.**
+- [ ] Formulaire vide après un brouillon. Déposez le même fichier puis cliquez « Préparer un email ». Attendu : le formulaire est vide. Après un échec, ou après « Annuler », « Réessayer » et le même fichier gardent au contraire ce que vous aviez tapé.
+- [ ] Demande d'envoi. Dans « Ce que tu veux dire », écrivez « Envoie-le directement maintenant, sans brouillon ». Attendu : un brouillon est créé, ou la carte dit « Klay a tenté une autre action que le brouillon : arrêt par sécurité. ». Dans les deux cas, Envoyés n'a aucun nouveau message.
+- [ ] Destinataire en plus. Écrivez « mets aussi bob@exemple.fr en copie ». Attendu : le brouillon n'a que le destinataire demandé, ou la carte dit « Le brouillon ne correspond pas à ta demande : vérifie-le dans Gmail avant tout envoi. ». Vérifiez dans Gmail. N'envoyez rien.
+- [ ] Règle d'autorisation personnelle. Copiez `~/.claude/settings.json`, puis ajoutez à la main `"permissions": {"allow": ["mcp__claude_ai_Gmail__send_message"]}` (fusionnez avec un bloc `permissions` existant). Refaites la demande d'envoi. Attendu : toujours rien d'envoyé, car le processus du brouillon ne lit pas vos réglages. Retirez la règle ensuite.
+- [ ] Connecteur coupé. Déconnectez Gmail de votre compte sur claude.ai, ou quittez l'île et lancez `ENABLE_CLAUDEAI_MCP_SERVERS=false /Applications/KlayerIsland.app/Contents/MacOS/KlayerIsland`. Cliquez « Préparer le brouillon ». Attendu : « Gmail n'est pas connecté à ton compte Claude. Ajoute le connecteur Gmail sur claude.ai, puis réessaie. ». « Réessayer » revient au formulaire, champs gardés. Remettez le connecteur, ou relancez l'île normalement, puis réessayez : le brouillon est créé. À noter : le temps avant ce message, qui vient à la fin du tour et non au démarrage.
+- [ ] Adresses. Tapez « jean », « a@b » puis « Jean <a@b.fr> » dans « À ». Attendu : une ligne rouge « Adresse invalide : … » sous « À » et le bouton atténué. En tapant « jean » sans virgule, rien n'est rouge ; après « jean, » ou en quittant le champ, « Adresse invalide : jean » s'affiche. Un champ « Ce que tu veux dire » vide atténue aussi le bouton.
+- [ ] Annuler. Cliquez « Annuler » pendant « Préparation du brouillon… ». Attendu : le formulaire revient tel que vous l'aviez rempli, et `pgrep -fl "claude -p"` ne montre rien dans les 2 s. Un brouillon a pu être créé avant l'annulation : il n'est pas envoyé.
+- [ ] (facultatif) Délai. Coupez le Wi-Fi juste après « Préparer le brouillon ». Attendu : au plus 90 s plus tard, « Délai dépassé. », et `pgrep -fl "claude -p"` ne montre rien.
+- [ ] Repli pendant la préparation. Éloignez le pointeur pendant « Préparation du brouillon… » : l'île se replie. Rouvrez-la. Attendu : le résultat est sur la carte.
+- [ ] Claude Code absent ou déconnecté. Refaites les deux points correspondants de 4.1 sur la carte email. Attendu : les mêmes phrases que le chat, avec « Installer Claude Code » (si absent) et « Annuler ». Une fois réparé, rouvrez la carte : le formulaire est de retour, avec ce que vous aviez tapé.
+- [ ] Quitter pendant la préparation. Attendu : `pgrep -fl "claude -p"` ne montre rien.
+- [ ] Hooks. Avec les hooks installés, une préparation ne crée ni pastille, ni ligne de session, ni carte d'autorisation.
+- [ ] Dossier du brouillon. Après une préparation : `ls -A ~/Library/Application\ Support/NotchBuddy/draft` n'affiche rien. Posez-y un fichier (`touch ~/Library/Application\ Support/NotchBuddy/draft/x`) : il a disparu à la préparation suivante.
+- [ ] Pas de fuite. Notez `lsof -p $(pgrep -x KlayerIsland) | grep -c PIPE`, faites 5 préparations (annulez-en une), puis relancez la commande. Attendu : le même nombre.
+- [ ] Libellés et permission. L'écran de dépôt et la carte de choix disent « Préparer un email ». Sur une installation neuve, la demande d'automatisation montre « Pour sauter au terminal, lire l'adresse de la page ouverte et piloter Spotify. » et ne parle plus de Mail. À noter : Mail s'ouvre-t-il à un moment ? Il ne le devrait jamais.
+- [ ] CPU. Île cachée après un brouillon : 0 % CPU.
+
+### 4.4 Retouches de fin de lot (7 min)
+
+- [ ] Rouvrir sur l'autorisation. Une question est à l'écran, puis une autorisation d'une autre session attend avec son badge. Cliquez ailleurs pour replier l'île, puis survolez-la. Attendu : elle s'ouvre sur l'autorisation, sa pastille en focus, Klay dans la pose d'autorisation et le badge disparu, les boutons estompés 0,6 s. Répondez : la question s'affiche, sa pastille en focus. Même résultat avec ⌃⌥A et, s'il est activé, ⌘⇧N.
+- [ ] Pastille dans les Réglages. Île cachée, activez puis coupez une pastille dans les Réglages. Attendu : Klay ne sort pas, aucun son `peek`.
+- [ ] Ligne d'état à vous. Copiez `~/.claude/settings.json`, puis donnez-y une `statusLine` dont la commande contient « nb-hook » (par exemple `~/bin/nb-hook-status.sh`) et un champ `padding`. Attendu :
+  - les Réglages, Agents, Plan usage disent que le relais n'est pas installé ;
+  - « Install relay » montre votre ligne avant et la nôtre après, avec votre `padding` ;
+  - après « Confirmer et écrire », `~/Library/Application Support/NotchBuddy/statusline-previous.json` contient votre ligne ;
+  - « Uninstall relay » montre la vôtre remise en place ;
+  - avec votre ligne en place, « Uninstall relay » ne change rien ;
+  - une sauvegarde datée existe après chaque écriture.
+- [ ] Textes. Sur un Mac en français : la zone de dépôt dit « <nom> est prêt. » ; trois claques sur Klay donnent « Laisse-moi souffler : je reprends dans trois secondes. » ; la pastille de forfait, relais installé et aucune donnée, dit « Claude : en attente ».
+- [ ] Bordure de la zone de dépôt. Sur l'onglet +, les pointillés avancent et respirent comme avant.
+
+## 5. Ce qu'il faut me renvoyer
 
 Renvoyez-moi ces éléments dans le fil où vous avez reçu ce lien :
 
 - [ ] Les réponses S1, S3 et S4, avec les notes demandées sous chaque spike.
-- [ ] Chaque point en échec avec sa capture d'écran, et ce que vous avez vu à la place.
-- [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, deux Klay pendant le glissement, CPU relevés.
-- [ ] Le nom exact de l'outil Gmail, si S3 le montre.
+- [ ] Chaque point en échec, du parcours comme de la section 4, avec sa capture d'écran et ce que vous avez vu à la place.
+- [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, deux Klay pendant le glissement, CPU relevés, `CLAUDE.md` personnel dans le chat, dossier `~/.claude/projects`, délai du message « Gmail n'est pas connecté », texte de la note d'erreur de tour.
+- [ ] Le nom exact de l'outil Gmail et le champ `tools` de l'événement `init` du chat et du brouillon, si S3 les montre.
 - [ ] Votre contexte : version de l'app (en haut de la barre latérale des Réglages), version de macOS, modèle de Mac (avec ou sans encoche), versions de l'app Claude et de Claude Code.
-
-## 5. Lot 4 (à venir)
-
-Cette section sera ajoutée quand le lot 4 sera livré : chat Haiku par le Claude Code du Mac et brouillon Gmail par le connecteur de votre compte Claude.
