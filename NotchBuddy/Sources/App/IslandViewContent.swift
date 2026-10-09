@@ -754,8 +754,12 @@ struct UploadView: View {
         guard animTimer == nil else { return }
         // 20 fps: smooth enough for slow dash, 3× lighter than 60fps
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0/20.0, repeats: true) { _ in
-            dashPhase  += 1.0          // 20 pt/s march
-            breathAngle += 0.9 / 20.0  // advance sin phase at 0.9 rad/s
+            // Scheduled from the view on the main run loop: each tick runs on the main thread,
+            // where the view's state may change.
+            MainActor.assumeIsolated {
+                dashPhase  += 1.0          // 20 pt/s march
+                breathAngle += 0.9 / 20.0  // advance sin phase at 0.9 rad/s
+            }
         }
     }
 
