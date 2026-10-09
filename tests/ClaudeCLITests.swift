@@ -48,6 +48,7 @@ enum ClaudeCLITests {
             ("chat_environment_starts_no_connector", chatEnvironmentStartsNoConnector),
             ("candidates_cover_node_version_managers", candidatesCoverNodeVersionManagers),
             ("chat_arguments_under_a_managed_mcp_file", chatArgumentsUnderAManagedMCPFile),
+            ("chat_init_tolerates_tool_loading_names", chatInitToleratesToolLoadingNames),
         ]
         for (name, run) in cases {
             run()
@@ -1472,7 +1473,7 @@ enum ClaudeCLITests {
                                       isExecutable: { $0.hasPrefix(nvm) }) == nil, "no nvm folder: no nvm candidate")
     }
 
-    // MARK: - Re-review of lot 4: managed MCP file (N1)
+    // MARK: - Re-review of lot 4: managed MCP file (N1), chat init names
 
     static func chatArgumentsUnderAManagedMCPFile() {
         // Docs, « Control MCP server access »: with managed-mcp.json deployed, « The
@@ -1492,5 +1493,34 @@ enum ClaudeCLITests {
         // The environment does not depend on the file: connectors and tool search off in both cases.
         let env = ClaudeCLI.chatEnvironment(from: ["PATH": "/usr/bin"], binary: "/Users/test/.local/bin/claude")
         precondition(env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false" && env["ENABLE_TOOL_SEARCH"] == "false")
+    }
+
+    static func chatInitToleratesToolLoadingNames() {
+        // Listed by the process, ToolSearch and WaitForMcpServers run nothing: tolerated in the
+        // init list by their exact names, like EndConversation. Any call or result still trips.
+        precondition(ChatAnswer.harmlessTools == ["EndConversation", "ToolSearch", "WaitForMcpServers"])
+        for tools in [["ToolSearch"], ["WaitForMcpServers"], ["EndConversation", "ToolSearch", "WaitForMcpServers"]] {
+            precondition(!ChatAnswer.breaksNoToolRule(.initialized(tools: tools)), "\(tools) is only listed")
+            var listed = ChatAnswer()
+            listed.read([.initialized(tools: tools), delta("bonjour"), .turnEnded(isError: false, message: "bonjour")])
+            precondition(listed.end == .answered("bonjour"), "\(tools): the chat answers")
+        }
+        for tools in [["toolsearch"], ["Toolsearch"], ["ToolSearchX"], [" ToolSearch"], ["ToolSearch "], ["mcp__ToolSearch"],
+                      ["WaitForMcpServer"], ["WaitForMcpServersX"], ["waitformcpservers"], ["WaitForMCPServers"],
+                      ["ToolSearch", "Read"], ["WaitForMcpServers", "mcp__claude_ai_Gmail__create_draft"], ["ToolSearch,Read"]] {
+            precondition(ChatAnswer.breaksNoToolRule(.initialized(tools: tools)), "\(tools) breaks the no-tool rule")
+            var near = ChatAnswer()
+            near.read([.initialized(tools: tools), delta("bonjour"), .turnEnded(isError: false, message: "bonjour")])
+            precondition(near.end == .toolsOffered && near.text.isEmpty, "\(tools) stops the turn at once")
+        }
+        // A call of either one, or any tool result, stops the chat.
+        for name in ["ToolSearch", "WaitForMcpServers", "EndConversation"] {
+            precondition(ChatAnswer.breaksNoToolRule(.toolUse(name: name, inputJSON: "{}")), "a call of \(name) trips")
+            var called = ChatAnswer()
+            called.read([.initialized(tools: [name]), delta("Je cherche"), .toolUse(name: name, inputJSON: "{}"),
+                         .turnEnded(isError: false, message: "ok")])
+            precondition(called.end == .toolsOffered, "\(name) called: stopped")
+        }
+        precondition(ChatAnswer.breaksNoToolRule(.toolResult(text: "")))
     }
 }

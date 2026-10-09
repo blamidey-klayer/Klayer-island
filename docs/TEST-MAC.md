@@ -247,7 +247,7 @@ Le lot 4 suppose plusieurs faits sur Claude Code que la doc ne confirme pas tous
   echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]},"parent_tool_use_id":null}' | "${CHAT_ENV[@]}" claude -p --system-prompt "Réponds ok." "${CHAT[@]}" | grep '"subtype":"init"' | grep -o '"tools":\[[^]]*\]'
   ```
 
-  Attendu : `"tools":[]`, aucun outil. L'île tolère le seul nom `EndConversation`. Si un autre outil est listé, notez-le, en particulier `ToolSearch` ou `WaitForMcpServers` : l'île arrêterait chaque chat par sécurité (« Le chat a reçu des outils : arrêt par sécurité. ») et il faudrait corriger les options. Relevez aussi le champ `mcp_servers` de la même ligne `init` (relancez sans le dernier `grep`) : attendu vide, puisque le chat ne démarre aucun serveur MCP ni connecteur.
+  Attendu : `"tools":[]`, aucun outil. L'île tolère dans cette liste les seuls noms exacts `EndConversation`, `ToolSearch` et `WaitForMcpServers`, qui n'agissent sur rien ; notez si l'un d'eux y figure. Si un autre outil est listé, notez-le : l'île arrêterait chaque chat par sécurité (« Le chat a reçu des outils : arrêt par sécurité. ») et il faudrait corriger les options. Relevez aussi le champ `mcp_servers` de la même ligne `init` (relancez sans le dernier `grep`) : attendu vide, puisque le chat ne démarre aucun serveur MCP ni connecteur.
 - [ ] Outils du brouillon. Depuis un autre dossier vide (`mkdir -p ~/essai-brouillon && cd ~/essai-brouillon`), lancez :
 
   ```

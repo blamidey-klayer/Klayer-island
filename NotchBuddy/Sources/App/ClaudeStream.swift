@@ -290,8 +290,11 @@ struct ChatAnswer: Equatable {
 
     /// Listed without being a risk: EndConversation only ends the conversation, never reads or
     /// changes anything, and no flag can remove it while another tool remains (Claude Code
-    /// tools reference). Any other tool trips the check.
-    static let harmlessTools: Set<String> = ["EndConversation"]
+    /// tools reference). ToolSearch and WaitForMcpServers only load or wait for MCP tools, of
+    /// which the chat has none (`--disallowedTools mcp__*`); a managed setting can keep tool
+    /// search on. Tolerated in the `init` list by their exact names only: a call of any of them,
+    /// or any tool result, still trips the check, and so does any other name.
+    static let harmlessTools: Set<String> = ["EndConversation", "ToolSearch", "WaitForMcpServers"]
 
     /// The text the bubble shows so far.
     private(set) var text = ""
