@@ -564,9 +564,10 @@ def title(state, session_id):
 
 
 def scenario_9_session_name(run):
-    """The name of a session titles its row and its finished view instead of its folder: the status
-    line's session_name, then a custom title from a hook (session_title), which comes first; the Code
-    tab note names the session by it."""
+    """The name of a session titles its row and its finished view instead of its folder. The latest
+    non-empty name wins, whatever its source: the status line's session_name, a custom title from a
+    hook (session_title), then a newer status line name, then a newer hook title. The Code tab note
+    names the session by the last one."""
     sid, project = new_session(), "refonte-onboarding"
     start_turn(sid, project, "Prépare la refonte de l'onboarding")
     name = "Refonte de l'onboarding client"
@@ -577,22 +578,32 @@ def scenario_9_session_name(run):
                lambda s: s["mode"] == "expanded" and s["view"] == "finished"
                and s["finishedSession"]["id"] == sid and s["finishedSession"]["title"] == name
                and phase(s, sid) == "finished" and title(s, sid) == name)
-    # Renamed in the Claude app: the next prompt carries the custom title, which comes first.
+    # Renamed in the Claude app: the next prompt carries the custom title, which replaces the AI title.
     custom = "Onboarding v2"
     fire(hook_input(sid, "UserPromptSubmit", project, prompt="Ajoute l'étape de bienvenue", session_title=custom),
          claude_app_env(), "UserPromptSubmit with session_title")
     wait_until("the row of %s titled « %s »" % (project, custom),
                lambda s: phase(s, sid) == "thinking" and title(s, sid) == custom)
-    status_line(sid, project, claude_app_env(), session_name=name)
-    keeps("the custom title before the status line's name", lambda s: title(s, sid) == custom, 1.0)
+    # Renamed again: the status line carries the new name before any hook. It replaces the custom title.
+    renamed = "Onboarding v3"
+    status_line(sid, project, claude_app_env(), session_name=renamed)
+    wait_until("the row of %s titled « %s » after a custom title" % (project, renamed),
+               lambda s: title(s, sid) == renamed)
+    # And a newer hook title wins again.
+    latest = "Onboarding v4"
+    fire(hook_input(sid, "UserPromptSubmit", project, prompt="Ajoute l'étape de fin", session_title=latest),
+         claude_app_env(), "UserPromptSubmit with a newer session_title")
+    wait_until("the row of %s titled « %s »" % (project, latest),
+               lambda s: phase(s, sid) == "thinking" and title(s, sid) == latest)
     fire(hook_input(sid, "Notification", project, message="Claude needs your permission to use Bash",
                     notification_type="permission_prompt"), claude_app_env(), "Notification")
-    wait_until("the note « Claude attend ta réponse » naming « %s »" % custom,
+    wait_until("the note « Claude attend ta réponse » naming « %s »" % latest,
                lambda s: s["mode"] == "expanded" and s["view"] == "note"
                and s["claudeAppAlert"] == {"title": "Claude attend ta réponse",
-                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % custom})
-    ok("9 a session goes by its name: the status line's titles its row and its finished view, a custom "
-       "title from a hook comes first, and the Code tab note names it")
+                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % latest})
+    ok("9 a session goes by its latest name, whatever its source: the status line's titles its row and its "
+       "finished view, a hook title replaces it, a newer status line name replaces that, a newer hook title "
+       "wins again, and the Code tab note names the last one")
 
 
 def unanswered(relay, what, still):

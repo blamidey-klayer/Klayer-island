@@ -532,7 +532,7 @@ final class HookServer: @unchecked Sendable {
             if !resolved {
                 // Another session of the pill keeps its own row; the one that owns the card stays on "approval".
                 if sessionId != pending.sessionId {
-                    trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
+                    trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, folder: projectName,
                                  host: sessionHost, asked: asked)
                     // What it asks plays its sound and is held for when the card leaves; never over the card.
                     if let asked { alertClaudeApp(asked, projectName: projectName, sessionId: sessionId) }
@@ -550,7 +550,7 @@ final class HookServer: @unchecked Sendable {
         if !HookRouting.eventReachesPill(agentId, sessionId: sessionId,
                                          questionPill: state.pendingQuestion != nil ? questionPillId : nil,
                                          questionSession: questionSessionId) {
-            trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
+            trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, folder: projectName,
                          host: sessionHost, asked: asked)
             if name == "Stop" || name == "StopFailure" {
                 SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
@@ -561,7 +561,7 @@ final class HookServer: @unchecked Sendable {
             return
         }
 
-        trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, title: projectName,
+        trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, folder: projectName,
                      host: sessionHost, asked: asked)
 
         switch name {
@@ -821,7 +821,7 @@ final class HookServer: @unchecked Sendable {
         // which the relay forwards when the status line has one. nb.log says a name arrived, never it.
         if let sessionId = payload["session_id"] as? String, !sessionId.isEmpty,
            let name = payload["session_name"],
-           AppState.shared.nameSession(sessionId, name, from: .statusLine) {
+           AppState.shared.nameSession(sessionId, name) {
             nbLog("Session name from the status line (\(sessionId.prefix(8)))")
         }
     }
@@ -858,7 +858,6 @@ final class HookServer: @unchecked Sendable {
         }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
-        noteSessionTitle(in: payload, sessionId: sessionId)
 
         let tool = payload["tool_name"] as? String ?? "Tool"
         let toolInput = payload["tool_input"] as? [String: Any] ?? [:]
@@ -907,7 +906,7 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         // The pill of the question card on screen keeps the question's pose.
         if takesScreen || pillId != cardPill { state.updateTask(id: pillId, state: .approval) }
-        state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .approval,
+        state.updateSession(sessionId: sessionId, pillId: pillId, folder: projectName, phase: .approval,
                             lastAction: SessionRoster.line(command),
                             hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
@@ -1023,7 +1022,6 @@ final class HookServer: @unchecked Sendable {
         }
         let pillId = route.pillId
         let terminalHost = route.terminalHost
-        noteSessionTitle(in: payload, sessionId: sessionId)
 
         // A permission card on screen is never swapped for this question under the pointer: the
         // question waits behind it, badged, and shows once the permission is answered.
@@ -1053,7 +1051,7 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         // The pill of the permission card on screen keeps the permission's pose.
         if takesScreen || pillId != cardPill { state.updateTask(id: pillId, state: .question) }
-        state.updateSession(sessionId: sessionId, pillId: pillId, title: projectName, phase: .question,
+        state.updateSession(sessionId: sessionId, pillId: pillId, folder: projectName, phase: .question,
                             lastAction: parsed.questions.first.flatMap { SessionRoster.line($0.question) },
                             hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
         // The request id first: the card keys its draft and the arming of its buttons on it.
@@ -1249,7 +1247,7 @@ final class HookServer: @unchecked Sendable {
     // MARK: - Session roster
 
     /// Feeds the roster of running sessions (one row per session) from a hook event, with the project
-    /// folder name (`title`: the row goes by the session's name when the roster knows one), with the
+    /// folder name (`folder`: the row goes by the session's name when the roster knows one), with the
     /// app the session runs in (`host`, nil keeps the known one).
     /// Events that say nothing new about a session (SubagentStart…) leave its row alone, except that
     /// a tool that ran puts a row the Claude app's notification left on approval or question back on
@@ -1257,7 +1255,7 @@ final class HookServer: @unchecked Sendable {
     /// `asked`: what a Notification asks of the user (`askedRequest`), nil for any other event.
     @MainActor
     private func trackSession(event name: String, payload: [String: Any], sessionId: String,
-                              pillId: String, title: String, host: String?, asked: CodeNotification.Kind?) {
+                              pillId: String, folder: String, host: String?, asked: CodeNotification.Kind?) {
         let phase: SessionPhase
         var action: String? = nil
         switch name {
@@ -1305,7 +1303,7 @@ final class HookServer: @unchecked Sendable {
         default:
             return
         }
-        AppState.shared.updateSession(sessionId: sessionId, pillId: pillId, title: title,
+        AppState.shared.updateSession(sessionId: sessionId, pillId: pillId, folder: folder,
                                       phase: phase, lastAction: action, hostBundleId: host)
     }
 
@@ -1317,18 +1315,18 @@ final class HookServer: @unchecked Sendable {
         guard let sessionId,
               let row = state.sessions.first(where: { $0.id == sessionId }),
               row.phase == .approval || row.phase == .question else { return }
-        state.updateSession(sessionId: sessionId, pillId: row.pillId, title: row.folder,
+        state.updateSession(sessionId: sessionId, pillId: row.pillId, folder: row.folder,
                             phase: .working, lastAction: nil)
     }
 
     /// The custom title a hook carries names its session (`session_title`: SessionStart and
     /// UserPromptSubmit have it when the session was named with `--name` or `/rename`, or renamed in
-    /// the Claude app or VS Code). It comes before the status line's name. nb.log says a title
-    /// arrived, never the title.
+    /// the Claude app or VS Code; no other hook carries it). The latest name wins, this one or the
+    /// status line's. nb.log says a title arrived, never the title.
     @MainActor
     private func noteSessionTitle(in payload: [String: Any], sessionId: String) {
         guard let title = payload["session_title"],
-              AppState.shared.nameSession(sessionId, title, from: .customTitle) else { return }
+              AppState.shared.nameSession(sessionId, title) else { return }
         nbLog("Session title from a hook (\(sessionId.prefix(8)))")
     }
 

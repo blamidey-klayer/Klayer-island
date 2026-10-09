@@ -2399,9 +2399,14 @@ struct AgentWho: View {
         HStack(spacing: 7) {
             if let task = task {
                 Circle().fill(Color(hex: task.color)).frame(width: 8, height: 8)
+                // A session's name can run to 120 characters: one line, cut with « … », the label kept whole.
                 Text(task.name).font(.system(size: 12, weight: .semibold)).foregroundColor(Color(hex: "#F5F6F8"))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             Text(LocalizedStringKey(label)).font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
+                .lineLimit(1)
+                .fixedSize()
         }
     }
 }

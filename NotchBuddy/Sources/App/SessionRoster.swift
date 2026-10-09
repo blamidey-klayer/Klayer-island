@@ -53,36 +53,23 @@ struct SessionRow: Equatable, Identifiable {
 // documented sources: the `session_title` of a hook (SessionStart and UserPromptSubmit carry it when
 // the session has a custom title: `--name`, `/rename`, a rename in the Claude app or VS Code) and the
 // `session_name` of the status line (the custom name if set, otherwise the title Claude generated).
-// The transcript is never read. Held in memory with the row; nb.log never has it. A request answered
-// from the island records its session by this name in the history of choices (choices.json, local),
-// as it recorded the folder before.
-
-/// Where a name comes from.
-enum SessionNameSource: Equatable {
-    /// A hook's `session_title`: the custom title, first.
-    case customTitle
-    /// The status line's `session_name`: the custom name or the AI title, after a custom title.
-    case statusLine
-}
+// The latest non-empty name wins, whatever its source: the status line carries the custom name as
+// soon as it is set, so it is never staler than the hook's title. The transcript is never read.
+// Held in memory with the row; nb.log never has it. A request answered from the island records its
+// session by this name in the history of choices (choices.json, local), as it recorded the folder.
 
 /// What the island knows of a session's name.
 struct SessionName: Equatable {
     /// Longest name kept, in characters.
     static let limit = 120
 
-    var custom: String? = nil
-    var statusLine: String? = nil
+    /// The name the session goes by: the latest non-empty one that arrived, from a hook or the
+    /// status line.
+    var name: String
     /// The last time a name arrived: a session with no row yet keeps it 30 min from then.
     var notedAt: Date
     /// The session had a row: the name goes when the row goes.
     var hadRow = false
-
-    /// The name the session goes by, nil when none is known: the custom title, else the status
-    /// line's name.
-    var name: String? { custom ?? statusLine }
-
-    /// The title of the session's row: its name, else its folder.
-    func title(folder: String) -> String { name ?? folder }
 
     /// A name as the island keeps it: one line (each run of spaces, tabs and line breaks becomes one
     /// space), trimmed, cut to 120 characters. Nil for anything else than a string, or when nothing
@@ -136,11 +123,11 @@ struct SessionRoster {
     /// session's row (kept 30 min). They leave with their row (`end`, `prune`).
     private(set) var names: [String: SessionName] = [:]
 
-    /// Creates or updates the row of `sessionId` and moves it to the top. `title` is the project
+    /// Creates or updates the row of `sessionId` and moves it to the top. `folder` is the project
     /// folder name: the row goes by the session's name when one is known (`name`), else by it. A nil
     /// `lastAction` keeps the previous one (empty for a new row); a given one is cut to 80
     /// characters. A nil `hostBundleId` keeps the host the session had (none for a new row).
-    mutating func update(sessionId: String, pillId: String, title: String, phase: SessionPhase,
+    mutating func update(sessionId: String, pillId: String, folder: String, phase: SessionPhase,
                          lastAction: String?, hostBundleId: String? = nil, at date: Date) {
         let previous = rows.first { $0.id == sessionId }
         let action: String
@@ -151,41 +138,37 @@ struct SessionRoster {
         }
         names[sessionId]?.hadRow = true
         rows.removeAll { $0.id == sessionId }
-        let row = SessionRow(id: sessionId, pillId: pillId, title: self.title(of: sessionId, folder: title),
+        let row = SessionRow(id: sessionId, pillId: pillId, title: self.title(of: sessionId, folder: folder),
                              phase: phase, lastAction: action, updatedAt: date,
-                             hostBundleId: hostBundleId ?? previous?.hostBundleId, folder: title)
+                             hostBundleId: hostBundleId ?? previous?.hostBundleId, folder: folder)
         rows.insert(row, at: rows.firstIndex { $0.updatedAt <= date } ?? rows.count)
     }
 
-    /// A name of `sessionId` arrived (`raw`, as the hook or the status line gave it), from `source`.
-    /// A custom title replaces the custom title, a status line name the status line name, and the
-    /// row goes by the custom title first (`SessionName.title`). The row keeps its place, its date
-    /// and everything else. A blank or non-string name changes nothing. A session with no row yet
-    /// keeps its name for its row to come, 30 min from the last one noted. True when the name the
-    /// session goes by changed.
+    /// A name of `sessionId` arrived (`raw`, as a hook's `session_title` or the status line's
+    /// `session_name` gave it). The latest non-empty name wins, whatever its source. The row keeps
+    /// its place, its date and everything else. A blank or non-string name changes nothing. A
+    /// session with no row yet keeps its name for its row to come, 30 min from the last one noted.
+    /// True when the name the session goes by changed (the same name again: false, nothing to log).
     @discardableResult
-    mutating func name(sessionId: String, _ raw: Any?, from source: SessionNameSource, at date: Date) -> Bool {
+    mutating func name(sessionId: String, _ raw: Any?, at date: Date) -> Bool {
         dropNames(now: date)
         guard let clean = SessionName.clean(raw) else { return false }
-        var known = names[sessionId] ?? SessionName(notedAt: date)
-        let before = known.name
-        switch source {
-        case .customTitle: known.custom = clean
-        case .statusLine:  known.statusLine = clean
-        }
+        var known = names[sessionId] ?? SessionName(name: clean, notedAt: date)
+        let before = names[sessionId]?.name
+        known.name = clean
         known.notedAt = date
         if rows.contains(where: { $0.id == sessionId }) { known.hadRow = true }
         names[sessionId] = known
         guard known.name != before else { return false }
         if let index = rows.firstIndex(where: { $0.id == sessionId }) {
-            rows[index].title = known.title(folder: rows[index].folder)
+            rows[index].title = known.name
         }
         return true
     }
 
     /// What session `sessionId` goes by: its name when one is known, else `folder`.
     func title(of sessionId: String, folder: String) -> String {
-        names[sessionId]?.title(folder: folder) ?? folder
+        names[sessionId]?.name ?? folder
     }
 
     /// The names whose row left go with it. A name that came before its row stays 30 min after the

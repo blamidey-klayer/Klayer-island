@@ -231,11 +231,12 @@ final class AppState: ObservableObject {
     // and the app it runs in. Nil falls back to the pill in focus.
     @Published var failedSession: SessionRow? = nil
 
+    /// `folder`: the project folder, what the row goes by while the session has no name.
     /// `hostBundleId`: the app the session runs in, nil keeps the one the row has.
-    func updateSession(sessionId: String, pillId: String, title: String, phase: SessionPhase,
+    func updateSession(sessionId: String, pillId: String, folder: String, phase: SessionPhase,
                        lastAction: String?, hostBundleId: String? = nil) {
         let now = Date()
-        sessionRoster.update(sessionId: sessionId, pillId: pillId, title: title, phase: phase,
+        sessionRoster.update(sessionId: sessionId, pillId: pillId, folder: folder, phase: phase,
                              lastAction: lastAction, hostBundleId: hostBundleId, at: now)
         sessionRoster.prune(now: now, calendar: .autoupdatingCurrent)
         sessions = sessionRoster.rows
@@ -254,14 +255,14 @@ final class AppState: ObservableObject {
         if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
     }
 
-    /// A name of session `id` arrived: a hook's `session_title` (`.customTitle`) or the status
-    /// line's `session_name` (`.statusLine`), rules in `SessionRoster.name`. Its row, and the
+    /// A name of session `id` arrived: a hook's `session_title` or the status line's
+    /// `session_name`; the latest non-empty one wins (rules in `SessionRoster.name`). Its row, and the
     /// finished or error view that tells about it, go by that name. Kept in memory with the row
     /// (`recordChoice` writes the row's title of an answered request to the history, as before).
     /// True when the name the session goes by changed.
     @discardableResult
-    func nameSession(_ id: String, _ raw: Any?, from source: SessionNameSource) -> Bool {
-        guard sessionRoster.name(sessionId: id, raw, from: source, at: Date()) else { return false }
+    func nameSession(_ id: String, _ raw: Any?) -> Bool {
+        guard sessionRoster.name(sessionId: id, raw, at: Date()) else { return false }
         if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
         if let finished = finishedSession, finished.id == id {
             finishedSession?.title = sessionRoster.title(of: id, folder: finished.folder)

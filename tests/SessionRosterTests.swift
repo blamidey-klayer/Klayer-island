@@ -38,9 +38,8 @@ enum SessionRosterTests {
             ("active_rows_come_before_finished_ones", activeRowsComeBeforeFinishedOnes),
             ("a_session_that_ends_keeps_its_finished_row", aSessionThatEndsKeepsItsFinishedRow),
             ("a_finished_row_says_when_it_ended", aFinishedRowSaysWhenItEnded),
-            ("a_session_goes_by_its_custom_title_then_its_status_line_name_then_its_folder",
-             aSessionGoesByItsCustomTitleThenItsStatusLineNameThenItsFolder),
-            ("a_later_custom_title_replaces_an_ai_title", aLaterCustomTitleReplacesAnAITitle),
+            ("a_session_goes_by_its_latest_name_then_its_folder", aSessionGoesByItsLatestNameThenItsFolder),
+            ("the_latest_name_wins_whatever_its_source", theLatestNameWinsWhateverItsSource),
             ("an_empty_name_never_replaces_a_known_one", anEmptyNameNeverReplacesAKnownOne),
             ("a_name_is_one_line_of_120_characters_at_most", aNameIsOneLineOf120CharactersAtMost),
             ("a_name_before_its_row_is_applied_when_the_row_appears", aNameBeforeItsRowIsAppliedWhenTheRowAppears),
@@ -73,14 +72,14 @@ enum SessionRosterTests {
 
     static func newestActivityFirst() {
         var roster = SessionRoster()
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .working,
                       lastAction: "Edits · A.swift", at: at(minutes: 0))
-        roster.update(sessionId: "b", pillId: "agent_claude-desktop", title: "Projet B", phase: .thinking,
+        roster.update(sessionId: "b", pillId: "agent_claude-desktop", folder: "Projet B", phase: .thinking,
                       lastAction: "Écris les tests", at: at(minutes: 1))
         precondition(ids(roster) == ["b", "a"], "the session that acted last comes first, got \(ids(roster))")
 
         // New activity on "a" brings it back first, and updates its row instead of adding one.
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .finished,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .finished,
                       lastAction: "Terminé", at: at(minutes: 2))
         precondition(ids(roster) == ["a", "b"], "a session that acts again moves up, got \(ids(roster))")
         precondition(roster.rows.count == 2, "one row per session id")
@@ -91,51 +90,51 @@ enum SessionRosterTests {
                      "the other row is untouched")
 
         // Same date: the later call is the newer activity.
-        roster.update(sessionId: "b", pillId: "agent_claude-desktop", title: "Projet B", phase: .working,
+        roster.update(sessionId: "b", pillId: "agent_claude-desktop", folder: "Projet B", phase: .working,
                       lastAction: nil, at: at(minutes: 2))
         precondition(ids(roster) == ["b", "a"], "on equal dates the latest call comes first, got \(ids(roster))")
     }
 
     static func lastActionKeptWhenNilAndCappedAt80() {
         var roster = SessionRoster()
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .working,
                       lastAction: "Bash · npm test", at: at(minutes: 0))
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .error,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .error,
                       lastAction: nil, at: at(minutes: 1))
         precondition(roster.rows[0].lastAction == "Bash · npm test",
                      "a nil last action keeps the previous one")
         precondition(roster.rows[0].phase == .error, "the phase still changes")
 
         // A session seen for the first time with no action starts with an empty one.
-        roster.update(sessionId: "b", pillId: "integration_claude", title: "Projet B", phase: .idle,
+        roster.update(sessionId: "b", pillId: "integration_claude", folder: "Projet B", phase: .idle,
                       lastAction: nil, at: at(minutes: 2))
         precondition(roster.rows[0].id == "b" && roster.rows[0].lastAction.isEmpty,
                      "no previous action and no new one: empty")
 
         let long = String(repeating: "é", count: 200)
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .working,
                       lastAction: long, at: at(minutes: 3))
         precondition(roster.rows[0].lastAction.count == 80,
                      "a long action is cut to 80 characters, got \(roster.rows[0].lastAction.count)")
         precondition(roster.rows[0].lastAction == String(long.prefix(80)), "the start of the action is kept")
 
         let exact = String(repeating: "x", count: 80)
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .working,
                       lastAction: exact, at: at(minutes: 4))
         precondition(roster.rows[0].lastAction == exact, "80 characters fit as they are")
 
         // The cap counts characters, not bytes: an emoji or an accent is one.
         let accents = String(repeating: "👩‍💻", count: 100)
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .working,
                       lastAction: accents, at: at(minutes: 5))
         precondition(roster.rows[0].lastAction.count == 80, "the cap counts characters")
     }
 
     static func endRemovesTheRow() {
         var roster = SessionRoster()
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "Projet A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "Projet A", phase: .working,
                       lastAction: "x", at: at(minutes: 0))
-        roster.update(sessionId: "b", pillId: "integration_claude", title: "Projet B", phase: .working,
+        roster.update(sessionId: "b", pillId: "integration_claude", folder: "Projet B", phase: .working,
                       lastAction: "y", at: at(minutes: 1))
         roster.end(sessionId: "a")
         precondition(ids(roster) == ["b"], "the ended session leaves, the other stays, got \(ids(roster))")
@@ -149,17 +148,17 @@ enum SessionRosterTests {
     static func pruneKeepsWaitingRows() {
         var roster = SessionRoster()
         // Updated at minute 0; each prune below happens at the stated age.
-        roster.update(sessionId: "question", pillId: "integration_claude", title: "Q", phase: .question,
+        roster.update(sessionId: "question", pillId: "integration_claude", folder: "Q", phase: .question,
                       lastAction: "Quelle option ?", at: at(minutes: 0))
-        roster.update(sessionId: "approval", pillId: "integration_claude", title: "A", phase: .approval,
+        roster.update(sessionId: "approval", pillId: "integration_claude", folder: "A", phase: .approval,
                       lastAction: "rm -rf build", at: at(minutes: 0))
-        roster.update(sessionId: "finished", pillId: "integration_claude", title: "F", phase: .finished,
+        roster.update(sessionId: "finished", pillId: "integration_claude", folder: "F", phase: .finished,
                       lastAction: "Terminé", at: at(minutes: 0))
-        roster.update(sessionId: "working", pillId: "integration_claude", title: "W", phase: .working,
+        roster.update(sessionId: "working", pillId: "integration_claude", folder: "W", phase: .working,
                       lastAction: "Edits · A.swift", at: at(minutes: 0))
-        roster.update(sessionId: "error", pillId: "integration_claude", title: "E", phase: .error,
+        roster.update(sessionId: "error", pillId: "integration_claude", folder: "E", phase: .error,
                       lastAction: nil, at: at(minutes: 0))
-        roster.update(sessionId: "idle", pillId: "integration_claude", title: "I", phase: .idle,
+        roster.update(sessionId: "idle", pillId: "integration_claude", folder: "I", phase: .idle,
                       lastAction: "Session démarrée", at: at(minutes: 0))
 
         roster.prune(now: at(minutes: 29), calendar: utc)
@@ -184,21 +183,21 @@ enum SessionRosterTests {
 
         // A row is pruned once it reaches the limit: exactly 30 minutes for an idle one.
         var edge = SessionRoster()
-        edge.update(sessionId: "i", pillId: "integration_claude", title: "I", phase: .idle,
+        edge.update(sessionId: "i", pillId: "integration_claude", folder: "I", phase: .idle,
                     lastAction: nil, at: at(minutes: 0))
         edge.prune(now: at(minutes: 30), calendar: utc)
         precondition(edge.rows.isEmpty, "an idle row goes at exactly 30 minutes without activity")
 
         // The ages are measured from the last activity of each row.
         var fresh = SessionRoster()
-        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .idle,
+        fresh.update(sessionId: "old", pillId: "integration_claude", folder: "O", phase: .idle,
                      lastAction: nil, at: at(minutes: 0))
-        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .idle,
+        fresh.update(sessionId: "old", pillId: "integration_claude", folder: "O", phase: .idle,
                      lastAction: nil, at: at(minutes: 25))
         fresh.prune(now: at(minutes: 31), calendar: utc)
         precondition(ids(fresh) == ["old"], "a row touched 6 minutes ago is not pruned")
         // 119 minutes for a working row: still there, 120: gone.
-        fresh.update(sessionId: "w", pillId: "integration_claude", title: "W", phase: .thinking,
+        fresh.update(sessionId: "w", pillId: "integration_claude", folder: "W", phase: .thinking,
                      lastAction: nil, at: at(minutes: 31))
         fresh.prune(now: at(minutes: 31 + 119), calendar: utc)
         precondition(ids(fresh).contains("w"), "a thinking row survives 119 minutes without activity")
@@ -209,7 +208,7 @@ enum SessionRosterTests {
     static func visibleLimit() {
         var roster = SessionRoster()
         for n in 1...6 {
-            roster.update(sessionId: "s\(n)", pillId: "integration_claude", title: "P\(n)", phase: .working,
+            roster.update(sessionId: "s\(n)", pillId: "integration_claude", folder: "P\(n)", phase: .working,
                           lastAction: nil, at: at(minutes: Double(n)))
         }
         precondition(roster.visible(limit: 4).map(\.id) == ["s6", "s5", "s4", "s3"],
@@ -237,7 +236,7 @@ enum SessionRosterTests {
 
         // The line survives `update` as it is: the ellipsis is not cut off again.
         var roster = SessionRoster()
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .working,
                       lastAction: long, at: at(minutes: 0))
         precondition(roster.rows[0].lastAction == long, "an 80 character line is stored whole")
     }
@@ -320,23 +319,23 @@ enum SessionRosterTests {
 
     static func hostKeptWhenNilAndReplacedWhenGiven() {
         var roster = SessionRoster()
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .working,
                       lastAction: "x", hostBundleId: "dev.warp.Warp-Stable", at: at(minutes: 0))
         precondition(roster.rows[0].hostBundleId == "dev.warp.Warp-Stable", "the row holds the host of its session")
 
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .finished,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .finished,
                       lastAction: "Fini", at: at(minutes: 1))
         precondition(roster.rows[0].hostBundleId == "dev.warp.Warp-Stable",
                      "an event that names no host keeps the one the session had")
 
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .working,
                       lastAction: nil, hostBundleId: "com.apple.Terminal", at: at(minutes: 2))
         precondition(roster.rows[0].hostBundleId == "com.apple.Terminal", "a new host replaces the old one")
 
         // Each session keeps its own host: two sessions of the same pill in two terminals.
-        roster.update(sessionId: "b", pillId: "integration_claude", title: "B", phase: .working,
+        roster.update(sessionId: "b", pillId: "integration_claude", folder: "B", phase: .working,
                       lastAction: nil, hostBundleId: "com.googlecode.iterm2", at: at(minutes: 3))
-        roster.update(sessionId: "c", pillId: "integration_claude", title: "C", phase: .idle,
+        roster.update(sessionId: "c", pillId: "integration_claude", folder: "C", phase: .idle,
                       lastAction: nil, at: at(minutes: 4))
         let hosts = roster.rows.map(\.hostBundleId)
         precondition(hosts == [nil, "com.googlecode.iterm2", "com.apple.Terminal"],
@@ -416,7 +415,7 @@ enum SessionRosterTests {
 
     static func aSearchingRowIsPrunedLikeAWorkingOne() {
         var roster = SessionRoster()
-        roster.update(sessionId: "s", pillId: "integration_claude", title: "S", phase: .searching,
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "S", phase: .searching,
                       lastAction: "Searches · TODO", at: at(minutes: 0))
         roster.prune(now: at(minutes: 31), calendar: utc)
         precondition(roster.rows.count == 1, "a search is work in progress, not an ended session")
@@ -454,9 +453,9 @@ enum SessionRosterTests {
         // The card and the history name the session of the request, whatever the shared pill is
         // called now (another session of the Claude app pill may have renamed it).
         var roster = SessionRoster()
-        roster.update(sessionId: "A", pillId: "agent_claude-desktop", title: "Projet A", phase: .approval,
+        roster.update(sessionId: "A", pillId: "agent_claude-desktop", folder: "Projet A", phase: .approval,
                       lastAction: "Write · a.txt", at: at(minutes: 0))
-        roster.update(sessionId: "B", pillId: "agent_claude-desktop", title: "Projet B", phase: .working,
+        roster.update(sessionId: "B", pillId: "agent_claude-desktop", folder: "Projet B", phase: .working,
                       lastAction: nil, at: at(minutes: 1))
         precondition(SessionRoster.title(of: "A", in: roster.rows, fallback: "Projet B") == "Projet A")
         precondition(SessionRoster.title(of: "gone", in: roster.rows, fallback: "Claude Desktop") == "Claude Desktop",
@@ -507,9 +506,9 @@ enum SessionRosterTests {
     static func finishedRowsStayUntilMidnight() {
         // t0 is 08:00 UTC: midnight comes 16 hours later, at minute 960.
         var roster = SessionRoster()
-        roster.update(sessionId: "f", pillId: "integration_claude", title: "F", phase: .finished,
+        roster.update(sessionId: "f", pillId: "integration_claude", folder: "F", phase: .finished,
                       lastAction: "Fini", at: at(minutes: 0))
-        roster.update(sessionId: "e", pillId: "agent_claude-desktop", title: "E", phase: .error,
+        roster.update(sessionId: "e", pillId: "agent_claude-desktop", folder: "E", phase: .error,
                       lastAction: "API Error", at: at(minutes: 1))
         roster.prune(now: at(minutes: 959), calendar: utc)
         precondition(Set(ids(roster)) == ["f", "e"], "a finished and a failed row stay all day, got \(ids(roster))")
@@ -518,7 +517,7 @@ enum SessionRosterTests {
 
         // Finished at 23:50, yesterday's after midnight: gone, though only 20 minutes old.
         var late = SessionRoster()
-        late.update(sessionId: "late", pillId: "integration_claude", title: "L", phase: .finished,
+        late.update(sessionId: "late", pillId: "integration_claude", folder: "L", phase: .finished,
                     lastAction: nil, at: at(minutes: 950))
         late.prune(now: at(minutes: 959), calendar: utc)
         precondition(ids(late) == ["late"], "still today at 23:59")
@@ -527,7 +526,7 @@ enum SessionRosterTests {
 
         // Finished just after midnight: the whole new day.
         var early = SessionRoster()
-        early.update(sessionId: "early", pillId: "integration_claude", title: "E", phase: .finished,
+        early.update(sessionId: "early", pillId: "integration_claude", folder: "E", phase: .finished,
                      lastAction: nil, at: at(minutes: 965))
         early.prune(now: at(minutes: 960 + 24 * 60 - 1), calendar: utc)
         precondition(ids(early) == ["early"], "kept until 23:59 of its own day")
@@ -538,9 +537,9 @@ enum SessionRosterTests {
 
         // A finished row that works again is an active row with the active rules.
         var again = SessionRoster()
-        again.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .finished,
+        again.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .finished,
                      lastAction: nil, at: at(minutes: 0))
-        again.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+        again.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .working,
                      lastAction: nil, at: at(minutes: 5))
         again.prune(now: at(minutes: 5 + 120), calendar: utc)
         precondition(again.rows.isEmpty, "a working row goes after 2 hours, even if it had finished before")
@@ -550,7 +549,7 @@ enum SessionRosterTests {
         // 08:00 UTC is 09:00 in Paris (UTC+1 in January): Paris' midnight is 23:00 UTC, minute 900.
         let paris = calendar("Europe/Paris")
         var roster = SessionRoster()
-        roster.update(sessionId: "f", pillId: "integration_claude", title: "F", phase: .finished,
+        roster.update(sessionId: "f", pillId: "integration_claude", folder: "F", phase: .finished,
                       lastAction: nil, at: at(minutes: 0))
         var inParis = roster
         inParis.prune(now: at(minutes: 899), calendar: paris)
@@ -563,7 +562,7 @@ enum SessionRosterTests {
         // 08:00 UTC is midnight in Los Angeles: a row finished one minute before is yesterday's.
         let losAngeles = calendar("America/Los_Angeles")
         var west = SessionRoster()
-        west.update(sessionId: "w", pillId: "integration_claude", title: "W", phase: .error,
+        west.update(sessionId: "w", pillId: "integration_claude", folder: "W", phase: .error,
                     lastAction: nil, at: at(minutes: -1))
         west.prune(now: at(minutes: 0), calendar: losAngeles)
         precondition(west.rows.isEmpty, "midnight in Los Angeles ends the day of a row that ended at 23:59 there")
@@ -572,7 +571,7 @@ enum SessionRosterTests {
         // 22:00 UTC, not 23:00.
         let start = utc.date(from: DateComponents(year: 2027, month: 3, day: 28, hour: 0, minute: 30))!
         var spring = SessionRoster()
-        spring.update(sessionId: "s", pillId: "integration_claude", title: "S", phase: .finished,
+        spring.update(sessionId: "s", pillId: "integration_claude", folder: "S", phase: .finished,
                       lastAction: nil, at: start)
         spring.prune(now: start.addingTimeInterval((21 * 60 + 29) * 60), calendar: paris)
         precondition(ids(spring) == ["s"], "21:59 UTC is 23:59 in Paris: still today")
@@ -583,7 +582,7 @@ enum SessionRosterTests {
         // 00:30 (22:30 UTC the day before) stays until 23:00 UTC, not 22:00.
         let autumn = utc.date(from: DateComponents(year: 2027, month: 10, day: 30, hour: 22, minute: 30))!
         var fall = SessionRoster()
-        fall.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .error,
+        fall.update(sessionId: "a", pillId: "integration_claude", folder: "A", phase: .error,
                     lastAction: nil, at: autumn)
         fall.prune(now: autumn.addingTimeInterval(24 * 60 * 60), calendar: paris)
         precondition(ids(fall) == ["a"], "22:30 UTC is 23:30 in Paris: 24 hours later, still the same 25 hour day")
@@ -595,12 +594,12 @@ enum SessionRosterTests {
 
     static func tenFinishedRowsAtMost() {
         var roster = SessionRoster()
-        roster.update(sessionId: "question", pillId: "integration_claude", title: "Q", phase: .question,
+        roster.update(sessionId: "question", pillId: "integration_claude", folder: "Q", phase: .question,
                       lastAction: nil, at: at(minutes: 0))
-        roster.update(sessionId: "working", pillId: "integration_claude", title: "W", phase: .working,
+        roster.update(sessionId: "working", pillId: "integration_claude", folder: "W", phase: .working,
                       lastAction: nil, at: at(minutes: 0))
         for n in 1...12 {
-            roster.update(sessionId: "f\(n)", pillId: "integration_claude", title: "F\(n)",
+            roster.update(sessionId: "f\(n)", pillId: "integration_claude", folder: "F\(n)",
                           phase: n % 2 == 0 ? .finished : .error, lastAction: nil, at: at(minutes: Double(n)))
         }
         roster.prune(now: at(minutes: 13), calendar: utc)
@@ -615,15 +614,15 @@ enum SessionRosterTests {
 
     static func activeRowsComeBeforeFinishedOnes() {
         var roster = SessionRoster()
-        roster.update(sessionId: "idle", pillId: "integration_claude", title: "I", phase: .idle,
+        roster.update(sessionId: "idle", pillId: "integration_claude", folder: "I", phase: .idle,
                       lastAction: nil, at: at(minutes: 0))
-        roster.update(sessionId: "done1", pillId: "integration_claude", title: "D1", phase: .finished,
+        roster.update(sessionId: "done1", pillId: "integration_claude", folder: "D1", phase: .finished,
                       lastAction: nil, at: at(minutes: 1))
-        roster.update(sessionId: "work", pillId: "integration_claude", title: "W", phase: .working,
+        roster.update(sessionId: "work", pillId: "integration_claude", folder: "W", phase: .working,
                       lastAction: nil, at: at(minutes: 2))
-        roster.update(sessionId: "fail", pillId: "agent_claude-desktop", title: "F", phase: .error,
+        roster.update(sessionId: "fail", pillId: "agent_claude-desktop", folder: "F", phase: .error,
                       lastAction: nil, at: at(minutes: 3))
-        roster.update(sessionId: "ask", pillId: "integration_claude", title: "A", phase: .question,
+        roster.update(sessionId: "ask", pillId: "integration_claude", folder: "A", phase: .question,
                       lastAction: nil, at: at(minutes: 4))
 
         let expected = ["ask", "work", "idle", "fail", "done1"]
@@ -644,13 +643,13 @@ enum SessionRosterTests {
     static func aSessionThatEndsKeepsItsFinishedRow() {
         // SessionEnd after Stop (the user quits Claude Code): the session finished today, its row stays.
         var roster = SessionRoster()
-        roster.update(sessionId: "done", pillId: "integration_claude", title: "D", phase: .finished,
+        roster.update(sessionId: "done", pillId: "integration_claude", folder: "D", phase: .finished,
                       lastAction: "Fini", at: at(minutes: 0))
-        roster.update(sessionId: "failed", pillId: "integration_claude", title: "F", phase: .error,
+        roster.update(sessionId: "failed", pillId: "integration_claude", folder: "F", phase: .error,
                       lastAction: nil, at: at(minutes: 1))
-        roster.update(sessionId: "busy", pillId: "integration_claude", title: "B", phase: .working,
+        roster.update(sessionId: "busy", pillId: "integration_claude", folder: "B", phase: .working,
                       lastAction: nil, at: at(minutes: 2))
-        roster.update(sessionId: "fresh", pillId: "integration_claude", title: "N", phase: .idle,
+        roster.update(sessionId: "fresh", pillId: "integration_claude", folder: "N", phase: .idle,
                       lastAction: nil, at: at(minutes: 3))
         for id in ["done", "failed", "busy", "fresh"] { roster.end(sessionId: id) }
         precondition(ids(roster) == ["failed", "done"],
@@ -676,17 +675,17 @@ enum SessionRosterTests {
 
     static func row(_ roster: SessionRoster, _ id: String) -> SessionRow? { roster.rows.first { $0.id == id } }
 
-    static func aSessionGoesByItsCustomTitleThenItsStatusLineNameThenItsFolder() {
+    static func aSessionGoesByItsLatestNameThenItsFolder() {
         var roster = SessionRoster()
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "projet-a", phase: .working,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "projet-a", phase: .working,
                       lastAction: "Edits · A.swift", at: at(minutes: 0))
-        roster.update(sessionId: "b", pillId: "integration_claude", title: "projet-b", phase: .thinking,
+        roster.update(sessionId: "b", pillId: "integration_claude", folder: "projet-b", phase: .thinking,
                       lastAction: nil, at: at(minutes: 1))
         precondition(row(roster, "a")?.title == "projet-a" && row(roster, "a")?.folder == "projet-a",
                      "without a name, a session goes by its folder")
 
         // The status line names "a": its row takes the name, and stays where it was, with its date.
-        precondition(roster.name(sessionId: "a", "Refonte de l'onboarding", from: .statusLine, at: at(minutes: 2)),
+        precondition(roster.name(sessionId: "a", "Refonte de l'onboarding", at: at(minutes: 2)),
                      "a first name changes the title")
         precondition(row(roster, "a")?.title == "Refonte de l'onboarding", "got \(String(describing: row(roster, "a")?.title))")
         precondition(row(roster, "a")?.folder == "projet-a", "the folder is kept, for nothing else than the fallback")
@@ -695,66 +694,73 @@ enum SessionRosterTests {
                      "a name moves nothing: same place, date, phase and last action")
         precondition(row(roster, "b")?.title == "projet-b", "the other session keeps its folder")
 
-        // A custom title from a hook comes before the status line's name.
-        precondition(roster.name(sessionId: "a", "Onboarding v2", from: .customTitle, at: at(minutes: 3)))
+        // A custom title from a hook replaces it: the latest name wins.
+        precondition(roster.name(sessionId: "a", "Onboarding v2", at: at(minutes: 3)))
         precondition(row(roster, "a")?.title == "Onboarding v2")
-        precondition(!roster.name(sessionId: "a", "Un autre titre", from: .statusLine, at: at(minutes: 4)),
-                     "a status line name under a custom title changes nothing shown")
-        precondition(row(roster, "a")?.title == "Onboarding v2", "the custom title stays first")
+        // Renamed again: the status line carries the custom name as soon as it is set, before the next
+        // prompt's hook. A later status line name wins over an earlier custom title.
+        precondition(roster.name(sessionId: "a", "Onboarding v3", at: at(minutes: 4)),
+                     "a later status line name changes the name shown")
+        precondition(row(roster, "a")?.title == "Onboarding v3", "the latest name wins, whatever its source, got \(String(describing: row(roster, "a")?.title))")
 
         // The next events of the session still bring its folder: the name stays.
-        roster.update(sessionId: "a", pillId: "integration_claude", title: "projet-a", phase: .finished,
+        roster.update(sessionId: "a", pillId: "integration_claude", folder: "projet-a", phase: .finished,
                       lastAction: "Terminé", at: at(minutes: 5))
-        precondition(row(roster, "a")?.title == "Onboarding v2" && row(roster, "a")?.folder == "projet-a",
+        precondition(row(roster, "a")?.title == "Onboarding v3" && row(roster, "a")?.folder == "projet-a",
                      "an update keeps the name, got \(String(describing: row(roster, "a")))")
-        precondition(roster.title(of: "a", folder: "projet-a") == "Onboarding v2")
+        precondition(roster.title(of: "a", folder: "projet-a") == "Onboarding v3")
         precondition(roster.title(of: "b", folder: "projet-b") == "projet-b")
         precondition(roster.title(of: "never-seen", folder: "dossier") == "dossier")
     }
 
-    static func aLaterCustomTitleReplacesAnAITitle() {
+    static func theLatestNameWinsWhateverItsSource() {
         var roster = SessionRoster()
-        roster.update(sessionId: "s", pillId: "agent_claude-desktop", title: "site", phase: .thinking,
+        roster.update(sessionId: "s", pillId: "agent_claude-desktop", folder: "site", phase: .thinking,
                       lastAction: nil, at: at(minutes: 0))
-        // The AI title, then a rename in the Claude app: the next prompt carries the custom title.
-        precondition(roster.name(sessionId: "s", "Corriger le formulaire de contact", from: .statusLine, at: at(minutes: 1)))
-        precondition(roster.name(sessionId: "s", "Formulaire", from: .customTitle, at: at(minutes: 2)))
+        // The status line's AI title, then a rename in the Claude app that the next prompt's hook
+        // carries (session_title): the custom title replaces the AI title.
+        precondition(roster.name(sessionId: "s", "Corriger le formulaire de contact", at: at(minutes: 1)))
+        precondition(roster.name(sessionId: "s", "Formulaire", at: at(minutes: 2)))
         precondition(row(roster, "s")?.title == "Formulaire")
-        // Renamed again (/rename): the later custom title replaces the earlier one.
-        precondition(roster.name(sessionId: "s", "Formulaire de contact", from: .customTitle, at: at(minutes: 3)))
+        // The reverse order: renamed again (/rename), the status line carries the new custom name
+        // before any hook does. The newer status line name replaces the earlier custom title.
+        precondition(roster.name(sessionId: "s", "Formulaire de contact", at: at(minutes: 3)),
+                     "a newer status line name replaces an older custom title")
+        precondition(row(roster, "s")?.title == "Formulaire de contact")
+        // The next prompt's hook then carries that same title: nothing changes, nothing to log.
+        precondition(!roster.name(sessionId: "s", "Formulaire de contact", at: at(minutes: 4)),
+                     "the hook's copy of the name the status line already gave changes nothing")
         precondition(row(roster, "s")?.title == "Formulaire de contact")
         // A new AI title replaces the earlier AI title when there is no custom one.
         var other = SessionRoster()
-        other.update(sessionId: "t", pillId: "integration_claude", title: "api", phase: .working,
+        other.update(sessionId: "t", pillId: "integration_claude", folder: "api", phase: .working,
                      lastAction: nil, at: at(minutes: 0))
-        precondition(other.name(sessionId: "t", "Premier titre", from: .statusLine, at: at(minutes: 1)))
-        precondition(other.name(sessionId: "t", "Titre affiné", from: .statusLine, at: at(minutes: 2)))
+        precondition(other.name(sessionId: "t", "Premier titre", at: at(minutes: 1)))
+        precondition(other.name(sessionId: "t", "Titre affiné", at: at(minutes: 2)))
         precondition(row(other, "t")?.title == "Titre affiné")
         // The same name again: nothing changes, nothing to log.
-        precondition(!other.name(sessionId: "t", "Titre affiné", from: .statusLine, at: at(minutes: 3)))
-        precondition(!other.name(sessionId: "t", "  Titre affiné  ", from: .statusLine, at: at(minutes: 4)),
+        precondition(!other.name(sessionId: "t", "Titre affiné", at: at(minutes: 3)))
+        precondition(!other.name(sessionId: "t", "  Titre affiné  ", at: at(minutes: 4)),
                      "the same name, trimmed")
     }
 
     static func anEmptyNameNeverReplacesAKnownOne() {
         var roster = SessionRoster()
-        roster.update(sessionId: "s", pillId: "integration_claude", title: "dossier", phase: .working,
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "dossier", phase: .working,
                       lastAction: nil, at: at(minutes: 0))
-        precondition(roster.name(sessionId: "s", "Nom de l'IA", from: .statusLine, at: at(minutes: 1)))
-        precondition(roster.name(sessionId: "s", "Nom choisi", from: .customTitle, at: at(minutes: 2)))
+        precondition(roster.name(sessionId: "s", "Nom de l'IA", at: at(minutes: 1)))
+        precondition(roster.name(sessionId: "s", "Nom choisi", at: at(minutes: 2)))
         let blanks: [Any?] = ["", "   ", "\n\t ", nil, 42, ["Nom"], NSNull()]
         for (i, blank) in blanks.enumerated() {
-            for source in [SessionNameSource.customTitle, .statusLine] {
-                precondition(!roster.name(sessionId: "s", blank, from: source, at: at(minutes: 3 + Double(i))),
-                             "\(String(describing: blank)) from \(source) is no name")
-                precondition(row(roster, "s")?.title == "Nom choisi", "\(String(describing: blank)) replaced the name")
-            }
+            precondition(!roster.name(sessionId: "s", blank, at: at(minutes: 3 + Double(i))),
+                         "\(String(describing: blank)) is no name")
+            precondition(row(roster, "s")?.title == "Nom choisi", "\(String(describing: blank)) replaced the name")
         }
         // The status line's name is still there under the custom title: a blank title did not clear it.
         var bare = SessionRoster()
-        bare.update(sessionId: "s", pillId: "integration_claude", title: "dossier", phase: .working,
+        bare.update(sessionId: "s", pillId: "integration_claude", folder: "dossier", phase: .working,
                     lastAction: nil, at: at(minutes: 0))
-        precondition(!bare.name(sessionId: "s", " ", from: .statusLine, at: at(minutes: 1)))
+        precondition(!bare.name(sessionId: "s", " ", at: at(minutes: 1)))
         precondition(row(bare, "s")?.title == "dossier", "a blank name never replaces the folder either")
     }
 
@@ -769,27 +775,27 @@ enum SessionRosterTests {
         precondition(SessionName.clean("") == nil && SessionName.clean(" \n ") == nil && SessionName.clean(7) == nil
                      && SessionName.clean(nil) == nil)
         var roster = SessionRoster()
-        roster.update(sessionId: "s", pillId: "integration_claude", title: "dossier", phase: .working,
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "dossier", phase: .working,
                       lastAction: nil, at: at(minutes: 0))
-        precondition(roster.name(sessionId: "s", long, from: .customTitle, at: at(minutes: 1)))
+        precondition(roster.name(sessionId: "s", long, at: at(minutes: 1)))
         precondition(row(roster, "s")?.title.count == 120, "the row holds the name cut at 120 characters")
     }
 
     static func aNameBeforeItsRowIsAppliedWhenTheRowAppears() {
         // The status line can run before the session's first hook reaches the island.
         var roster = SessionRoster()
-        precondition(roster.name(sessionId: "s", "Nom de l'IA", from: .statusLine, at: at(minutes: 0)))
+        precondition(roster.name(sessionId: "s", "Nom de l'IA", at: at(minutes: 0)))
         precondition(roster.rows.isEmpty, "a name makes no row")
         precondition(roster.title(of: "s", folder: "dossier") == "Nom de l'IA",
                      "a note about that session already goes by its name")
-        roster.update(sessionId: "s", pillId: "agent_claude-desktop", title: "dossier", phase: .idle,
+        roster.update(sessionId: "s", pillId: "agent_claude-desktop", folder: "dossier", phase: .idle,
                       lastAction: "Session démarrée", at: at(minutes: 1))
         precondition(row(roster, "s")?.title == "Nom de l'IA" && row(roster, "s")?.folder == "dossier",
                      "the row appears with the name, got \(String(describing: row(roster, "s")))")
         // A custom title that came with the first hook (SessionStart of a named session) too.
         var named = SessionRoster()
-        precondition(named.name(sessionId: "n", "Ma session", from: .customTitle, at: at(minutes: 0)))
-        named.update(sessionId: "n", pillId: "integration_claude", title: "dossier", phase: .idle,
+        precondition(named.name(sessionId: "n", "Ma session", at: at(minutes: 0)))
+        named.update(sessionId: "n", pillId: "integration_claude", folder: "dossier", phase: .idle,
                      lastAction: nil, at: at(minutes: 0))
         precondition(row(named, "n")?.title == "Ma session")
     }
@@ -797,9 +803,9 @@ enum SessionRosterTests {
     static func namesGoWithTheirRow() {
         var roster = SessionRoster()
         for (id, phase) in [("idle", SessionPhase.idle), ("working", .working), ("done", .finished), ("asks", .question)] {
-            roster.update(sessionId: id, pillId: "integration_claude", title: "dossier-\(id)", phase: phase,
+            roster.update(sessionId: id, pillId: "integration_claude", folder: "dossier-\(id)", phase: phase,
                           lastAction: nil, at: at(minutes: 0))
-            precondition(roster.name(sessionId: id, "Nom \(id)", from: .statusLine, at: at(minutes: 0)))
+            precondition(roster.name(sessionId: id, "Nom \(id)", at: at(minutes: 0)))
         }
         // The idle row is pruned after 30 min: its name goes with it.
         roster.prune(now: at(minutes: 31), calendar: utc)
@@ -816,15 +822,15 @@ enum SessionRosterTests {
         precondition(roster.names["done"] == nil, "the day's history leaves with its names")
         precondition(row(roster, "asks")?.title == "Nom asks", "a row still there keeps its name")
         // A session that comes back after its row left starts from its folder.
-        roster.update(sessionId: "working", pillId: "integration_claude", title: "dossier-working", phase: .thinking,
+        roster.update(sessionId: "working", pillId: "integration_claude", folder: "dossier-working", phase: .thinking,
                       lastAction: nil, at: at(minutes: 24 * 60 + 1))
         precondition(row(roster, "working")?.title == "dossier-working", "its old name was dropped")
         // Over the 10 finished rows: the oldest end goes with its name.
         var history = SessionRoster()
         for i in 0..<11 {
-            history.update(sessionId: "f\(i)", pillId: "integration_claude", title: "d", phase: .finished,
+            history.update(sessionId: "f\(i)", pillId: "integration_claude", folder: "d", phase: .finished,
                            lastAction: nil, at: at(minutes: Double(i)))
-            precondition(history.name(sessionId: "f\(i)", "Fin \(i)", from: .customTitle, at: at(minutes: Double(i))))
+            precondition(history.name(sessionId: "f\(i)", "Fin \(i)", at: at(minutes: Double(i))))
         }
         history.prune(now: at(minutes: 12), calendar: utc)
         precondition(history.names["f0"] == nil && history.names.count == 10, "got \(history.names.keys.sorted())")
@@ -834,30 +840,30 @@ enum SessionRosterTests {
         // A status line of a session the island never shows (an editor it does not follow, a session
         // not started yet) is not kept forever: 30 min after its last name, it goes.
         var roster = SessionRoster()
-        precondition(roster.name(sessionId: "ghost", "Nom", from: .statusLine, at: at(minutes: 0)))
+        precondition(roster.name(sessionId: "ghost", "Nom", at: at(minutes: 0)))
         roster.prune(now: at(minutes: 29), calendar: utc)
         precondition(roster.names["ghost"] != nil, "kept before 30 min")
         // The status line keeps running: the name is noted again, the 30 min start over.
-        precondition(!roster.name(sessionId: "ghost", "Nom", from: .statusLine, at: at(minutes: 20)))
+        precondition(!roster.name(sessionId: "ghost", "Nom", at: at(minutes: 20)))
         roster.prune(now: at(minutes: 45), calendar: utc)
         precondition(roster.names["ghost"] != nil, "a name noted again at 20 min is kept at 45 min")
         roster.prune(now: at(minutes: 50), calendar: utc)
         precondition(roster.names["ghost"] == nil, "30 min after its last note, it goes")
         // An end of a session never seen drops nothing waiting.
-        precondition(roster.name(sessionId: "early", "Nom", from: .statusLine, at: at(minutes: 60)))
+        precondition(roster.name(sessionId: "early", "Nom", at: at(minutes: 60)))
         roster.end(sessionId: "early")
         precondition(roster.names["early"] != nil, "SessionEnd of a session without a row keeps nothing to drop")
         // Noting a name also drops the stale ones: no prune needed for the dictionary to stay small.
-        precondition(roster.name(sessionId: "other", "Autre", from: .statusLine, at: at(minutes: 95)))
+        precondition(roster.name(sessionId: "other", "Autre", at: at(minutes: 95)))
         precondition(roster.names["early"] == nil && roster.names["other"] != nil, "got \(roster.names.keys.sorted())")
     }
 
     static func aRequestGoesByItsSessionsName() {
         // The approval card's « who » and the history entry go through `title(of:in:fallback:)`.
         var roster = SessionRoster()
-        roster.update(sessionId: "A", pillId: "agent_claude-desktop", title: "projet-a", phase: .approval,
+        roster.update(sessionId: "A", pillId: "agent_claude-desktop", folder: "projet-a", phase: .approval,
                       lastAction: "npm test", at: at(minutes: 0))
-        precondition(roster.name(sessionId: "A", "Tests du paiement", from: .customTitle, at: at(minutes: 1)))
+        precondition(roster.name(sessionId: "A", "Tests du paiement", at: at(minutes: 1)))
         precondition(SessionRoster.title(of: "A", in: roster.rows, fallback: "Claude Desktop") == "Tests du paiement")
     }
 }
