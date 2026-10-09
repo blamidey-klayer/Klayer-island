@@ -1471,15 +1471,9 @@ final class HookServer: @unchecked Sendable {
         _pendingStatusLineData = data
         _pendingStatusLineOriginal = snapshot.bytes
 
-        // Build a compact diff: show only the statusLine key before → after
-        func slJSON(_ val: [String: Any]?) throws -> String {
-            guard let v = val else { return "(none)" }
-            let d = try JSONSerialization.data(withJSONObject: v, options: [.prettyPrinted, .sortedKeys])
-            return String(data: d, encoding: .utf8) ?? "(none)"
-        }
-        let before = try slJSON(settings["statusLine"] as? [String: Any])
-        let after  = try slJSON(change.settings["statusLine"] as? [String: Any])
-        return "statusLine\nBefore:\n\(before)\n\nAfter:\n\(after)"
+        // Build a compact diff: show only the statusLine key before → after, as it is (a value
+        // that is not an object is shown too, since install replaces it).
+        return StatusLineChange.previewText(before: settings["statusLine"], after: change.settings["statusLine"])
     }
 
     /// Writes settings.json and commits side effects (call after user confirms).

@@ -283,5 +283,23 @@ enum ClaudeHookDetectionTests {
             change = ours.statusLineChange(in: before, install: false, keptAside: mine)
             precondition(json(change.settings) == json(before) && !change.putBack)
         }
+
+        // MARK: What the preview shows
+
+        // The value before and after, whatever its shape: install replaces a status line that is
+        // not an object, so the preview shows it rather than « (none) ».
+        let odd = ours.statusLineChange(in: ["statusLine": "nb-hook"], install: true, keptAside: nil)
+        let oddText = StatusLineChange.previewText(before: "nb-hook", after: odd.settings["statusLine"])
+        precondition(oddText.hasPrefix("statusLine\nBefore:\n\"nb-hook\"\n\nAfter:\n{"), oddText)
+        precondition(oddText.contains("--statusline") && !oddText.contains("(none)"), oddText)
+        for (value, shown) in [(42, "42"), (false, "false"), (NSNull(), "null")] as [(Any, String)] {
+            precondition(StatusLineChange.previewText(before: value, after: nil)
+                         == "statusLine\nBefore:\n\(shown)\n\nAfter:\n(none)", "\(value) is shown as \(shown)")
+        }
+        // No status line on either side, and an object as pretty JSON with sorted keys (as before)
+        precondition(StatusLineChange.previewText(before: nil, after: nil) == "statusLine\nBefore:\n(none)\n\nAfter:\n(none)")
+        let pretty = String(decoding: try! JSONSerialization.data(withJSONObject: mine, options: [.prettyPrinted, .sortedKeys]),
+                            as: UTF8.self)
+        precondition(StatusLineChange.previewText(before: nil, after: mine) == "statusLine\nBefore:\n(none)\n\nAfter:\n" + pretty)
     }
 }

@@ -159,6 +159,21 @@ struct StatusLineChange {
     let keepAside: [String: Any]?
     /// Removing ours put back the status line kept aside: its file can go.
     let putBack: Bool
+
+    /// What the preview shows: the `statusLine` value before and after, as pretty JSON with sorted
+    /// keys, whatever its shape (install replaces a string or a number too), « (none) » when the
+    /// key is absent.
+    static func previewText(before: Any?, after: Any?) -> String {
+        "statusLine\nBefore:\n\(shown(before))\n\nAfter:\n\(shown(after))"
+    }
+
+    private static func shown(_ value: Any?) -> String {
+        guard let value else { return "(none)" }
+        guard let data = try? JSONSerialization.data(withJSONObject: value,
+                                                     options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed])
+        else { return String(describing: value) }
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 extension KlayerHookCommand {
