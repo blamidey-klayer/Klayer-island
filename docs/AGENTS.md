@@ -34,6 +34,8 @@ If you talk to the socket directly, send newline-terminated JSON to `~/Library/A
 
 Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUDE_CODE_ENTRYPOINT=claude-desktop`. The relay tags them `klayer_agent: claude-desktop` on its own, so nothing extra is installed beyond the Claude Code hooks. The sessions get the `agent_claude-desktop` pill. Their permission requests and questions show in the island like the Claude Code ones. The island answers through the hook (Allow, Deny, Always), the Claude app keeps its own prompt, and the Claude Code documentation says the first answer applies. To check on a Mac (spike S1): that the app's prompt goes away when the island answers first, and that the island card closes when the app answers first (the card closes when the hook connection closes, as for Claude Code). « Répondre dans Claude » on a question hands it back to the app. A click on the session's row on the home opens the Claude app.
 
+Since lot 6 the home has no Claude Desktop pill (nor a Claude Code one): each session is a row of the home's list, with its project, its state and its last action, and a finished session stays there in grey until midnight. The `agent_claude-desktop` id stays for routing, Klay's pose and the cards. A notification of a Claude app session that asks something (a permission, an MCP form, or the idle prompt after a finish the island could not show) opens the island on « Claude attend ta réponse » with « Ouvrir Claude ». When the island is busy (a card waits, the chat is open…), the alert is held and shows once the island frees, and the house tab of the header carries a badge meanwhile. The Chat and Cowork modes of the app send no hook: an experimental watch reads the app's buttons through macOS Accessibility. See `docs/SPEC.md` §16 and `docs/INTEGRATIONS.md` §1 and §8.
+
 ## Pill lifecycle
 
 | Event | Effect |
@@ -42,7 +44,7 @@ Claude Code sessions started from the Claude desktop app's Code tab carry `CLAUD
 | `UserPromptSubmit` | State → thinking; the prompt becomes the session's last action on the home |
 | `PreToolUse` | State → working, or searching (binoculars) for Grep, Glob, LS, WebSearch, WebFetch and a Bash search command; the tool label becomes the session's last action on the home |
 | `PostToolUse` / `PostToolUseFailure` | State → working; a search keeps the binoculars at least 1.5 s |
-| `Notification` | Rate-limit or question state if applicable |
+| `Notification` | Rate-limit or question state if applicable. For a Claude app session, a notification that asks something puts its row on « Attend ton accord » or « Te pose une question » and opens the island on « Claude attend ta réponse » (held while the island is busy); every one is logged in `nb.log` with its type, never its text |
 | `Stop` | State → finished for 5 s; active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
 | `StopFailure` | State → error; the island opens on the error view of that session, as for `Stop` |
 | `SessionEnd` | Active declared pills (catalog + checked in Settings) reset to idle, all others are removed |
@@ -80,8 +82,8 @@ Leave every other hook of those tools alone. In a file Klayer Island shares with
 With Klayer Island running:
 
 ```sh
-echo '{"hook_event_name":"UserPromptSubmit","session_id":"t1","prompt":"hello"}' \
+echo '{"hook_event_name":"UserPromptSubmit","session_id":"t1","cwd":"/tmp/essai","prompt":"hello"}' \
   | /bin/sh ~/Library/Application\ Support/NotchBuddy/nb-hook --agent claude-desktop
 ```
 
-A "Claude Desktop" pill should appear in the island.
+Hover the notch to open the island: the home's list shows a row « essai » (the last folder of `cwd`), « Réfléchit », with « hello » as its last action. No pill appears: since lot 6 the home has none for Claude.
