@@ -119,12 +119,21 @@ enum ClaudeCLI {
     /// Inline settings that switch every hook off for the island's own processes.
     private static let noHooksSettings = "{\"disableAllHooks\":true}"
 
+    /// Where an administrator deploys `managed-mcp.json` on a Mac (docs, « Control MCP server
+    /// access »). With it, the managed set has exclusive control over MCP servers.
+    static let managedMCPConfigPath = "/Library/Application Support/ClaudeCode/managed-mcp.json"
+
     /// Arguments of the long-lived chat process: messages come in as `stream-json` on stdin,
     /// the answer streams out token by token. No tool of any kind (neither a built-in one nor
     /// an MCP connector of the user's account), nothing saved, no hook. `--strict-mcp-config`
     /// with no `--mcp-config`: no MCP server starts (the connectors are off in
     /// `chatEnvironment`); `--disallowedTools mcp__*` stays as the second lock.
-    static func chatArguments(systemPrompt: String) -> [String] {
+    ///
+    /// `managedMCPPresent`: a `managed-mcp.json` is deployed (`managedMCPConfigPath`). The docs
+    /// say `--strict-mcp-config` then makes Claude Code exit at startup, so the flag is left out:
+    /// the managed servers may start, `--disallowedTools mcp__*` removes all their tools from
+    /// Claude's context, and the tool tripwire still applies.
+    static func chatArguments(systemPrompt: String, managedMCPPresent: Bool) -> [String] {
         [
             "-p",
             "--model", model,
@@ -133,7 +142,9 @@ enum ClaudeCLI {
             "--verbose",
             "--include-partial-messages",
             "--tools", "",
-            "--strict-mcp-config",
+        ]
+        + (managedMCPPresent ? [] : ["--strict-mcp-config"])
+        + [
             "--disallowedTools", "mcp__*",
             "--permission-mode", "dontAsk",
             "--no-session-persistence",

@@ -281,10 +281,12 @@ final class ChatSession: ObservableObject {
 
         let generation = token.generation
         let started = ClaudeProcess()
+        // Checked at each process start: an administrator may deploy the file at any time.
+        let managedMCP = FileManager.default.fileExists(atPath: ClaudeCLI.managedMCPConfigPath)
         do {
             try started.start(
                 binary: binary,
-                arguments: ClaudeCLI.chatArguments(systemPrompt: systemPrompt),
+                arguments: ClaudeCLI.chatArguments(systemPrompt: systemPrompt, managedMCPPresent: managedMCP),
                 // No connector, no tool search: the chat process starts no MCP server.
                 environment: ClaudeCLI.chatEnvironment(from: ProcessInfo.processInfo.environment, binary: binary),
                 directory: folder,

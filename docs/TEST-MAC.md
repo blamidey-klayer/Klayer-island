@@ -230,6 +230,7 @@ Le lot 4 suppose plusieurs faits sur Claude Code que la doc ne confirme pas tous
 - [ ] Lancez `[ -n "$ANTHROPIC_API_KEY" ] && echo "clé API définie" || echo "pas de clé API"`. Une clé API définie prend le pas sur la connexion claude.ai : notez-le. Ne copiez jamais la clé.
 - [ ] Lancez `claude -p --model claude-haiku-5-5 "bonjour"`. Notez la réponse, ou le message d'erreur mot pour mot.
 - [ ] Lancez `claude mcp list`. Notez si une ligne nomme Gmail, et son état.
+- [ ] Fichier MCP géré. Lancez `ls -l "/Library/Application Support/ClaudeCode/managed-mcp.json"`. Notez si le fichier existe. S'il existe, un administrateur impose les serveurs MCP de ce Mac, et `--strict-mcp-config` ferait quitter Claude Code au démarrage : l'île lance alors le chat sans cette option (`ClaudeCLI.chatArguments`). Dans ce cas, retirez `--strict-mcp-config` de la ligne `CHAT` ci-dessous avant de la copier, et attendez-vous à voir les serveurs du fichier dans `mcp_servers`, sans aucun de leurs outils dans `tools`.
 - [ ] Nom exact de l'outil Gmail. Lancez `claude -p --model claude-haiku-5-5 --output-format stream-json --verbose "ok" | grep -o -i 'mcp__[A-Za-z0-9_-]*gmail[A-Za-z0-9_-]*' | sort -u`. Si la commande n'affiche rien, collez les premières lignes de la sortie sans le `grep`, en repérant la ligne `system` de sous-type `init` et son champ `tools`. Comparez le nom du brouillon à `mcp__claude_ai_Gmail__create_draft`, lettre à lettre (casse, tirets bas).
 - [ ] Préparez les arguments de l'île. Copiez ces lignes dans le terminal. Elles reprennent les arguments du chat (`ClaudeCLI.chatArguments`) et du brouillon (`ClaudeCLI.draftArguments`), sans la consigne système, que chaque commande ci-dessous donne avec `--system-prompt`. `CHAT_ENV` et `DRAFT_ENV` posent devant `claude` les variables que l'île ajoute à l'environnement de chaque processus : pour le chat, les connecteurs claude.ai et la recherche d'outils MCP coupés (`ClaudeCLI.chatEnvironment`) ; pour le brouillon, la recherche d'outils seule (`ClaudeCLI.draftEnvironment`), car il a besoin du connecteur Gmail. Dans les commandes qui suivent, si un `grep` n'affiche rien, relancez la commande sans lui et collez les premières lignes de la sortie :
 
@@ -300,6 +301,7 @@ Questions : `claude -p` répond-il sans connexion supplémentaire ? `claude mcp 
 - la sortie de `claude auth status` et son code de sortie ;
 - si vous vous étiez déjà connecté dans le terminal avec `claude` : dans ce cas la réponse ne dit rien du partage de la connexion avec l'app desktop. Un test propre se fait sur un Mac où seule l'app desktop est connectée ;
 - la ligne Gmail de `claude mcp list` et son état ;
+- si `/Library/Application Support/ClaudeCode/managed-mcp.json` existe ;
 - les noms d'outils Gmail trouvés, dont celui qui finit par `create_draft`, et s'il est identique à `mcp__claude_ai_Gmail__create_draft` ;
 - le champ `tools` de l'événement `init` du chat, puis du brouillon, si Gmail y figure déjà, et si `ToolSearch` ou `WaitForMcpServers` y figure ;
 - les noms d'outils appelés par le brouillon réel, dans l'ordre, et la ligne `"type":"user"` brute qui porte le résultat de `create_draft` ;

@@ -47,6 +47,7 @@ enum ClaudeCLITests {
             ("draft_answer_lets_tool_search_through", draftAnswerLetsToolSearchThrough),
             ("chat_environment_starts_no_connector", chatEnvironmentStartsNoConnector),
             ("candidates_cover_node_version_managers", candidatesCoverNodeVersionManagers),
+            ("chat_arguments_under_a_managed_mcp_file", chatArgumentsUnderAManagedMCPFile),
         ]
         for (name, run) in cases {
             run()
@@ -129,7 +130,7 @@ enum ClaudeCLITests {
     }
 
     static func chatArgumentsHaveNoTools() {
-        let args = ClaudeCLI.chatArguments(systemPrompt: "Tu es Klay.")
+        let args = ClaudeCLI.chatArguments(systemPrompt: "Tu es Klay.", managedMCPPresent: false)
         precondition(args == [
             "-p",
             "--model", "claude-haiku-5-5",
@@ -1469,5 +1470,27 @@ enum ClaudeCLITests {
         precondition(ClaudeCLI.locate(home: home, listDirectory: list, isExecutable: { _ in false }) == nil)
         precondition(ClaudeCLI.locate(home: home, listDirectory: { _ in [] },
                                       isExecutable: { $0.hasPrefix(nvm) }) == nil, "no nvm folder: no nvm candidate")
+    }
+
+    // MARK: - Re-review of lot 4: managed MCP file (N1)
+
+    static func chatArgumentsUnderAManagedMCPFile() {
+        // Docs, « Control MCP server access »: with managed-mcp.json deployed, « The
+        // `--strict-mcp-config` flag asks to replace the managed set. If a user passes it while such
+        // a file is deployed, Claude Code exits at startup ». The macOS path, from the same page:
+        precondition(ClaudeCLI.managedMCPConfigPath == "/Library/Application Support/ClaudeCode/managed-mcp.json")
+        let free = ClaudeCLI.chatArguments(systemPrompt: "Tu es Klay.", managedMCPPresent: false)
+        let managed = ClaudeCLI.chatArguments(systemPrompt: "Tu es Klay.", managedMCPPresent: true)
+        precondition(free.contains("--strict-mcp-config"), "no managed file: no MCP server at all")
+        precondition(!managed.contains("--strict-mcp-config"), "a managed file: the flag would stop Claude Code at startup")
+        precondition(managed == free.filter { $0 != "--strict-mcp-config" },
+                     "only that flag differs, got \(managed)")
+        for args in [free, managed] {
+            precondition(value(after: "--disallowedTools", in: args) == "mcp__*", "every MCP tool stays out of Claude's context")
+            precondition(value(after: "--tools", in: args) == "" && !args.contains("--mcp-config") && !args.contains("--allowedTools"))
+        }
+        // The environment does not depend on the file: connectors and tool search off in both cases.
+        let env = ClaudeCLI.chatEnvironment(from: ["PATH": "/usr/bin"], binary: "/Users/test/.local/bin/claude")
+        precondition(env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false" && env["ENABLE_TOOL_SEARCH"] == "false")
     }
 }
