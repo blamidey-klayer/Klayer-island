@@ -1,4 +1,5 @@
 #if KLAYER_E2E
+import AppKit
 import Foundation
 import Darwin
 
@@ -19,12 +20,14 @@ extension HookServer {
         case shortcut(String)
         /// An app came to the front (its bundle id), as NSWorkspace would say (Task 27).
         case activate(String)
+        /// The open island's scroll views moved to this fraction of their range (hotfix 0.3.4).
+        case scroll(Double)
         case unknown(String)
     }
 
     /// The test commands, named in full in the reply to an unknown one (and found there by the CI's
     /// `strings` check of the test build, its control for the check of the shipped binary).
-    private static let e2eCommandList = "e2e_state, e2e_decide, e2e_answer, e2e_shortcut or e2e_activate"
+    private static let e2eCommandList = "e2e_state, e2e_decide, e2e_answer, e2e_shortcut, e2e_activate or e2e_scroll"
 
     /// Answers a test command on its connection with one JSON line, then closes it. False when `kind`
     /// is not a test command or the app was not launched by the test: the payload then goes on like
@@ -39,6 +42,7 @@ extension HookServer {
         case "e2e_answer":   command = .answer(Self.e2eSelections(payload["answers"]))
         case "e2e_shortcut": command = .shortcut(payload["action"] as? String ?? "")
         case "e2e_activate": command = .activate(payload["bundle_id"] as? String ?? "")
+        case "e2e_scroll":   command = .scroll((payload["fraction"] as? NSNumber)?.doubleValue ?? -1)
         default:             command = .unknown(kind)
         }
         Task { @MainActor in
@@ -74,6 +78,7 @@ extension HookServer {
         case .answer(let chosen):    reply = e2eAnswer(chosen)
         case .shortcut(let name):    reply = e2eShortcut(name)
         case .activate(let bundleId): reply = e2eActivate(bundleId)
+        case .scroll(let fraction):  reply = e2eScroll(fraction)
         case .unknown(let kind):     reply = Self.e2eError("unknown test command \(kind): expected \(Self.e2eCommandList)")
         }
         guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys, .withoutEscapingSlashes]),
@@ -196,6 +201,41 @@ extension HookServer {
         guard !bundleId.isEmpty else { return Self.e2eError("bundle_id is required") }
         NotificationCenter.default.post(name: .appCameToFront, object: bundleId)
         return ["ok": true]
+    }
+
+    /// Scrolls the open island's scroll views (the home's list) to `fraction` of their range, 0 the
+    /// top and 1 the bottom, as a wheel or a trackpad moves their clip view. Answers how many moved.
+    /// Hotfix 0.3.4: 0.3.3 crashed in the layout pass of the home's scroll view (tests/e2e scenario 12).
+    @MainActor
+    private func e2eScroll(_ fraction: Double) -> [String: Any] {
+        guard (0...1).contains(fraction) else { return Self.e2eError("fraction must be a number from 0 to 1") }
+        guard AppState.shared.mode == .expanded else { return Self.e2eError("the island is not open") }
+        guard let panel = NSApp.windows.first(where: { $0 is IslandPanel }), let root = panel.contentView else {
+            return Self.e2eError("no island panel")
+        }
+        var scrolled = 0
+        for scrollView in Self.e2eScrollViews(in: root) {
+            guard let document = scrollView.documentView else { continue }
+            let clip = scrollView.contentView
+            let insets = scrollView.contentInsets
+            let range = document.frame.height - clip.bounds.height + insets.top + insets.bottom
+            guard range > 1 else { continue }   // nothing to scroll
+            let start = document.isFlipped ? -insets.top : -insets.bottom
+            let wanted = NSRect(origin: NSPoint(x: clip.bounds.origin.x, y: start + range * fraction),
+                                size: clip.bounds.size)
+            clip.scroll(to: clip.constrainBoundsRect(wanted).origin)
+            scrollView.reflectScrolledClipView(clip)
+            scrolled += 1
+        }
+        return ["ok": true, "scrolled": scrolled]
+    }
+
+    @MainActor
+    private static func e2eScrollViews(in view: NSView) -> [NSScrollView] {
+        var found: [NSScrollView] = []
+        if let scrollView = view as? NSScrollView { found.append(scrollView) }
+        for subview in view.subviews { found += e2eScrollViews(in: subview) }
+        return found
     }
 
     /// A keyboard shortcut pressed (`openChat` opens the chat), through the hot keys' own handler.

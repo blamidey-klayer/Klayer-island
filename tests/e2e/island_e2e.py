@@ -734,6 +734,101 @@ def scenario_11_vscode_card_steps_aside(run):
        "row says « API Error: 529 » without the JSON")
 
 
+def toggle_island():
+    command({"klayer_kind": "e2e_shortcut", "action": "toggleIsland"})
+
+
+def close_island():
+    if read_state()["mode"] == "expanded":
+        toggle_island()
+    return wait_until("the island closed", lambda s: s["mode"] != "expanded")
+
+
+def open_home():
+    """Opens the island with the toggle hot key, on the home. A Claude app alert held for the home
+    shows once in its place: then the island is closed and opened again."""
+    for _ in range(3):
+        close_island()
+        toggle_island()
+        state = wait_until("the island open", lambda s: s["mode"] == "expanded")
+        if state["view"] != "overview":
+            time.sleep(0.3)
+            state = read_state()
+        if state["mode"] == "expanded" and state["view"] == "overview":
+            return state
+    raise Failure("the toggle hot key did not open the island on the home; the state was:\n%s" % show(state))
+
+
+def scroll_home(fraction):
+    """The home's list scrolled to `fraction` of its range (e2e_scroll moves the island's scroll views)."""
+    reply = send({"klayer_kind": "e2e_scroll", "fraction": fraction})
+    if not isinstance(reply, dict) or reply.get("ok") is not True or reply.get("scrolled", 0) < 1:
+        raise Failure("e2e_scroll %.2f moved no list of the open island: %s" % (fraction, json.dumps(reply)))
+
+
+def still_running(run, what):
+    code = run["app"].proc.poll()
+    if code is not None:
+        raise Failure("the app exited (code %d) %s" % (code, what))
+
+
+def scenario_12_full_home_opens_and_closes(run):
+    """Hotfix 0.3.4. 0.3.3 crashed on macOS 27 about 40 s after launch, in a layout pass of the home's
+    list: its measured height fed its own margins and the scroll settled on a row, in a loop AppKit
+    ended with an exception. The home full of long rows (12 sessions, each named and doing something),
+    opened and closed 5 times with the toggle hot key (the island and its card animate their height
+    each time), its list scrolled, some closes while it still opens: the app must keep running and
+    answering. The CI runner is not macOS 27: this guards the loop, it may not reproduce the crash."""
+    sessions = []
+    for i in range(12):
+        sid, project = new_session(), "dossier-client-%02d" % (i + 1)
+        env = vscode_env() if i % 2 else claude_app_env()
+        name = ("Revue trimestrielle des contrats fournisseurs, des avenants et des écarts de facturation, "
+                "lot %02d" % (i + 1))
+        fire(hook_input(sid, "SessionStart", project, source="startup"), env, "SessionStart")
+        wait_until("the session %s in the list" % project, lambda s, sid=sid: phase(s, sid) is not None)
+        fire(hook_input(sid, "UserPromptSubmit", project, prompt="Prépare la revue du lot %02d" % (i + 1),
+                        session_title=name), env, "UserPromptSubmit")
+        if i % 3 == 0:
+            tool = hook_input(sid, "PreToolUse", project, tool_name="mcp__linear__list_issues",
+                              tool_input={"team": "KLA"})
+        else:
+            tool = hook_input(sid, "PreToolUse", project, tool_name="Bash",
+                              tool_input={"command": "npm run build -- --filter=contrats-fournisseurs-%02d "
+                                                     "--report=ecarts-de-facturation" % (i + 1)})
+        fire(tool, env, "PreToolUse")
+        sessions.append((sid, name))
+    wait_until("the 12 sessions in the list, named, each with its last action",
+               lambda s: all(title(s, sid) == name and phase(s, sid) not in (None, "finished", "error")
+                             and session(s, sid)["detail"] != "" for sid, name in sessions))
+
+    for cycle in range(5):
+        open_home()
+        if cycle % 2 == 0:
+            # While the island and its card still animate their height.
+            time.sleep(0.15)
+        else:
+            for fraction in (0.5, 1.0, 0.25, 0.0):
+                scroll_home(fraction)
+                time.sleep(0.1)
+        still_running(run, "while the home opened, cycle %d" % (cycle + 1))
+        close_island()
+        time.sleep(0.2)
+        still_running(run, "while the home closed, cycle %d" % (cycle + 1))
+
+    open_home()
+    for fraction in (1.0, 0.0):
+        scroll_home(fraction)
+        time.sleep(0.15)
+    time.sleep(3)
+    still_running(run, "3 s after the home was opened, closed and scrolled")
+    state = read_state()
+    if not all(title(state, sid) == name for sid, name in sessions):
+        raise Failure("the 12 sessions are no longer in the list:\n%s" % show(state))
+    ok("12 the home with 12 long rows opened and closed 5 times and scrolled: the app still runs and answers "
+       "(the runner is not macOS 27, this guards the layout loop of 0.3.3)")
+
+
 def unanswered(relay, what, still):
     """Scenario 8: a request nobody answers stays pending; nb-hook prints nothing and keeps waiting."""
     deadline = time.monotonic() + SILENCE
@@ -760,6 +855,7 @@ SCENARIOS = [
     scenario_9_session_name,
     scenario_10_card_steps_aside,
     scenario_11_vscode_card_steps_aside,
+    scenario_12_full_home_opens_and_closes,
 ]
 
 
@@ -767,7 +863,8 @@ def check_no_test_commands():
     """The app answers the test commands like any unknown event: no state, no decision."""
     for message in ({"klayer_kind": "e2e_state"}, {"klayer_kind": "e2e_decide", "decision": "allow"},
                     {"klayer_kind": "e2e_answer", "answers": {}}, {"klayer_kind": "e2e_shortcut", "action": "openChat"},
-                    {"klayer_kind": "e2e_activate", "bundle_id": CLAUDE_APP}):
+                    {"klayer_kind": "e2e_activate", "bundle_id": CLAUDE_APP},
+                    {"klayer_kind": "e2e_scroll", "fraction": 1}):
         reply = send(message)
         if reply != {"ok": True}:
             raise Failure("%s was answered %s; expected the plain {\"ok\":true} of an ignored event"
@@ -799,7 +896,7 @@ def main():
                % (args.app, "unset" if args.without_test_env else "1"))
         else:
             read_state()   # RED shape: a build without the test commands fails here
-            run = {"started": time.time()}
+            run = {"started": time.time(), "app": app}
             for scenario in SCENARIOS:
                 try:
                     scenario(run)

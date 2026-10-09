@@ -108,6 +108,11 @@ final class IslandWindowController: NSWindowController {
             .environment(\.layoutDirection, .leftToRight))
         hosting.frame = NSRect(origin: .zero, size: contentSize)
         hosting.autoresizingMask = [.width, .height]
+        // The panel and this view are framed by hand (720 x 560, autoresizing) and nothing reads the
+        // view's fitting or intrinsic size: SwiftUI need not keep size constraints on it. With the
+        // default options its minimum size follows the island's animated size, and each change can
+        // ask the window for another Update Constraints pass (hotfix 0.3.4, defence in depth).
+        hosting.sizingOptions = []
 
         // FileDropNSView sits below the hosting view (hitTest returns nil → no mouse interference).
         // AppKit routes NSDraggingDestination events to registered views independently of hitTest.

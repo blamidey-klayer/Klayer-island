@@ -199,6 +199,8 @@ final class DesktopKlayController {
             DesktopBotView(appState: AppState.shared, engine: eng, viewState: vs))
         hosting.frame = CGRect(x: 0, y: 0, width: s, height: s)
         hosting.autoresizingMask = [.width, .height]
+        // The panel is framed by hand (its size, its moves): no size constraints from SwiftUI.
+        hosting.sizingOptions = []
         p.contentView = hosting
         p.alphaValue = 0
         p.orderFront(nil)

@@ -38,8 +38,6 @@ struct OverviewView: View {
     /// The Claude Code hooks are missing from ~/.claude/settings.json. Read when the home shows
     /// (`refreshHome`), never in `body`: it reads a file.
     @State private var hooksMissing = false
-    /// The height of the list's scroll view, for the margins of the wheel (`ListWheel.centringMargin`).
-    @State private var listHeight: CGFloat = 0
 
     var agent: AgentTask? { state.focusTask }
 
@@ -134,9 +132,13 @@ struct OverviewView: View {
     /// (`SessionRoster.listed`), then the 3 last choices. What does not fit in the card scrolls
     /// inside it, the card never grows. A permission or a question waiting has its own view.
     /// A wheel (Task 27, `ListWheel`): the rows near the centre are whole, those towards the top and
-    /// the bottom smaller, fainter and slightly to the right; the scroll settles on a row, and margins
-    /// let the first and the last row reach the centre. The last choices turn on the wheel as one
-    /// block. Nothing runs at rest.
+    /// the bottom smaller, fainter and slightly to the right; margins let the first and the last row
+    /// reach the centre. The last choices turn on the wheel as one block. Nothing runs at rest.
+    /// Hotfix 0.3.4: nothing here writes state from the scroll view's geometry, and the scroll does not
+    /// settle on a row. The margins are a layout constant (`ListWheel.homeMargin`): in 0.3.3 a measured
+    /// height fed them back into the list's own layout and the row snapping retargeted the offset in
+    /// the window's layout pass, a loop AppKit ended with an exception on macOS 27. The wheel itself is
+    /// a scroll transition: it changes only how the rows are drawn, never the layout.
     private var homeContent: some View {
         let sessions = SessionRoster.listed(state.sessions)
         return ScrollView(.vertical, showsIndicators: false) {
@@ -148,22 +150,14 @@ struct OverviewView: View {
                         .listWheel()
                 }
             }
-            .scrollTargetLayout()
             .frame(maxWidth: .infinity, alignment: .topLeading)
             // Room for the rows' hover background, 4 pt past each side
             .padding(.horizontal, 4)
         }
         // Without a session, the empty line and the choices stay at the top, as before.
-        .contentMargins(.vertical,
-                        sessions.isEmpty ? 0 : ListWheel.centringMargin(viewport: listHeight, row: ListWheel.rowHeight),
-                        for: .scrollContent)
-        .scrollTargetBehavior(.viewAligned)
+        .contentMargins(.vertical, sessions.isEmpty ? 0 : ListWheel.homeMargin, for: .scrollContent)
         .scrollBounceBehavior(.basedOnSize)
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.containerSize.height
-        } action: { _, height in
-            listHeight = height
-        }
+        // The list's height, `ListWheel.homeListHeight`: change both together.
         .padding(.top, 9)
         .padding(.bottom, 8)
         // The rows start at the list's left edge (`HomeLayout.listStartX`), 12 pt from the card's right

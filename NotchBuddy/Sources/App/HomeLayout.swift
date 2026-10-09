@@ -146,10 +146,21 @@ struct HomeLayout {
 // as an arc. OverviewView applies it per row with a scroll transition (`phase`: -1 a row leaving at
 // the top, 0 at the centre, 1 leaving at the bottom), computed only while the list moves: nothing
 // runs at rest. Content margins let the first and the last row reach the centre.
+// 0.3.4: the margins come from the list's layout height (`homeListHeight`), never from a measure of
+// the scroll view, and the scroll no longer settles on a row. In 0.3.3 the measured height fed the
+// margins, the margins the layout and the row snapping the offset, inside the window's layout pass:
+// AppKit stopped the loop by raising an exception (the crash on macOS 27).
 
 enum ListWheel {
     /// Height of a row of the list.
     static let rowHeight: CGFloat = 26
+    /// Height of the home's list: the home's 168 pt card (the 220 pt island of
+    /// `IslandConst.viewLayouts[.overview]` less IslandContentView's 8 pt top, 34 pt header and 10 pt
+    /// bottom) less the list's 9 pt top and 8 pt bottom (OverviewView). A layout constant: the list's
+    /// margins must never follow a measure of its own scroll view.
+    static let homeListHeight: CGFloat = 151
+    /// The home list's margin above the first row and below the last one.
+    static let homeMargin: CGFloat = centringMargin(viewport: homeListHeight, row: rowHeight)
     /// Scale, opacity and shift of a row at the edges.
     static let edgeScale = 0.78
     static let edgeOpacity = 0.45

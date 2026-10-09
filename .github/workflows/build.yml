@@ -157,7 +157,7 @@ jobs:
               echo "::error::strings printed nothing for $f: the check would pass without reading it"
               exit 1
             fi
-            if printf '%s\n' "$out" | grep -E 'e2e_(state|decide|answer|shortcut|activate)|notchBuddy\.appCameToFront'; then
+            if printf '%s\n' "$out" | grep -E 'e2e_(state|decide|answer|shortcut|activate|scroll)|notchBuddy\.appCameToFront'; then
               echo "::error::$f carries test-only commands"
               found=1
             fi

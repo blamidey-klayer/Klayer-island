@@ -25,6 +25,7 @@ enum HomeLayoutTests {
             ("the_wheel_is_the_same_above_and_below", theWheelIsTheSameAboveAndBelow),
             ("the_wheel_changes_smoothly", theWheelChangesSmoothly),
             ("the_first_and_last_rows_can_reach_the_centre", theFirstAndLastRowsCanReachTheCentre),
+            ("the_home_margins_come_from_the_layout", theHomeMarginsComeFromTheLayout),
         ]
         for (name, run) in cases {
             run()
@@ -272,6 +273,22 @@ enum HomeLayoutTests {
     static func theFirstAndLastRowsCanReachTheCentre() {
         precondition(ListWheel.centringMargin(viewport: 151, row: 26) == 62.5, "half the room left by a row")
         precondition(ListWheel.centringMargin(viewport: 20, row: 26) == 0, "never negative")
+    }
+
+    // MARK: - Hotfix 0.3.4: the home's margins are a layout constant
+    // 0.3.3 measured the list's scroll view for its margins, and the measure fed its own layout: the
+    // app crashed on macOS 27. The margins now come from the home's layout, checked against it here.
+
+    static func theHomeMarginsComeFromTheLayout() {
+        let island = IslandConst.viewLayouts[.overview]!.height
+        // IslandContentView: 8 pt top, 34 pt header, 10 pt bottom; OverviewView's list: 9 pt top, 8 pt bottom.
+        let card = island - 8 - 34 - 10
+        precondition(card == 168, "the home's card is 168 pt, got \(card)")
+        precondition(ListWheel.homeListHeight == card - 9 - 8,
+                     "the list's height follows the home's layout, got \(ListWheel.homeListHeight)")
+        precondition(ListWheel.homeMargin == 62.5, "the first row rests at the centre, got \(ListWheel.homeMargin)")
+        precondition(ListWheel.homeMargin + ListWheel.rowHeight / 2 == ListWheel.homeListHeight / 2,
+                     "the first row's middle is the list's middle")
     }
 }
 

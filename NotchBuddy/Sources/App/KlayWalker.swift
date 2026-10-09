@@ -91,6 +91,8 @@ final class KlayWalker {
         let hosting = NSHostingView(rootView: KlayWalkerView(walker: self, engine: eng))
         hosting.frame = CGRect(origin: .zero, size: frame.size)
         hosting.autoresizingMask = [.width, .height]
+        // The panel is framed by hand at each step of the walk: no size constraints from SwiftUI.
+        hosting.sizingOptions = []
         p.contentView = hosting
         if !p.isVisible { p.orderFront(nil) }
         panel = p
