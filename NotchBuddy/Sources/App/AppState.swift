@@ -256,8 +256,9 @@ final class AppState: ObservableObject {
 
     /// A name of session `id` arrived: a hook's `session_title` (`.customTitle`) or the status
     /// line's `session_name` (`.statusLine`), rules in `SessionRoster.name`. Its row, and the
-    /// finished or error view that tells about it, go by that name. Kept in memory only. True when
-    /// the name the session goes by changed.
+    /// finished or error view that tells about it, go by that name. Kept in memory with the row
+    /// (`recordChoice` writes the row's title of an answered request to the history, as before).
+    /// True when the name the session goes by changed.
     @discardableResult
     func nameSession(_ id: String, _ raw: Any?, from source: SessionNameSource) -> Bool {
         guard sessionRoster.name(sessionId: id, raw, from: source, at: Date()) else { return false }

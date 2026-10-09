@@ -1,8 +1,8 @@
 import Foundation
 
 /// One request from Claude answered from the island: a permission (Allow, Deny, Always) or an
-/// AskUserQuestion. `session` is the project name shown on the island, `prompt` what Claude
-/// asked (the command, or the questions), `answer` what the user chose.
+/// AskUserQuestion. `session` is the session's name shown on the island (else its project folder),
+/// `prompt` what Claude asked (the command, or the questions), `answer` what the user chose.
 struct ChoiceRecord: Codable, Equatable {
     enum Kind: String, Codable {
         case permission
