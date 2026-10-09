@@ -466,7 +466,7 @@ export function binocularsPoint(p: P, look: number): P {
  * KlayPaint.drawBinoculars on the Mac.
  */
 export function drawKlayBinoculars(
-  x: CanvasRenderingContext2D, look: number, eye: Omit<EyeLook, "yaw" | "pitch">, g: Gaze,
+  x: CanvasRenderingContext2D, look: number, eye: EyeLook, g: Gaze,
 ) {
   const k = Math.max(-1, Math.min(1, look));
   const B = BINO;
@@ -635,7 +635,7 @@ export function drawKlayEyesGaze(
  * −1 for the left eye, +1 for the right. Mirror of KlayPaint.drawEye on the Mac.
  */
 function drawKlayEye(
-  x: CanvasRenderingContext2D, e: Omit<EyeLook, "yaw" | "pitch">, pupil: P, sd: number, mult: number,
+  x: CanvasRenderingContext2D, e: EyeLook, pupil: P, sd: number, mult: number,
 ) {
   const er = EYE_R * e.es * mult;
   x.save();
@@ -1546,7 +1546,7 @@ export class BotEngine {
   }
 
   /** The eyes' shape, blink, scale and ink this frame. */
-  private eyeStyle(): Omit<EyeLook, "yaw" | "pitch"> {
+  private eyeStyle(): EyeLook {
     return { shape: this.eyeShape(), open: this.open, es: this.es, ink: this.isMini ? MINI_INK : INK };
   }
 
