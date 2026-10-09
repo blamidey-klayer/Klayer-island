@@ -184,17 +184,19 @@ final class AppState: ObservableObject {
     var questionDraft: QuestionDraft? = nil
 
     // Choices answered from the island (permissions and questions), kept in choices.json.
-    // `recentChoices` is the 5 newest, newest first, for the open island.
+    // `recentChoices` is the 3 newest, newest first, for the home of the open island.
     private let choiceHistory = ChoiceHistory(fileURL: HookServer.supportDir.appendingPathComponent("choices.json"))
     @Published private(set) var recentChoices: [ChoiceRecord] = []
 
     func recordChoice(_ r: ChoiceRecord) {
         choiceHistory.record(r)
-        recentChoices = choiceHistory.latest(5)
+        recentChoices = choiceHistory.latest(ChoiceHistoryView.limit)
     }
 
-    // Running Claude sessions, one row each, most recent activity first (rules in SessionRoster).
-    // Fed by HookServer. Pruned on every update, never on a timer: a hidden island costs no CPU.
+    // Claude sessions, one row each, most recent activity first (rules in SessionRoster): the
+    // running ones and those that finished today. Fed by HookServer. Pruned on every update and
+    // when the home shows, never on a timer: a hidden island costs no CPU. Midnight is the user's
+    // (`Calendar.autoupdatingCurrent`).
     private var sessionRoster = SessionRoster()
     @Published private(set) var sessions: [SessionRow] = []
 
@@ -214,20 +216,20 @@ final class AppState: ObservableObject {
         let now = Date()
         sessionRoster.update(sessionId: sessionId, pillId: pillId, title: title, phase: phase,
                              lastAction: lastAction, hostBundleId: hostBundleId, at: now)
-        sessionRoster.prune(now: now)
+        sessionRoster.prune(now: now, calendar: .autoupdatingCurrent)
         sessions = sessionRoster.rows
     }
 
     /// Prunes the roster when the home shows (the island opens, or comes back to the home): a row
     /// that went stale while no hook arrived is gone before the user sees it. No timer.
     func pruneSessions() {
-        sessionRoster.prune(now: Date())
+        sessionRoster.prune(now: Date(), calendar: .autoupdatingCurrent)
         if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
     }
 
     func endSession(_ id: String) {
         sessionRoster.end(sessionId: id)
-        sessionRoster.prune(now: Date())
+        sessionRoster.prune(now: Date(), calendar: .autoupdatingCurrent)
         if sessions != sessionRoster.rows { sessions = sessionRoster.rows }
     }
 
@@ -262,7 +264,7 @@ final class AppState: ObservableObject {
         if let v = ud.object(forKey: "soundEnabled") as? Bool   { soundEnabled = v }
         if let v = ud.object(forKey: "soundVolume")  as? Double { soundVolume  = v }
         pillColors = PillColors.stored
-        recentChoices = choiceHistory.latest(5)
+        recentChoices = choiceHistory.latest(ChoiceHistoryView.limit)
         // Migrate old 60s default → 15s
         if let v = ud.object(forKey: "autoCloseInterval") as? Double {
             autoCloseInterval = (v == 60) ? 15 : v
@@ -360,6 +362,27 @@ final class AppState: ObservableObject {
         guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
         focusId = id
         tasks[idx].pillBadge = nil  // clear badge when user brings task to focus
+    }
+
+    // MARK: - Home rail (lot 6 spec §2)
+
+    /// The pill in focus before the rail put GitHub's or Spotify's card in place of the list: it
+    /// gets the focus back (and Klay its pose) when the list comes back.
+    private var focusBeforeCard: String? = nil
+
+    /// A click on the Spotify or GitHub icon of the rail: its card replaces the list.
+    func showCard(_ pillId: String) {
+        if !HomeRail.showsCard(focusId: focusTask?.id) { focusBeforeCard = focusTask?.id }
+        setFocus(pillId)
+    }
+
+    /// The house tab, or a second click on the icon of the card on screen: the list comes back,
+    /// the focus goes back to the pill that had it (`HomeRail.listFocus`). Nothing changes when
+    /// the list is already there.
+    func showHomeList() {
+        guard HomeRail.showsCard(focusId: focusTask?.id) else { return }
+        focusId = HomeRail.listFocus(saved: focusBeforeCard, loaded: tasks.map(\.id), main: mainPillId)
+        focusBeforeCard = nil
     }
 
     func setPillBadge(_ badge: PillBadge, for id: String) {

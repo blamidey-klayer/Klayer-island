@@ -32,6 +32,12 @@ enum SessionRosterTests {
             ("a_request_is_named_after_its_session", aRequestIsNamedAfterItsSession),
             ("a_new_prompt_folds_only_its_own_finished_view", aNewPromptFoldsOnlyItsOwnFinishedView),
             ("every_view_string_is_a_real_island_view", everyViewStringIsARealIslandView),
+            ("finished_rows_stay_until_midnight_of_their_day", finishedRowsStayUntilMidnight),
+            ("midnight_is_the_user_calendar_s", midnightIsTheUserCalendars),
+            ("ten_finished_rows_at_most_the_most_recent", tenFinishedRowsAtMost),
+            ("active_rows_come_before_finished_ones", activeRowsComeBeforeFinishedOnes),
+            ("a_session_that_ends_keeps_its_finished_row", aSessionThatEndsKeepsItsFinishedRow),
+            ("a_finished_row_says_when_it_ended", aFinishedRowSaysWhenItEnded),
         ]
         for (name, run) in cases {
             run()
@@ -40,9 +46,19 @@ enum SessionRosterTests {
         print("Session roster: \(cases.count) cases passed")
     }
 
+    /// 15 January 2027, 08:00 UTC.
     static let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
     static func at(minutes: Double) -> Date { t0.addingTimeInterval(minutes * 60) }
+
+    /// The user's calendar, pinned: midnight is the one of this time zone, never the test machine's.
+    static func calendar(_ zone: String) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: zone)!
+        return c
+    }
+
+    static let utc = calendar("UTC")
 
     static func ids(_ roster: SessionRoster) -> [String] { roster.rows.map(\.id) }
 
@@ -137,40 +153,47 @@ enum SessionRosterTests {
         roster.update(sessionId: "idle", pillId: "integration_claude", title: "I", phase: .idle,
                       lastAction: "Session démarrée", at: at(minutes: 0))
 
-        roster.prune(now: at(minutes: 29))
+        roster.prune(now: at(minutes: 29), calendar: utc)
         precondition(roster.rows.count == 6, "nothing is pruned before 30 minutes, got \(ids(roster))")
 
-        // 31 minutes: finished, error and idle rows go; a working row (a long task) stays.
-        roster.prune(now: at(minutes: 31))
-        precondition(Set(ids(roster)) == ["question", "approval", "working"],
-                     "finished, error and idle rows go after 30 minutes, got \(ids(roster))")
+        // 31 minutes: the idle row goes; a working row (a long task) stays, and so do the finished
+        // and failed ones (the history of the day, until midnight).
+        roster.prune(now: at(minutes: 31), calendar: utc)
+        precondition(Set(ids(roster)) == ["question", "approval", "working", "finished", "error"],
+                     "an idle row goes after 30 minutes, got \(ids(roster))")
 
-        // 3 hours: the working row goes too, the rows waiting for the user stay.
-        roster.prune(now: at(minutes: 180))
-        precondition(Set(ids(roster)) == ["question", "approval"],
+        // 3 hours: the working row goes too, the rows waiting for the user stay, the day's ended
+        // rows stay.
+        roster.prune(now: at(minutes: 180), calendar: utc)
+        precondition(Set(ids(roster)) == ["question", "approval", "finished", "error"],
                      "a question and an approval stay however old, got \(ids(roster))")
 
-        // A row is pruned once it reaches the limit: exactly 30 minutes for a finished one.
+        // Midnight (16 hours after 08:00): the ended rows go, the waiting ones still stay.
+        roster.prune(now: at(minutes: 16 * 60), calendar: utc)
+        precondition(Set(ids(roster)) == ["question", "approval"],
+                     "the day's ended rows go at midnight, got \(ids(roster))")
+
+        // A row is pruned once it reaches the limit: exactly 30 minutes for an idle one.
         var edge = SessionRoster()
-        edge.update(sessionId: "f", pillId: "integration_claude", title: "F", phase: .finished,
+        edge.update(sessionId: "i", pillId: "integration_claude", title: "I", phase: .idle,
                     lastAction: nil, at: at(minutes: 0))
-        edge.prune(now: at(minutes: 30))
-        precondition(edge.rows.isEmpty, "a finished row goes at exactly 30 minutes without activity")
+        edge.prune(now: at(minutes: 30), calendar: utc)
+        precondition(edge.rows.isEmpty, "an idle row goes at exactly 30 minutes without activity")
 
         // The ages are measured from the last activity of each row.
         var fresh = SessionRoster()
-        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .finished,
+        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .idle,
                      lastAction: nil, at: at(minutes: 0))
-        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .finished,
+        fresh.update(sessionId: "old", pillId: "integration_claude", title: "O", phase: .idle,
                      lastAction: nil, at: at(minutes: 25))
-        fresh.prune(now: at(minutes: 31))
+        fresh.prune(now: at(minutes: 31), calendar: utc)
         precondition(ids(fresh) == ["old"], "a row touched 6 minutes ago is not pruned")
         // 119 minutes for a working row: still there, 120: gone.
         fresh.update(sessionId: "w", pillId: "integration_claude", title: "W", phase: .thinking,
                      lastAction: nil, at: at(minutes: 31))
-        fresh.prune(now: at(minutes: 31 + 119))
+        fresh.prune(now: at(minutes: 31 + 119), calendar: utc)
         precondition(ids(fresh).contains("w"), "a thinking row survives 119 minutes without activity")
-        fresh.prune(now: at(minutes: 31 + 120))
+        fresh.prune(now: at(minutes: 31 + 120), calendar: utc)
         precondition(!ids(fresh).contains("w"), "a thinking row goes after 2 hours without activity")
     }
 
@@ -386,9 +409,9 @@ enum SessionRosterTests {
         var roster = SessionRoster()
         roster.update(sessionId: "s", pillId: "integration_claude", title: "S", phase: .searching,
                       lastAction: "Searches · TODO", at: at(minutes: 0))
-        roster.prune(now: at(minutes: 31))
+        roster.prune(now: at(minutes: 31), calendar: utc)
         precondition(roster.rows.count == 1, "a search is work in progress, not an ended session")
-        roster.prune(now: at(minutes: 121))
+        roster.prune(now: at(minutes: 121), calendar: utc)
         precondition(roster.rows.isEmpty, "after 2 hours of silence it goes like a working row")
     }
 
@@ -468,6 +491,160 @@ enum SessionRosterTests {
         precondition(Set(restingViews + viewsInUse + cardViews) == Set(IslandView.allCases.map(\.rawValue)),
                      "every IslandView case is in exactly one group of these tests")
         precondition(restingViews.count + viewsInUse.count + cardViews.count == IslandView.allCases.count)
+    }
+
+    // MARK: - The day's ended sessions (lot 6 spec §2)
+
+    static func finishedRowsStayUntilMidnight() {
+        // t0 is 08:00 UTC: midnight comes 16 hours later, at minute 960.
+        var roster = SessionRoster()
+        roster.update(sessionId: "f", pillId: "integration_claude", title: "F", phase: .finished,
+                      lastAction: "Fini", at: at(minutes: 0))
+        roster.update(sessionId: "e", pillId: "agent_claude-desktop", title: "E", phase: .error,
+                      lastAction: "API Error", at: at(minutes: 1))
+        roster.prune(now: at(minutes: 959), calendar: utc)
+        precondition(Set(ids(roster)) == ["f", "e"], "a finished and a failed row stay all day, got \(ids(roster))")
+        roster.prune(now: at(minutes: 960), calendar: utc)
+        precondition(roster.rows.isEmpty, "at midnight they go, got \(ids(roster))")
+
+        // Finished at 23:50, yesterday's after midnight: gone, though only 20 minutes old.
+        var late = SessionRoster()
+        late.update(sessionId: "late", pillId: "integration_claude", title: "L", phase: .finished,
+                    lastAction: nil, at: at(minutes: 950))
+        late.prune(now: at(minutes: 959), calendar: utc)
+        precondition(ids(late) == ["late"], "still today at 23:59")
+        late.prune(now: at(minutes: 970), calendar: utc)
+        precondition(late.rows.isEmpty, "a row finished yesterday is gone after midnight")
+
+        // Finished just after midnight: the whole new day.
+        var early = SessionRoster()
+        early.update(sessionId: "early", pillId: "integration_claude", title: "E", phase: .finished,
+                     lastAction: nil, at: at(minutes: 965))
+        early.prune(now: at(minutes: 960 + 24 * 60 - 1), calendar: utc)
+        precondition(ids(early) == ["early"], "kept until 23:59 of its own day")
+
+        // A clock set back (now before the end) removes nothing.
+        early.prune(now: at(minutes: 0), calendar: utc)
+        precondition(ids(early) == ["early"], "a clock set back keeps the row")
+
+        // A finished row that works again is an active row with the active rules.
+        var again = SessionRoster()
+        again.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .finished,
+                     lastAction: nil, at: at(minutes: 0))
+        again.update(sessionId: "a", pillId: "integration_claude", title: "A", phase: .working,
+                     lastAction: nil, at: at(minutes: 5))
+        again.prune(now: at(minutes: 5 + 120), calendar: utc)
+        precondition(again.rows.isEmpty, "a working row goes after 2 hours, even if it had finished before")
+    }
+
+    static func midnightIsTheUserCalendars() {
+        // 08:00 UTC is 09:00 in Paris (UTC+1 in January): Paris' midnight is 23:00 UTC, minute 900.
+        let paris = calendar("Europe/Paris")
+        var roster = SessionRoster()
+        roster.update(sessionId: "f", pillId: "integration_claude", title: "F", phase: .finished,
+                      lastAction: nil, at: at(minutes: 0))
+        var inParis = roster
+        inParis.prune(now: at(minutes: 899), calendar: paris)
+        precondition(ids(inParis) == ["f"], "23:59 in Paris: still today")
+        inParis.prune(now: at(minutes: 900), calendar: paris)
+        precondition(inParis.rows.isEmpty, "midnight in Paris: gone")
+        roster.prune(now: at(minutes: 900), calendar: utc)
+        precondition(ids(roster) == ["f"], "the same instant is 23:00 in UTC: still today there")
+
+        // 08:00 UTC is midnight in Los Angeles: a row finished one minute before is yesterday's.
+        let losAngeles = calendar("America/Los_Angeles")
+        var west = SessionRoster()
+        west.update(sessionId: "w", pillId: "integration_claude", title: "W", phase: .error,
+                    lastAction: nil, at: at(minutes: -1))
+        west.prune(now: at(minutes: 0), calendar: losAngeles)
+        precondition(west.rows.isEmpty, "midnight in Los Angeles ends the day of a row that ended at 23:59 there")
+
+        // The day the clocks go forward in Paris (28 March 2027) has 23 hours: its midnight is
+        // 22:00 UTC, not 23:00.
+        let start = utc.date(from: DateComponents(year: 2027, month: 3, day: 28, hour: 0, minute: 30))!
+        var spring = SessionRoster()
+        spring.update(sessionId: "s", pillId: "integration_claude", title: "S", phase: .finished,
+                      lastAction: nil, at: start)
+        spring.prune(now: start.addingTimeInterval((21 * 60 + 29) * 60), calendar: paris)
+        precondition(ids(spring) == ["s"], "21:59 UTC is 23:59 in Paris: still today")
+        spring.prune(now: start.addingTimeInterval((21 * 60 + 30) * 60), calendar: paris)
+        precondition(spring.rows.isEmpty, "22:00 UTC is midnight in Paris that day")
+    }
+
+    static func tenFinishedRowsAtMost() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "question", pillId: "integration_claude", title: "Q", phase: .question,
+                      lastAction: nil, at: at(minutes: 0))
+        roster.update(sessionId: "working", pillId: "integration_claude", title: "W", phase: .working,
+                      lastAction: nil, at: at(minutes: 0))
+        for n in 1...12 {
+            roster.update(sessionId: "f\(n)", pillId: "integration_claude", title: "F\(n)",
+                          phase: n % 2 == 0 ? .finished : .error, lastAction: nil, at: at(minutes: Double(n)))
+        }
+        roster.prune(now: at(minutes: 13), calendar: utc)
+        let ended = roster.rows.filter { $0.phase.isEnded }.map(\.id)
+        precondition(ended == (3...12).reversed().map { "f\($0)" },
+                     "12 ended rows (finished or failed) keep the 10 most recent, got \(ended)")
+        precondition(SessionRoster.endedLimit == 10)
+        precondition(Set(ids(roster)).isSuperset(of: ["question", "working"]),
+                     "the cap counts ended rows only: the active ones all stay")
+        precondition(roster.rows.count == 12)
+    }
+
+    static func activeRowsComeBeforeFinishedOnes() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "idle", pillId: "integration_claude", title: "I", phase: .idle,
+                      lastAction: nil, at: at(minutes: 0))
+        roster.update(sessionId: "done1", pillId: "integration_claude", title: "D1", phase: .finished,
+                      lastAction: nil, at: at(minutes: 1))
+        roster.update(sessionId: "work", pillId: "integration_claude", title: "W", phase: .working,
+                      lastAction: nil, at: at(minutes: 2))
+        roster.update(sessionId: "fail", pillId: "agent_claude-desktop", title: "F", phase: .error,
+                      lastAction: nil, at: at(minutes: 3))
+        roster.update(sessionId: "ask", pillId: "integration_claude", title: "A", phase: .question,
+                      lastAction: nil, at: at(minutes: 4))
+
+        let expected = ["ask", "work", "idle", "fail", "done1"]
+        precondition(SessionRoster.listed(roster.rows).map(\.id) == expected,
+                     "running sessions first (latest activity), then ended ones (latest end), got \(SessionRoster.listed(roster.rows).map(\.id))")
+        precondition(roster.visible(limit: 10).map(\.id) == expected, "visible lists them in that order")
+        precondition(roster.visible(limit: 4).map(\.id) == ["ask", "work", "idle", "fail"],
+                     "a limit keeps the running sessions first")
+        // The roster itself stays in activity order: ⌃⌥T opens the session that acted last.
+        precondition(ids(roster) == ["ask", "fail", "work", "done1", "idle"])
+
+        for phase in SessionPhase.allCases {
+            precondition(phase.isEnded == (phase == .finished || phase == .error),
+                         "\(phase) is ended only when finished or failed")
+        }
+    }
+
+    static func aSessionThatEndsKeepsItsFinishedRow() {
+        // SessionEnd after Stop (the user quits Claude Code): the session finished today, its row stays.
+        var roster = SessionRoster()
+        roster.update(sessionId: "done", pillId: "integration_claude", title: "D", phase: .finished,
+                      lastAction: "Fini", at: at(minutes: 0))
+        roster.update(sessionId: "failed", pillId: "integration_claude", title: "F", phase: .error,
+                      lastAction: nil, at: at(minutes: 1))
+        roster.update(sessionId: "busy", pillId: "integration_claude", title: "B", phase: .working,
+                      lastAction: nil, at: at(minutes: 2))
+        roster.update(sessionId: "fresh", pillId: "integration_claude", title: "N", phase: .idle,
+                      lastAction: nil, at: at(minutes: 3))
+        for id in ["done", "failed", "busy", "fresh"] { roster.end(sessionId: id) }
+        precondition(ids(roster) == ["failed", "done"],
+                     "an ended session keeps a finished or failed row, any other row leaves, got \(ids(roster))")
+        precondition(roster.rows.first { $0.id == "done" }?.updatedAt == at(minutes: 0)
+                     && roster.rows.first { $0.id == "done" }?.lastAction == "Fini",
+                     "its end time and last line are unchanged")
+    }
+
+    static func aFinishedRowSaysWhenItEnded() {
+        precondition(SessionRoster.clock(at(minutes: 0), calendar: utc) == "08:00")
+        precondition(SessionRoster.clock(at(minutes: 65), calendar: utc) == "09:05", "two digits for the minutes")
+        precondition(SessionRoster.clock(at(minutes: 0), calendar: calendar("Europe/Paris")) == "09:00",
+                     "the user's time zone")
+        precondition(SessionRoster.clock(at(minutes: 6 * 60), calendar: utc) == "14:00", "24 hour clock")
+        precondition(SessionRoster.clock(at(minutes: -8 * 60 + 5), calendar: utc) == "00:05", "two digits for the hours")
     }
 }
 

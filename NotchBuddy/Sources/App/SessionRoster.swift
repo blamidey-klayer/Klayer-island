@@ -3,7 +3,8 @@ import Foundation
 // MARK: - Roster of the running Claude sessions
 // One row per session, for the open island (spec §6). A pill carries one session at a time,
 // the roster keeps them all: Claude Code sessions in several folders share one pill, so do
-// the sessions of the Claude desktop app. Foundation only (tested by
+// the sessions of the Claude desktop app. The sessions that finished or failed today stay, in
+// grey with their end time, until midnight (lot 6 spec §2). Foundation only (tested by
 // scripts/test-session-roster.sh, with HookRouting for the desktop pill): no AppKit, no
 // BotState, the views map `SessionPhase`.
 
@@ -25,6 +26,10 @@ enum SessionPhase: String, Equatable, CaseIterable {
         case .finished:  return "Terminé"
         }
     }
+
+    /// The session is over (finished or failed): its row is the day's history, in grey with its
+    /// end time, under the running sessions until midnight.
+    var isEnded: Bool { self == .finished || self == .error }
 }
 
 /// One running session. `id` is the hook's session id, `pillId` the pill that routes it,
@@ -66,11 +71,13 @@ extension SessionRow {
 struct SessionRoster {
     /// Longest `lastAction`, in characters.
     static let lastActionLimit = 80
-    /// A finished, failed or idle session with no activity for this long leaves the roster.
-    static let endedLifetime: TimeInterval = 30 * 60
-    /// Any other session with no activity for this long leaves too (it ended without telling us),
+    /// An idle session (started, nothing asked yet) with no activity for this long leaves the roster.
+    static let idleLifetime: TimeInterval = 30 * 60
+    /// A working session with no activity for this long leaves too (it ended without telling us),
     /// except a session waiting for an answer.
     static let silentLifetime: TimeInterval = 2 * 60 * 60
+    /// Finished or failed rows kept at most, the most recent ends.
+    static let endedLimit = 10
 
     /// Most recent activity first. At equal dates the latest `update` comes first.
     private(set) var rows: [SessionRow] = []
@@ -94,32 +101,63 @@ struct SessionRoster {
         rows.insert(row, at: rows.firstIndex { $0.updatedAt <= date } ?? rows.count)
     }
 
-    /// Removes the row of a session that ended. Unknown ids change nothing.
+    /// A session ended (SessionEnd): its row leaves, unless it finished or failed, the day's
+    /// history that `prune` clears at midnight (Stop then quitting Claude Code is the usual end of
+    /// a session). Unknown ids change nothing.
     mutating func end(sessionId: String) {
-        rows.removeAll { $0.id == sessionId }
+        rows.removeAll { $0.id == sessionId && !$0.phase.isEnded }
     }
 
-    /// Removes the rows nobody needs any more: a `finished`, `error` or `idle` row after 30 minutes
-    /// without activity, any other row after 2 hours, never an `approval` or a `question` (the
-    /// user is still expected to answer). The age counts from the row's last update, a row is
-    /// pruned once it reaches the limit.
-    mutating func prune(now: Date) {
+    /// Removes the rows nobody needs any more. A `finished` or `error` row stays until midnight of
+    /// the day it ended, in `calendar` (the user's), and only the 10 most recent ends are kept. An
+    /// `idle` row goes after 30 minutes without activity, a working one (`thinking`, `working`,
+    /// `searching`, `ratelimit`) after 2 hours, never an `approval` or a `question` (the user is
+    /// still expected to answer). The age counts from the row's last update, a row is pruned once
+    /// it reaches the limit. A clock set back (now before the row's date) removes nothing.
+    mutating func prune(now: Date, calendar: Calendar) {
         rows.removeAll { row in
             let silence = now.timeIntervalSince(row.updatedAt)
             switch row.phase {
             case .approval, .question:
                 return false
-            case .finished, .error, .idle:
-                return silence >= Self.endedLifetime
+            case .finished, .error:
+                // The end of its day: midnight, wherever the clocks change that day.
+                guard let midnight = calendar.dateInterval(of: .day, for: row.updatedAt)?.end else { return false }
+                return now >= midnight
+            case .idle:
+                return silence >= Self.idleLifetime
             case .thinking, .working, .searching, .ratelimit:
                 return silence >= Self.silentLifetime
             }
         }
+        // Rows are in activity order, and an ended row's last activity is its end: the first ten
+        // ended rows are the ten most recent ends.
+        var ended = 0
+        rows.removeAll { row in
+            guard row.phase.isEnded else { return false }
+            ended += 1
+            return ended > Self.endedLimit
+        }
     }
 
-    /// The `limit` most recent rows, nothing for a limit of 0 or less. Does not remove anything.
+    /// `listed(rows)` cut to `limit` rows, nothing for a limit of 0 or less. Does not remove anything.
     func visible(limit: Int) -> [SessionRow] {
-        Array(rows.prefix(max(0, limit)))
+        Array(Self.listed(rows).prefix(max(0, limit)))
+    }
+
+    /// The rows in the order of the home's list: the running sessions first, latest activity
+    /// first, then the ended ones (finished or failed), latest end first. `rows` itself stays in
+    /// activity order (⌃⌥T opens the session that acted last).
+    static func listed(_ rows: [SessionRow]) -> [SessionRow] {
+        rows.filter { !$0.phase.isEnded } + rows.filter { $0.phase.isEnded }
+    }
+
+    /// The time of `date` on a 24 hour clock, « 14:05 », in `calendar`'s time zone (the user's):
+    /// the end time of a finished row (« Terminé à 14:05 »).
+    static func clock(_ date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        func twoDigits(_ n: Int?) -> String { let n = n ?? 0; return n < 10 ? "0\(n)" : "\(n)" }
+        return twoDigits(parts.hour) + ":" + twoDigits(parts.minute)
     }
 
     /// A text as the one line of a row: line breaks and tabs become one space, and a text longer

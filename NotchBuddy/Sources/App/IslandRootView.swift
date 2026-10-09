@@ -450,7 +450,7 @@ struct IslandContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 10)   // HomeLayout.edgeInset: the home's columns count from it
         }
         .padding(.top, 8)
         .padding(.bottom, 10)
@@ -467,7 +467,10 @@ struct IslandHeader: View {
         HStack(spacing: 0) {
             // Left: tab capsules
             HStack(spacing: 5) {
-                TabButton(icon: "house.fill", view: .overview, state: state)
+                // The house brings the conversations back when a GitHub or Spotify card replaced them
+                TabButton(icon: "house.fill", view: .overview, state: state, preAction: {
+                    state.showHomeList()
+                })
                 TabButton(icon: "bubble.left.fill", view: .prompt, state: state, preAction: {
                     if state.promptContext == nil {
                         state.promptContext = WindowContextCapture.captureActive(from: state.lastExternalApp)

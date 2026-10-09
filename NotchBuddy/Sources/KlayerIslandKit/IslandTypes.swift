@@ -96,11 +96,13 @@ enum IslandConst {
     static let expandedCorner: CGFloat = 22
 
     static let viewLayouts: [IslandView: ViewLayout] = [
-        // Home: 3 conversation rows (26 pt) above 5 choice rows (12 pt) need a 168 pt card, so the
-        // home is 220 tall (8 top + 34 header + 168 card + 10 bottom). Klay stays centred on its card;
-        // the GitHub, Spotify and plan cards keep their 98 pt as a band centred in it (OverviewView),
+        // Home: a 168 pt card for the conversations (26 pt rows, they scroll past what fits) and the
+        // 3 last choices (12 pt rows), so the home is 220 tall (8 top + 34 header + 168 card + 10
+        // bottom). Klay stays centred on its card height, in his column right of the rail of icons:
+        // x 96 is `HomeLayout.klayCenterX` (scripts/test-home-layout.sh checks both agree). The
+        // GitHub, Spotify and plan cards keep their 98 pt as a band centred in it (OverviewView),
         // so Klay lines up with them as on the 160 pt island.
-        .overview:  ViewLayout(height: 220, botX: 68,  botY: nil, botDiameter: 58, agentMode: .pills),
+        .overview:  ViewLayout(height: 220, botX: 96,  botY: nil, botDiameter: 58, agentMode: .pills),
         // The other non-chat views keep the 160 of the 98 pt card they were drawn for. `empty` keeps
         // its single card too: the main pill always loads, so the island has a task to show the home.
         .empty:     ViewLayout(height: 160, botX: 70,  botY: nil, botDiameter: 62, agentMode: .none),

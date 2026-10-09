@@ -1,85 +1,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Spotify Pill (overview right card)
-
-struct SpotifyPill: View {
-    let task: AgentTask
-    @Binding var swapping: Bool
-    let onTap: () -> Void
-    @ObservedObject private var controller = SpotifyController.shared
-    @State private var isHovered = false
-
-    private var showControls: Bool { isHovered && controller.track != nil }
-
-    var body: some View {
-        ZStack {
-            // Selection target — full pill area, receives taps where controls don't
-            Capsule()
-                .fill(Color.clear)
-                .contentShape(Capsule())
-                .onTapGesture { onTap() }
-
-            // Visual fills
-            Capsule()
-                .fill(isHovered ? Color(hex: task.color).opacity(0.18) : Color(hex: "#0E0F11"))
-                .allowsHitTesting(false)
-            Capsule()
-                .stroke(Color(hex: task.color).opacity(isHovered ? 0.55 : 0.14), lineWidth: 1)
-                .allowsHitTesting(false)
-
-            // Mini Klay at leading edge
-            HStack(spacing: 0) {
-                MiniBotCanvasView(task: task, isDancing: controller.isPlaying)
-                    .frame(width: 22 / 0.6, height: 22 / 0.6)
-                    .frame(width: 22, height: 22, alignment: .center)
-                    .padding(.leading, 8)
-                Spacer()
-            }
-            .allowsHitTesting(false)
-
-            // Title — trailing padding grows on hover to make room for buttons
-            Text(task.name)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isHovered ? Color(hex: task.color).lighter(by: 0.3) : Color(hex: "#6B7079"))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.leading, 34)
-                .padding(.trailing, showControls ? 52 : 10)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: showControls)
-                .allowsHitTesting(false)
-
-            // Playback controls — appear on hover when a track is loaded
-            if showControls {
-                HStack(spacing: 0) {
-                    Spacer()
-                    HStack(spacing: 2) {
-                        SpotifyControlButton(icon: controller.isPlaying ? "pause.fill" : "play.fill", color: task.color) {
-                            controller.playPause()
-                        }
-                        SpotifyControlButton(icon: "forward.fill", color: task.color) {
-                            controller.nextTrack()
-                        }
-                    }
-                    .padding(.trailing, 4)
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .trailing)))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 28)
-        .shadow(color: Color(hex: task.color).opacity(isHovered ? 0.35 : 0), radius: 10, x: 0, y: 2)
-        .scaleEffect(isHovered ? 1.04 : 1.0)
-        .brightness(isHovered ? 0.06 : 0)
-        .onHover { newHover in
-            guard !swapping else { return }
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) { isHovered = newHover }
-        }
-    }
-}
-
-// MARK: - Spotify Card (overview left card)
+// MARK: - Spotify Card (the home's card when Spotify has the focus)
 
 struct SpotifyCardView: View {
     @ObservedObject private var controller = SpotifyController.shared
@@ -252,35 +174,7 @@ struct SpotifyCardView: View {
     }
 }
 
-// MARK: - Player pieces shared by the Spotify pill and card
-
-struct SpotifyControlButton: View {
-    let icon: String
-    let color: String
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(isHovered ? Color(hex: color).opacity(0.18) : Color(hex: "#0E0F11"))
-                Circle()
-                    .stroke(Color(hex: color).opacity(isHovered ? 0.55 : 0.14), lineWidth: 1)
-                Image(systemName: icon)
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(isHovered ? Color(hex: color).lighter(by: 0.3) : Color(hex: "#6B7079"))
-            }
-            .frame(width: 20, height: 20)
-            .shadow(color: Color(hex: color).opacity(isHovered ? 0.35 : 0), radius: 6)
-        }
-        .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.1 : 1.0)
-        .onHover { newHover in
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) { isHovered = newHover }
-        }
-    }
-}
+// MARK: - Player pieces of the Spotify card
 
 struct SpotifyArtwork: View {
     let image: NSImage?

@@ -10355,6 +10355,36 @@
           }
         }
       }
+    },
+    "Terminé à %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminé à %@"
+          }
+        }
+      }
+    },
+    "Erreur à %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreur à %@"
+          }
+        }
+      }
+    },
+    "Retour aux conversations": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour aux conversations"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

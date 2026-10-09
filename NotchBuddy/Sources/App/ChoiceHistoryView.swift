@@ -3,15 +3,15 @@ import SwiftUI
 // MARK: - Last choices (home of the open island)
 
 /// The last permissions and questions answered from the island, under the conversations on the
-/// home of the open island (spec §6): 5 rows at most, newest first, in grey at 55 % opacity so
-/// they stay behind the running sessions. A row reads "HH:mm · session · prompt · answer" on one
+/// home of the open island (spec §6, lot 6 spec §2): 3 rows at most, newest first, in grey at 55 %
+/// opacity so they stay behind the sessions. A row reads "HH:mm · session · prompt · answer" on one
 /// line, the prompt cut at its end when too long. The history stays on the Mac (`ChoiceHistory`).
 struct ChoiceHistoryView: View {
     /// `AppState.recentChoices`, newest first.
     let choices: [ChoiceRecord]
 
-    /// Rows shown at most.
-    static let limit = 5
+    /// Rows shown at most (`AppState.recentChoices` reads as many).
+    static let limit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

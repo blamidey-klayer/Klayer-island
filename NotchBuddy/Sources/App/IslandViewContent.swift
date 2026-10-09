@@ -29,12 +29,17 @@ struct IslandViewContent: View {
 
 // MARK: - Overview
 
+/// The home (lot 6 spec §2), left to right: the rail of icons (Spotify, GitHub, Granola), then one
+/// card with Klay at its left and the conversations over the rest, at least 3/4 of the island
+/// (`HomeLayout`). GitHub or Spotify in focus: its card takes the list's place.
 struct OverviewView: View {
     @ObservedObject var state: AppState
     @State private var showingIntegrationDetail = false
     /// The Claude Code hooks are missing from ~/.claude/settings.json. Read when the home shows
     /// (`refreshHome`), never in `body`: it reads a file.
     @State private var hooksMissing = false
+    /// More rows below the bottom of the list: its last row fades out.
+    @State private var listHasMoreBelow = false
 
     var agent: AgentTask? { state.focusTask }
 
@@ -42,20 +47,24 @@ struct OverviewView: View {
     /// as a band centred in the 168 pt card of the home.
     static let legacyCardHeight: CGFloat = 98
 
-    /// The home (conversations in progress, last choices) shows for the Claude pills and when no
-    /// pill has the focus. GitHub and Spotify keep their own card (spec §6).
-    private var showsHome: Bool {
-        guard let id = agent?.id else { return true }
-        return id == "integration_claude" || id == HookRouting.desktopPillId
+    /// The list (conversations, last choices) shows unless GitHub or Spotify has the focus: their
+    /// card replaces it. Any other focus, or none, shows the list.
+    private var showsList: Bool {
+        !HomeRail.showsCard(focusId: agent?.id)
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Left card: the home, or the card of the GitHub or Spotify pill with its ↗ button
+        HStack(spacing: 0) {
+            // The rail, on the black island left of the card
+            HomeRailView(state: state)
+                .frame(width: HomeLayout.rail)
+                .frame(maxHeight: .infinity, alignment: .top)
+
+            // The card: Klay at its left (drawn by the island), the list or a service card
             ZStack(alignment: .topLeading) {
                 CardBackground(wash: nil)
 
-                if showsHome {
+                if showsList {
                     homeContent
                 } else {
                     // GitHub and Spotify cards are drawn for a 98 pt card: they sit, with their ↗
@@ -64,6 +73,8 @@ struct OverviewView: View {
                     ZStack(alignment: .topLeading) {
                         if let agent = agent {
                             IntegrationCardView(task: agent, showingDetail: $showingIntegrationDetail)
+                                // Their own drawing, text 108 pt in: moved so it starts where the rows do
+                                .padding(.leading, HomeLayout.serviceCardShift)
                         }
 
                         // ↗ opens the service of the GitHub or Spotify pill: last in the band so it
@@ -94,17 +105,13 @@ struct OverviewView: View {
                 if state.showingPlanDetail {
                     CardBackground(wash: nil)
                     ClaudePlanCardView(usage: state.claudePlanUsage)
+                        .padding(.leading, HomeLayout.serviceCardShift)
                         .frame(height: Self.legacyCardHeight, alignment: .topLeading)
                         .frame(maxHeight: .infinity)
                         .transition(.opacity)
                 }
             }
-            .frame(width: 322)
-
-            // Right card: agent pills
-            CardBackground(wash: nil) {
-                AgentPillsView(state: state)
-            }
+            .frame(maxWidth: .infinity)
         }
         .onAppear { refreshHome() }
         .onChange(of: state.focusId) { _, new in
@@ -123,26 +130,52 @@ struct OverviewView: View {
         }
     }
 
-    /// The home (spec §6): the conversations in progress, 3 at most, above the last choices, 5 at
-    /// most, right of Klay. A permission or a question waiting has its own view, shown first.
+    /// The list, right of Klay: the running sessions, then the day's finished ones in grey
+    /// (`SessionRoster.listed`), then the 3 last choices. What does not fit in the card scrolls
+    /// inside it, the card never grows. A permission or a question waiting has its own view.
     private var homeContent: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            ConversationsView(sessions: state.sessions, hooksMissing: hooksMissing)
-            if !state.recentChoices.isEmpty {
-                ChoiceHistoryView(choices: state.recentChoices)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 7) {
+                ConversationsView(sessions: SessionRoster.listed(state.sessions), hooksMissing: hooksMissing)
+                if !state.recentChoices.isEmpty {
+                    ChoiceHistoryView(choices: state.recentChoices)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            // Room for the rows' hover background, 4 pt past each side
+            .padding(.horizontal, 4)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.visibleRect.maxY < geometry.contentSize.height - 1
+        } action: { _, moreBelow in
+            listHasMoreBelow = moreBelow
+        }
+        // More below: the last visible row fades out, as in the GitHub lists
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: listHasMoreBelow ? 0.8 : 1),
+                    .init(color: listHasMoreBelow ? .clear : .black, location: 1.0)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
         }
         .padding(.top, 9)
-        .padding(.leading, 108)
-        .padding(.trailing, 12)
+        .padding(.bottom, 8)
+        // The rows start at the list's left edge (`HomeLayout.listStartX`), 12 pt from the card's right
+        .padding(.leading, HomeLayout.klay - 4)
+        .padding(.trailing, 12 - 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // The card shrinks to the 98 pt frame of an inactive view while it fades out
         .clipped()
     }
 
     /// When the home shows (the island opens, or comes back to it): the roster is pruned, not on a
-    /// timer, so a session that ended without telling (no hook since) is gone before the user reads
-    /// the list; and the hooks are checked once, for the hint under an empty list.
+    /// timer, so a session that ended without telling (no hook since) or finished before midnight
+    /// is gone before the user reads the list; and the hooks are checked once, for the hint under
+    /// an empty list.
     private func refreshHome() {
         state.pruneSessions()
         hooksMissing = !HookServer.claudeHooksInstalled()
@@ -157,6 +190,122 @@ struct OverviewView: View {
             SpotifyController.shared.openSpotify()
         default:
             break
+        }
+    }
+}
+
+// MARK: - Home rail
+
+/// The rail of the home (lot 6 spec §2): Spotify (its pill on), GitHub (its pill on and a token
+/// set), Granola (always), greyed like the Granola button of the compact island. A click on Spotify
+/// or GitHub shows its card in place of the list; a second click, or the house tab, brings the
+/// list back. Granola opens a new note. The rail keeps its width whatever it shows.
+private struct HomeRailView: View {
+    @ObservedObject var state: AppState
+    /// Spotify playing tints its icon (the old pill's Klay danced).
+    @ObservedObject private var spotify = SpotifyController.shared
+
+    private func isLoaded(_ icon: RailIcon) -> Bool {
+        guard let id = icon.pillId else { return false }
+        return state.tasks.contains { $0.id == id }
+    }
+
+    private var icons: [RailIcon] {
+        HomeRail.icons(spotifyActive: isLoaded(.spotify),
+                       githubConfigured: isLoaded(.github) && KeychainStore.shared.get("github-token") != nil)
+    }
+
+    var body: some View {
+        // Rows of 26 pt, 3 apart, as the conversations: the first icon faces the first row
+        VStack(spacing: 3) {
+            ForEach(icons, id: \.self) { icon in
+                HomeRailButton(icon: icon, state: state,
+                               tint: icon == .spotify && spotify.isPlaying ? SpotifyController.green : nil)
+            }
+        }
+        .padding(.top, 9)
+    }
+}
+
+private struct HomeRailButton: View {
+    let icon: RailIcon
+    @ObservedObject var state: AppState
+    /// A colour for the resting icon ("#RRGGBB"), nil for the grey.
+    let tint: String?
+    @State private var isHovered = false
+
+    /// The card of this icon is on screen.
+    private var isOn: Bool {
+        icon.pillId != nil && state.focusTask?.id == icon.pillId
+    }
+
+    private var task: AgentTask? {
+        guard let id = icon.pillId else { return nil }
+        return state.tasks.first { $0.id == id }
+    }
+
+    /// Neutral symbols: the logos of Spotify, GitHub and Granola are theirs and are not reused.
+    private var symbol: String {
+        switch icon {
+        case .spotify: return "music.note"
+        case .github:  return "arrow.triangle.pull"
+        case .granola: return "mic"
+        }
+    }
+
+    private var label: Text {
+        switch icon {
+        case .granola: return Text("Nouvelle note Granola")
+        case .spotify, .github:
+            if isOn { return Text("Retour aux conversations") }
+            return Text(verbatim: icon == .spotify ? "Spotify" : "GitHub")
+        }
+    }
+
+    private var color: Color {
+        if isOn { return Color(hex: "#F5F6F8") }
+        if isHovered { return Color(hex: "#B0B5BE") }
+        if let tint { return Color(hex: tint).opacity(0.7) }
+        return Color(hex: "#8E939C").opacity(0.45)
+    }
+
+    var body: some View {
+        Button(action: click) {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .foregroundColor(color)
+                .frame(width: HomeLayout.railIconWidth, height: 26)
+                .background(
+                    isOn ? Color(hex: "#1D1F23") :
+                    isHovered ? Color.white.opacity(0.07) : Color.clear
+                )
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+                // GitHub's alerts (a CI that failed, a review asked) badge its icon, as they badged its pill
+                .overlay(alignment: .topTrailing) {
+                    if let badge = task?.pillBadge {
+                        PillBadgeView(badge: badge, taskColor: task?.color ?? "#8E939C")
+                            .scaleEffect(0.75)
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .onHover { isHovered = $0 }
+    }
+
+    private func click() {
+        switch HomeRail.action(for: icon, focusId: state.focusTask?.id) {
+        case .showCard(let pillId):
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.showCard(pillId) }
+            SoundEngine.shared.play("blip")
+        case .showList:
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.showHomeList() }
+            SoundEngine.shared.play("blip")
+        case .openGranola:
+            GranolaLink.open(using: { NSWorkspace.shared.open($0) })
         }
     }
 }
@@ -1351,7 +1500,7 @@ struct NoteView: View {
     }
 }
 
-// MARK: - Integration card (overview left card when an integration pill is focused)
+// MARK: - Integration card (the home's card in place of the list when GitHub or Spotify is focused)
 
 struct IntegrationCardView: View {
     let task: AgentTask
@@ -2107,114 +2256,7 @@ private struct StatRow: View {
     }
 }
 
-// MARK: - Agent pills (overview right card)
-
-struct AgentPillsView: View {
-    @ObservedObject var state: AppState
-    @State private var swapping = false
-
-    private var others: [AgentTask] {
-        state.tasks.filter { $0.id != state.focusId }
-    }
-
-    private var displayTasks: [AgentTask] {
-        Array(others.prefix(4))
-    }
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 4),
-        GridItem(.flexible(), spacing: 4)
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            LazyVGrid(columns: columns, spacing: 4) {
-                ForEach(displayTasks) { task in
-                    if task.id == "integration_spotify" {
-                        SpotifyPill(task: task, swapping: $swapping) {
-                            swapping = true
-                            state.setFocus(task.id)
-                            SoundEngine.shared.play("blip")
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { swapping = false }
-                        }
-                    } else {
-                        AgentPill(task: task, state: state, swapping: $swapping) {
-                            swapping = true
-                            state.setFocus(task.id)
-                            SoundEngine.shared.play("blip")
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { swapping = false }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct AgentPill: View {
-    let task: AgentTask
-    @ObservedObject var state: AppState
-    @Binding var swapping: Bool
-    let onTap: () -> Void
-    @State private var isHovered = false
-
-    private var effectiveColor: String { task.color }
-
-    // The Claude Code pill shows "Claude Code" regardless of project name
-    private var displayName: String {
-        task.id == "integration_claude" ? ClaudeHost.pillName : task.name
-    }
-
-    var body: some View {
-        Button(action: { onTap() }) {
-            ZStack(alignment: .topTrailing) {
-                ZStack {
-                    Capsule()
-                        .fill(isHovered
-                              ? Color(hex: effectiveColor).opacity(0.18)
-                              : Color(hex: "#0E0F11"))
-                    Capsule()
-                        .stroke(Color(hex: effectiveColor).opacity(isHovered ? 0.55 : 0.14), lineWidth: 1)
-                    HStack(spacing: 0) {
-                        MiniBotCanvasView(task: task)
-                            .frame(width: 22 / 0.6, height: 22 / 0.6)
-                            .frame(width: 22, height: 22, alignment: .center)
-                            .padding(.leading, 8)
-                        Spacer()
-                    }
-                    Text(displayName)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(isHovered
-                                         ? Color(hex: effectiveColor).lighter(by: 0.3)
-                                         : Color(hex: "#6B7079"))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .shadow(color: Color(hex: effectiveColor).opacity(isHovered ? 0.35 : 0), radius: 10, x: 0, y: 2)
-
-                // Alert badge (approval / finished / error)
-                if let badge = task.pillBadge {
-                    PillBadgeView(badge: badge, taskColor: effectiveColor)
-                        .offset(x: 3, y: -3)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.04 : 1.0)
-        .brightness(isHovered ? 0.06 : 0)
-        .onHover { newHover in
-            guard !swapping else { return }
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) { isHovered = newHover }
-        }
-    }
-}
+// MARK: - Pill badge (the home's rail icons)
 
 struct PillBadgeView: View {
     let badge: PillBadge

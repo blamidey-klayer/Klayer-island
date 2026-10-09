@@ -1,8 +1,9 @@
 import Foundation
 
-/// The Granola shortcut of the compact island (spec §5).
+/// The Granola shortcut of the compact island (spec §5) and of the home's rail (lot 6 spec §2).
 /// Foundation only: the test script compiles this file alone. The SwiftUI `GranolaButton`
-/// (IslandRootView.swift) passes the production opener, `NSWorkspace.shared.open`.
+/// (IslandRootView.swift) and the rail's icon (OverviewView) pass the production opener,
+/// `NSWorkspace.shared.open`.
 enum GranolaLink {
     /// Creates a note in Granola. Whether it also starts the recording is not confirmed (spike S4).
     static let newNote = URL(string: "granola://new-document")!

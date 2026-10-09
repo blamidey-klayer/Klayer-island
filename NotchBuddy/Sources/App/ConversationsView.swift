@@ -3,18 +3,17 @@ import AppKit
 
 // MARK: - Conversations in progress (home of the open island)
 
-/// The running Claude sessions, on the home of the open island (spec §6): one row per session of
-/// `AppState.sessions`, newest activity first, 3 at most. Without any, one line in grey says so,
-/// and a second one says when the Claude Code hooks are missing, with a way to Settings.
+/// The Claude sessions, on the home of the open island (spec §6, lot 6 spec §2): one row per
+/// session of `AppState.sessions`, the running ones first (latest activity first), then the ones
+/// that finished or failed today, in grey with their end time (latest end first). All of them: the
+/// home scrolls past what fits. Without any, one line in grey says so, and a second one says when
+/// the Claude Code hooks are missing, with a way to Settings.
 struct ConversationsView: View {
-    /// The roster, newest activity first.
+    /// The roster in the order of the list (`SessionRoster.listed`).
     let sessions: [SessionRow]
     /// The Claude Code hooks are not in ~/.claude/settings.json: no session can show up. Read by
     /// the caller when the home shows, never here (it reads a file).
     var hooksMissing: Bool = false
-
-    /// Rows shown at most.
-    static let limit = 3
 
     var body: some View {
         if sessions.isEmpty {
@@ -41,7 +40,7 @@ struct ConversationsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(sessions.prefix(Self.limit)) { row in
+                ForEach(sessions) { row in
                     ConversationRow(row: row)
                 }
             }
@@ -50,10 +49,16 @@ struct ConversationsView: View {
 }
 
 /// One session: a mini Klay on the colour of its phase, the project folder, the phase in plain
-/// French, and the last action on one line. A click opens the session (`SessionOpener`).
+/// French, and the last action on one line. A session that finished or failed is in grey, its Klay
+/// grey and still, and says when it ended (« Terminé à 14:05 », « Erreur à 14:05 »). A click opens
+/// the session (`SessionOpener`).
 private struct ConversationRow: View {
     let row: SessionRow
     @State private var isHovered = false
+    /// The home is on screen: the mini Klay of a running session moves.
+    @Environment(\.islandViewActive) private var viewActive
+
+    private var ended: Bool { row.phase.isEnded }
 
     /// The mini Klay of the row, drawn like the pills' ones: the pose and the colour of the
     /// phase (`StateColor`, the colours of Klay's states).
@@ -69,18 +74,21 @@ private struct ConversationRow: View {
                 MiniBotCanvasView(task: miniTask)
                     .frame(width: 18 / 0.6, height: 18 / 0.6)
                     .frame(width: 18, height: 18, alignment: .center)
+                    // An ended session's Klay is grey and still (up to 10 of them: no drawing per frame)
+                    .environment(\.islandViewActive, viewActive && !ended)
+                    .saturation(ended ? 0 : 1)
+                    .opacity(ended ? 0.6 : 1)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
                         Text(row.title)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color(hex: "#F5F6F8"))
+                            .foregroundColor(Color(hex: ended ? "#8E939C" : "#F5F6F8"))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .layoutPriority(1)
-                        // Looked up in the catalog (French keys marked manual: no literal here)
-                        Text(LocalizedStringKey(row.phase.label))
+                        phaseText
                             .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "#8E939C"))
+                            .foregroundColor(Color(hex: ended ? "#6B7079" : "#8E939C"))
                             .lineLimit(1)
                             .fixedSize()
                         Spacer(minLength: 0)
@@ -105,6 +113,20 @@ private struct ConversationRow: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+    }
+
+    /// The phase, or for an ended session its end time on the user's clock.
+    @ViewBuilder
+    private var phaseText: some View {
+        switch row.phase {
+        case .finished:
+            Text("Terminé à \(SessionRoster.clock(row.updatedAt, calendar: .autoupdatingCurrent))")
+        case .error:
+            Text("Erreur à \(SessionRoster.clock(row.updatedAt, calendar: .autoupdatingCurrent))")
+        default:
+            // Looked up in the catalog (French keys marked manual: no literal here)
+            Text(LocalizedStringKey(row.phase.label))
+        }
     }
 }
 

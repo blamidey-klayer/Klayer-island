@@ -61,6 +61,9 @@ jobs:
       - name: Test session roster
         run: bash scripts/test-session-roster.sh
 
+      - name: Test home layout
+        run: bash scripts/test-home-layout.sh
+
       - name: Test terminal target
         run: bash scripts/test-terminal-target.sh
 
