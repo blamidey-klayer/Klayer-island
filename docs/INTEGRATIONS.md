@@ -201,7 +201,7 @@ Stripe, n8n, Resend, Cal.com, Notion, Vercel et Apple Music ne sont plus pris en
 
 - Glisser-déposer natif sur la panel (types `fileURL`). Copier les fichiers dans `~/Library/Application Support/NotchBuddy/inbox/` (c'est la phase `uploading`).
 - Vue `choose` :
-  - **Poser une question dessus** → vue `prompt` avec une pastille du fichier. Le fichier part dans le message du chat (§5), jamais par un outil de lecture :
+  - **Poser une question** (carte de choix) ou **Poser une question à ce sujet** (zone de dépôt) → vue `prompt` avec une pastille du fichier. Le fichier part dans le message du chat (§5), jamais par un outil de lecture :
     - image (png, jpg, gif, webp, 5 Mo au plus) : en bloc image ;
     - PDF (50 Mo au plus sur disque) : son texte, page par page, coupé à 200 000 caractères avec la mention « [Texte coupé à 200 000 caractères.] » ;
     - texte et code (txt, md, csv, json, swift, py, js, ts, html, css, xml, yaml, yml, 200 Ko au plus) : en clair.

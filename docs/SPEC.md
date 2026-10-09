@@ -82,7 +82,7 @@ Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, cen
 | `confused` | 160 | 76, 66 | « Trop de claques d'un coup. » | 08 |
 | `upload` | 176 | 140, 62 | zone pointillée, Klay les bras ouverts et « Dépose ton fichier » | 09 |
 | `uploading` | 176 | sur la barre, Ø 20 | « Envoi de fichier » + %, barre verte, le bonhomme est le curseur de la barre | 10 |
-| `choose` | 176 | 60, 52 | « fichier est prêt. », Poser une question dessus, Préparer un email | 11 |
+| `choose` | 176 | 60, 52 | « fichier est prêt. », Poser une question, Préparer un email | 11 |
 | `mail` | 240 | 56, 46 | brouillon Gmail (§15.2) : champs À, Objet (facultatif) et « Ce que tu veux dire », Préparer le brouillon, Annuler ; puis « Préparation du brouillon… », puis « Brouillon prêt dans Gmail » ou un échec avec Réessayer | 12 |
 | `prompt` | 160 | 52, 44 | chat rapide (§15.1) : pastille de contexte, bulles de la conversation, champ + micro + envoyer ; à la place du champ, la marche à suivre quand Claude Code manque ou n'est pas connecté | 13 |
 | `note` | 160 | 60, 50 | message court : une erreur du chat, ou « Handled in … » et « Still waiting in … » (3 s, règle 12) | aucune |
