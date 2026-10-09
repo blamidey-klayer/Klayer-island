@@ -1208,10 +1208,14 @@ enum ClaudeCLITests {
             ("API Error: 401", login),
             ("Error: 429 Too Many Requests", rate),
             ("API Error: 529", overloaded),
-            // « limit reached » is a usage limit when a usage window is named, a rate limit when it says so
+            ("API Error: 401.", login),
+            ("Error 529", overloaded),
+            // « limit reached » is a usage limit when the message starts with a usage window, a rate
+            // limit when it says so
             ("5-hour limit reached ∙ resets 3pm", usage),
             ("Weekly limit reached ∙ resets Oct 9, 5pm", usage),
             ("Opus weekly limit reached", usage),
+            ("Session limit reached ∙ resets 7pm", usage),
             ("Rate limit reached for requests", rate),
         ]
         for (raw, french) in cases {
@@ -1225,7 +1229,17 @@ enum ClaudeCLITests {
                         "Context limit reached · /compact or /clear to continue",
                         "Error: context window limit reached",
                         "Prompt is too long: context limit reached",
-                        "Opus context limit reached", "Opus output token limit reached"] {
+                        "Opus context limit reached", "Opus output token limit reached",
+                        // A limit of something else, even with a window word further on
+                        "Error: session store limit reached", "Error: daily budget limit reached for tool calls",
+                        "Error: max file size limit reached (session)", "Warning: weekly digest limit reached",
+                        // A code in a path, a version or a range is not a status code
+                        "Error: cannot open '/tmp/401.log'", "Error: unsupported version 1.429",
+                        "Error: gave up after 3-529 retries", "Error: POST /v1/messages/529/foo failed",
+                        "Error: missing 401.log", "Error: pages 429-431 skipped", "Error: route 529/foo",
+                        "Error: GET /v1/messages/529",
+                        // Hourly and daily windows stay in English until Claude Code's wording is confirmed
+                        "Daily limit reached", "Hourly limit reached"] {
             precondition(ClaudeErrorText.french(unknown) == unknown, "\(unknown) passes through, got \(ClaudeErrorText.french(unknown))")
         }
         // Each French text passes through unchanged: the translation is read once or twice alike.

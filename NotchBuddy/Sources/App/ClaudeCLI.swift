@@ -277,18 +277,24 @@ enum ClaudeErrorText {
         return message
     }
 
-    /// True when the HTTP status `code` stands in `text` as a whole number: « API Error: 401 »,
-    /// never the 401 inside « 14010 » or « error_4011 ».
+    /// True when the HTTP status `code` stands in `text` on its own: « API Error: 401 »,
+    /// « API Error: 401. », « Error 529 ». Never inside a longer number (« 14010 », « error_4011 »),
+    /// a path (« /tmp/401.log », « /v1/messages/529/foo »), a version (« 1.429 ») or a range
+    /// (« 3-529 »).
     private static func hasStatus(_ code: Int, in text: String) -> Bool {
-        text.range(of: "\\b\(code)\\b", options: .regularExpression) != nil
+        text.range(of: "(?<![\\w./-])\(code)(?![\\w/-]|\\.\\w)", options: .regularExpression) != nil
     }
 
-    /// « limit reached » for a usage window of the plan (« 5-hour limit reached », « Weekly limit
-    /// reached », « Opus weekly limit reached »). A context or token limit is not a usage limit:
-    /// it passes through as Claude Code says it; a rate limit has its own rule.
+    /// « limit reached » for a usage window of the plan, the way Claude Code starts the message:
+    /// « 5-hour limit reached », « Weekly limit reached », « Opus weekly limit reached »,
+    /// « Session limit reached ». Anchored at the start, so « Error: session store limit
+    /// reached » is not one. A context or token limit is not a usage limit: it passes through as
+    /// Claude Code says it; a rate limit has its own rule. Hourly and daily windows are left out
+    /// until Claude Code's wording for them is confirmed.
     private static func isUsageWindowLimit(_ text: String) -> Bool {
-        guard text.contains("limit reached"), !text.contains("context"), !text.contains("token") else { return false }
-        return ["5-hour", "hourly", "daily", "weekly", "session", "opus", "sonnet"].contains { text.contains($0) }
+        guard !text.contains("context"), !text.contains("token") else { return false }
+        return text.range(of: "^\\s*(5-hour|weekly|session|opus|sonnet)( \\w+)? limit reached",
+                          options: [.regularExpression, .caseInsensitive]) != nil
     }
 }
 
