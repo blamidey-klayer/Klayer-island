@@ -23,8 +23,12 @@ enum CodeNotification {
     enum Kind: Equatable {
         /// A tool use waits for the user's approval.
         case permission
-        /// Claude waits for an answer or a next message (idle, or an MCP server's form).
+        /// An MCP server waits for the user's answer (its form, or a URL to open).
         case waiting
+        /// Claude finished its turn and waits for the next message (`idle_prompt`, about 60 s later).
+        /// Told apart from `waiting` because the end of the turn was already shown by the finished
+        /// view: the island does not open a second time for it (`shouldOpen`).
+        case idle
     }
 
     /// The request a notification carries, nil when it asks the user nothing. `notificationType`
@@ -37,7 +41,9 @@ enum CodeNotification {
             switch type {
             case "permission_prompt":
                 return .permission
-            case "idle_prompt", "elicitation_dialog", "elicitation_url_dialog":
+            case "idle_prompt":
+                return .idle
+            case "elicitation_dialog", "elicitation_url_dialog":
                 return .waiting
             default:
                 return nil
@@ -45,27 +51,44 @@ enum CodeNotification {
         }
         let lower = message.lowercased()
         if lower.contains("needs your permission") { return .permission }
-        if lower.contains("waiting for your input") { return .waiting }
+        // The text older Claude Code sent for the idle prompt.
+        if lower.contains("waiting for your input") { return .idle }
         return nil
     }
 
     /// Whether the notification opens the island on its session: only a session of the Claude app
     /// (`agent` is the `klayer_agent` of the event, "claude-desktop"), and only when no card of that
     /// session is held (`sessionHasCard`: its permission or its question is already on screen, or
-    /// waits for the pointer). Never for the terminal, which sends no `klayer_agent`.
-    static func shouldOpen(kind: Kind, sessionHasCard: Bool, agent: String) -> Bool {
-        validateAgent(agent) != nil && !sessionHasCard
+    /// waits for the pointer). Never for the terminal, which sends no `klayer_agent`. An idle prompt
+    /// after a finish that was shown (`currentPhase`, the phase the session's row has before the
+    /// notification, is finished or failed) opens nothing: the finished view was the notification. A
+    /// session with no row yet, or still running, was shown nothing, so it opens; so does a
+    /// permission or an MCP server's form, whatever the row.
+    static func shouldOpen(kind: Kind, sessionHasCard: Bool, agent: String, currentPhase: SessionPhase?) -> Bool {
+        guard validateAgent(agent) != nil, !sessionHasCard else { return false }
+        if kind == .idle, let currentPhase, currentPhase.isEnded { return false }
+        return true
+    }
+
+    /// Whether a card of session `sessionId` is held: its permission (`approvalSession`, the session
+    /// of the pending approval, nil when none), or its question while one is pending
+    /// (`questionPending`, with `questionSession`, the session that owns it: it may outlive the
+    /// question, so it counts only while one is pending). What Claude asks is then already on screen
+    /// or waiting for the pointer, and a tool that finishes does not answer it.
+    static func holdsCard(sessionId: String, approvalSession: String?, questionPending: Bool,
+                          questionSession: String?) -> Bool {
+        approvalSession == sessionId || (questionPending && questionSession == sessionId)
     }
 
     /// The phase the session's row takes in the home's list, nil when the row stays as it is. A
-    /// permission puts it on `approval`; Claude waiting puts it on `question`, except a session
-    /// that already ended (`current` finished or failed): an idle prompt comes about 60 s after the
-    /// end of a turn, and that row stays in the day's history, grey, with its end time.
+    /// permission puts it on `approval`; Claude waiting (an MCP form, or idle) puts it on `question`,
+    /// except a session that already ended (`current` finished or failed): that row stays in the
+    /// day's history, grey, with its end time.
     static func rowPhase(for kind: Kind, current: SessionPhase?) -> SessionPhase? {
         switch kind {
         case .permission:
             return .approval
-        case .waiting:
+        case .waiting, .idle:
             if let current, current.isEnded { return nil }
             return .question
         }

@@ -439,12 +439,14 @@ final class AppState: ObservableObject {
     /// never covers a draft of the chat or of a mail, a card that waits, or a pinned island. Then
     /// only the Claude app pill is badged and the sound plays. Nothing here clicks in the Claude
     /// app, answers, or approves. Returns true when the note is on its way to the screen.
+    /// `sound`: the sound that plays, `question` for Claude waiting (the default), `approval` for a
+    /// permission, `finish` for a finished answer.
     @discardableResult
-    func showClaudeAppAlert(title: String, message: String) -> Bool {
+    func showClaudeAppAlert(title: String, message: String, sound: String = "question") -> Bool {
         let alert = ClaudeAppAlert(title: title, message: message)
         // The same alert is already on screen: no second sound, no new hold on the island.
         if mode == .expanded, view == .note, claudeAppAlert == alert { return true }
-        SoundEngine.shared.play("approval")
+        SoundEngine.shared.play(sound)
         let presentation = FinishPresentation.decide(
             expanded: mode == .expanded, view: view.rawValue, pinned: isPinned,
             requestPending: pendingApproval != nil || pendingQuestion != nil)
