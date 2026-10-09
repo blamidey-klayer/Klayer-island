@@ -556,7 +556,7 @@ struct ClaudePlanHeaderPill: View {
 
     private var label: String {
         guard let usage = state.claudePlanUsage,
-              let pct = ClaudePlanGauge.dominantPct(usage) else { return "Claude —" }
+              let pct = ClaudePlanGauge.dominantPct(usage) else { return String(localized: "Claude : en attente") }
         return "Claude \(Int(pct.rounded()))%"
     }
 

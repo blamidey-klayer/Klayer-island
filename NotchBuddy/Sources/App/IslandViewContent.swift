@@ -681,7 +681,7 @@ struct ConfusedView: View {
             CardBackground(wash: .dizzy)
             VStack(alignment: .leading, spacing: 5) {
                 Text("Too many hits at once.").font(.system(size: 15, weight: .semibold))
-                Text("Give me a sec — back to work in three seconds.")
+                Text("Laisse-moi souffler : je reprends dans trois secondes.")
                     .font(.system(size: 13)).foregroundColor(Color(hex: "#9398A1"))
             }
             .padding(.leading, 128)
