@@ -6,9 +6,16 @@
 #   3. the test build launched with KLAYER_ISLAND_TEST=1 passes the 8 scenarios.
 # Build the test app first, as .github/workflows/build.yml does. Made for the CI runner: it uses this
 # account's ~/Library/Application Support/NotchBuddy and the island's preferences (terminal cards must
-# be off), and never writes ~/.claude/settings.json. Logs go to build-e2e/e2e-logs/.
+# be off), and never writes ~/.claude/settings.json. Logs go to build-e2e/e2e-logs/. Outside the CI
+# (CI=true, set by GitHub Actions) it refuses to run unless KLAYER_E2E_LOCAL=1 says you know that.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if [ "${CI:-}" != "true" ] && [ "${KLAYER_E2E_LOCAL:-}" != "1" ]; then
+    echo "test-e2e-island: made for the macOS CI; it takes this account's Klayer Island socket and preferences." >&2
+    echo "test-e2e-island: to run it here anyway, quit Klayer Island and set KLAYER_E2E_LOCAL=1." >&2
+    exit 1
+fi
 APP="${KLAYER_E2E_APP:-build-e2e/Build/Products/Debug/KlayerIsland.app/Contents/MacOS/KlayerIsland}"
 OUT="${KLAYER_E2E_OUT:-build-e2e/e2e-logs}"
 mkdir -p "$OUT"

@@ -418,8 +418,8 @@ enum KlayPaint {
 
     // MARK: - Eyes
 
-    /// Both eyes, in Klay's frame around `center`, for the scripted figures (launch greeting,
-    /// drop sequence; the engine uses drawEyes(gaze:)). `look` is the gaze offset in glyph
+    /// Both eyes, in Klay's frame around `center`, for the launch greeting's scripted figure (the
+    /// engine and the drop sequence use drawEyes(gaze:)). `look` is the gaze offset in glyph
     /// units (x within ±14, y within ±12, y down): the eye follows it by 40 %, the pupil
     /// by 80 %. `mult` scales the eyes.
     static func drawEyes(_ ctx: GraphicsContext, shape: EyeShape, mult: CGFloat,

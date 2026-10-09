@@ -15,16 +15,26 @@ sites="$(find NotchBuddy/Sources -name '*.swift' -print0 | sort -z | xargs -0 aw
     }')"
 bad=0
 count=0
+seen=" "
 while IFS= read -r site; do
     [ -n "$site" ] || continue
     count=$((count + 1))
     key="${site%:*}"
     if [[ "$allowed" == *" $key "* ]]; then
         echo "  ok  $site"
+        seen="$seen$key "
     else
         echo "  NOT ALLOWED  $site: the chat's context comes only from an explicit act" >&2
         bad=1
     fi
 done <<< "$sites"
+# No vacuous pass: both allowed call sites must have been found (an awk that matches nothing, or
+# sources moved elsewhere, fail here).
+for key in $allowed; do
+    if [[ "$seen" != *" $key "* ]]; then
+        echo "  MISSING  $key: the allowed call site was not found, the guard cannot vouch for anything" >&2
+        bad=1
+    fi
+done
 [ "$bad" -eq 0 ] || exit 1
-echo "Window capture sites: $count call(s), all explicit"
+echo "Window capture sites: $count call(s), all explicit, both allowed sites found"

@@ -125,11 +125,24 @@ jobs:
 
       - name: The shipped binary has no test command
         run: |
-          # The test commands exist only in the test build (KLAYER_E2E); the step after next checks
-          # that the test build does carry these names, so this check can see them.
+          # The test commands exist only in the test build (KLAYER_E2E). The control that this check
+          # can see them runs on the test build, two steps below: that build is Debug (-Onone), this
+          # one Release (-O), so the control proves the names reach a binary's strings, not that the
+          # optimiser keeps them the same way here. The runtime check of the end-to-end step (the
+          # Release app answers no test command) covers the rest.
+          bin=build/Build/Products/Release/KlayerIsland.app/Contents/MacOS/KlayerIsland
+          if [ ! -f "$bin" ]; then
+            echo "::error::no Release binary at $bin: nothing to check"
+            exit 1
+          fi
           found=0
           for f in build/Build/Products/Release/KlayerIsland.app/Contents/MacOS/*; do
-            if strings -a "$f" | grep -E 'e2e_(state|decide|answer|shortcut)'; then
+            out="$(strings -a "$f")"
+            if [ -z "$out" ]; then
+              echo "::error::strings printed nothing for $f: the check would pass without reading it"
+              exit 1
+            fi
+            if printf '%s\n' "$out" | grep -E 'e2e_(state|decide|answer|shortcut)'; then
               echo "::error::$f carries test-only commands"
               found=1
             fi

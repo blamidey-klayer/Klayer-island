@@ -605,45 +605,7 @@ shape: EyeShape;
 open: number;
 /** Eye scale (surprised = bigger). */
 es: number;
-/** Where Klay looks, −1…1 each way, y down (drop zone; the engine uses drawKlayEyesGaze). */
-yaw: number;
-pitch: number;
 ink: string;
-}
-
-/**
- * Eyes, in Klay's frame (glyph units) around (cxu, cyu): two round white eyes
- * with a teal-deep rim. They slide a little towards where Klay looks, the
- * pupils twice as far.
- */
-export function drawKlayEyes(x: CanvasRenderingContext2D, e: EyeLook, mult: number, cxu: number, cyu: number) {
-const { shape, ink } = e;
-  x.save();
-  x.fillStyle = ink;
-  x.strokeStyle = ink;
-  const lookX = Math.max(-1, Math.min(1, e.yaw)) * 14;
-  const lookY = Math.max(-1, Math.min(1, e.pitch)) * 12;
-  const ew = EYE_W * e.es * mult;
-  const eh = EYE_H * e.es * mult;
-  const er = EYE_R * e.es * mult;
-  const dx = EYE_DX * mult;
-  for (const sd of [-1, 1]) {
-    x.save();
-    // The eye itself follows the look a little; the pupil, twice as far.
-    x.translate(cxu + sd * dx + lookX * 0.4 * mult, cyu + EYE_DY * mult + lookY * 0.4 * mult);
-    x.beginPath();
-    x.arc(0, 0, er, 0, Math.PI * 2);
-    x.fillStyle = "#FFFFFF";
-    x.fill();
-    x.lineWidth = EYE_RIM * mult;
-    x.strokeStyle = ink;
-    x.stroke();
-    x.translate(lookX * 0.8 * mult, lookY * 0.8 * mult);
-    x.fillStyle = ink;
-    drawEyeShape(x, shape, ew, eh, sd, e.open);
-    x.restore();
-  }
-  x.restore();
 }
 
 /**
@@ -652,7 +614,7 @@ const { shape, ink } = e;
  * further inside and never leave the white. Mirror of KlayPaint.drawEyes(gaze:) on the Mac.
  */
 export function drawKlayEyesGaze(
-  x: CanvasRenderingContext2D, e: Omit<EyeLook, "yaw" | "pitch">, g: Gaze,
+  x: CanvasRenderingContext2D, e: EyeLook, g: Gaze,
   mult: number, cxu: number, cyu: number,
 ) {
   const dx = EYE_DX * mult * g.spacing;

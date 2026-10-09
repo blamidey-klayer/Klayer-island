@@ -40,6 +40,7 @@ LAUNCH_TIMEOUT = 30.0   # the socket and the relay must be there by then (s)
 HIDE_TIMEOUT = 150.0    # the launch greeting folds, then the compact island hides 60 s later (s)
 ASK_TIMEOUT = 2.0       # an "ask" fall-through is immediate (s)
 SILENCE = 3.0           # how long a request is left unanswered to show nothing approves it (s)
+QUIET = 2.0             # how long a state must hold to show nothing changes it (s)
 
 # The variables Claude Code or a terminal sets for a hook; each relay run sets its own.
 HOOK_ENV_KEYS = ("CLAUDE_CODE_ENTRYPOINT", "TERM_PROGRAM", "__CFBundleIdentifier", "ITERM_SESSION_ID",
@@ -48,6 +49,10 @@ HOOK_ENV_KEYS = ("CLAUDE_CODE_ENTRYPOINT", "TERM_PROGRAM", "__CFBundleIdentifier
 
 class Failure(Exception):
     pass
+
+
+class Stopped(Failure):
+    """SIGTERM (the CI's timeout, a kill): the run stops as on a failure, and the app is quit."""
 
 
 # MARK: - The island's socket
@@ -285,6 +290,8 @@ def permission_request(session_id, project, command_line, env, args=()):
 
 
 ALLOW_OUTPUT = {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}
+DENY_OUTPUT = {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                      "decision": {"behavior": "deny", "message": "Denied from Klayer Island"}}}
 
 
 # MARK: - The app
@@ -390,12 +397,13 @@ def scenario_2_finish_during_prompt(run):
     stop(sid, project, "Le résumé est prêt.")
     wait_until("the row of %s finished" % project, lambda s: phase(s, sid) == "finished")
     keeps("the chat on screen", lambda s: s["mode"] == "expanded" and s["view"] == "prompt"
-          and phase(s, sid) == "finished", 1.0)
-    ok("2 a session that ends while the chat is open leaves the chat, its row is finished")
+          and phase(s, sid) == "finished", QUIET)
+    ok("2 a session that ends while the chat is open leaves the chat open, its row is finished")
 
 
 def scenario_3_permission_allowed(run):
-    """A permission of the Claude app: the card shows the command, e2e_decide allow answers it."""
+    """A permission of the Claude app: the card shows the command, e2e_decide allow answers it; a
+    second one, denied, gives the deny output."""
     # Nothing to decide yet: a decision without a card on screen is refused.
     reply = send({"klayer_kind": "e2e_decide", "decision": "allow"})
     if not isinstance(reply, dict) or reply.get("ok") is not False:
@@ -417,7 +425,20 @@ def scenario_3_permission_allowed(run):
     wait_until("the permission card closed and « Autorisé » recorded for npm test",
                lambda s: s["pendingApproval"] is None and s["view"] != "approval"
                and choices_since(s, run["started"]) == [("permission", "npm test", "Autorisé", project)])
-    ok("3 a Claude app permission shows npm test; allowed from the island, nb-hook prints the allow output")
+    # Deny: the second button of the card, the same path.
+    _, relay = permission_request(sid, project, "git push --force", claude_app_env())
+    wait_until("the permission card of %s showing git push --force" % project,
+               lambda s: pending(relay, "the second permission of %s" % project)
+               and s["mode"] == "expanded" and s["view"] == "approval"
+               and s["pendingApproval"]["command"] == "git push --force" and s["pendingApproval"]["session"] == sid)
+    command({"klayer_kind": "e2e_decide", "decision": "deny"})
+    expect_output(relay, DENY_OUTPUT, "PermissionRequest denied")
+    wait_until("the permission card closed and « Refusé » recorded for git push --force",
+               lambda s: s["pendingApproval"] is None and s["view"] != "approval"
+               and choices_since(s, run["started"]) == [("permission", "git push --force", "Refusé", project),
+                                                        ("permission", "npm test", "Autorisé", project)])
+    ok("3 a Claude app permission shows npm test; allowed from the island, nb-hook prints the allow output; "
+       "a second one denied prints the deny output")
 
 
 def scenario_4_question_answered(run):
@@ -468,7 +489,7 @@ def scenario_5_answered_in_the_app(run):
     wait_until("the card closed with « Handled in Claude. » and no choice recorded",
                lambda s: s["pendingApproval"] is None and s["view"] == "note" and s["note"] == "Handled in Claude."
                and s["choices"] == choices_before)
-    keeps("no decision recorded", lambda s: s["pendingApproval"] is None and s["choices"] == choices_before, 1.0)
+    keeps("no decision recorded", lambda s: s["pendingApproval"] is None and s["choices"] == choices_before, QUIET)
     ok("5 a permission answered in the Claude app (nb-hook killed) closes the card, no decision sent")
 
 
@@ -503,17 +524,19 @@ def scenario_7_fall_through(run):
     expect_fall_through(relay, "terminal session, terminal cards off")
     raw = dict(payload, term_program="Apple_Terminal", bundle_id="com.apple.Terminal")
     expect_raw_ask(raw, "terminal session, terminal cards off")
-    keeps("no card for them", lambda s: s["pendingApproval"] is None and s["view"] != "approval", 0.5)
+    keeps("no card for them", lambda s: s["pendingApproval"] is None and s["view"] != "approval", QUIET)
     ok("7 an unknown klayer_agent and a terminal session (cards off) get ask at once")
 
 
 def scenario_8_nothing_approves_alone(run):
-    """Checked along the way (3 and 5); here, the run's history: the one allow is e2e_decide's."""
+    """Checked along the way (3 and 5); here, the run's history: the one allow and the one deny are
+    e2e_decide's."""
     state = read_state()
     permissions = [c for c in choices_since(state, run["started"]) if c[0] == "permission"]
-    if permissions != [("permission", "npm test", "Autorisé", "pipeline-donnees")]:
-        raise Failure("expected one permission decided in this run, npm test allowed by e2e_decide; choices:\n%s"
-                      % show(state["choices"]))
+    if permissions != [("permission", "git push --force", "Refusé", "pipeline-donnees"),
+                       ("permission", "npm test", "Autorisé", "pipeline-donnees")]:
+        raise Failure("expected two permissions decided in this run by e2e_decide, npm test allowed and git push "
+                      "--force denied; choices:\n%s" % show(state["choices"]))
     ok("8 nothing is allowed without e2e_decide (3 s unanswered in 3 and 5, the killed hook printed nothing)")
 
 
@@ -563,6 +586,12 @@ def main():
     args = parser.parse_args()
 
     app = App(args.app, args.log, test_env=not args.without_test_env)
+
+    def stop_on_sigterm(signum, frame):
+        raise Stopped("stopped by SIGTERM")
+
+    # A kill or the CI's timeout quits the app too, as a failure does (the finally below).
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
     failed = None
     try:
         app.launch()
