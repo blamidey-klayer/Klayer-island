@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 (non publiée)
+
+Correctif de la 0.3.3. Build 18. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.11, point « Roue ».
+
+- **Plantage sous macOS 27.** L'app ne plante plus à l'ouverture de l'île sur macOS 27 : la liste des sessions ne se recale plus sur une ligne (la roue garde son effet). La marge qui laisse la première et la dernière ligne venir au centre est désormais fixe, tirée de la mise en page de la maison, et non plus mesurée sur la liste : la mesure, la marge et le recalage s'entretenaient pendant la mise en page de la fenêtre jusqu'à ce que macOS arrête l'app. Les vues SwiftUI de l'île, du Klay qui rentre à pied et du Klay du bureau, placées à la main, ne demandent plus à leur fenêtre de recalculer ses contraintes de taille.
+- **Tests.** Un 12e scénario de bout en bout : la maison remplie de 12 sessions aux noms longs s'ouvre et se ferme 5 fois, sa liste défile (nouvelle commande de test `e2e_scroll`, absente de l'app livrée), et l'app tourne et répond encore 3 s plus tard. La CI ne tourne pas sous macOS 27 : ce scénario garde la boucle, il peut ne pas reproduire le plantage d'origine. Le test de la maison vérifie que la hauteur de la liste suit sa mise en page.
+
 ## 0.3.3 (non publiée)
 
 Klay rentre à pied ; des lignes lisibles, la carte qui s'efface dans l'app de sa session, « Ouvrir ce chat ». Build 17. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), sections 5.10 et 5.11.
