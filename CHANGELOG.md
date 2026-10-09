@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 (non publiée)
+
+Le nom des sessions. Build 16. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.9.
+
+- **Nom des sessions.** Une session Claude Code (VS Code, Cursor, terminal, onglet Code de l'app Claude) s'affiche sous son nom, celui de la liste des sessions de VS Code et de l'onglet Code, à la place du nom de son dossier : sa ligne de la maison, la vue de fin ou d'erreur, la carte d'autorisation, les derniers choix et la note « Claude attend ta réponse ». D'abord le titre que vous lui avez donné (`--name`, `/rename`, un renommage dans l'app Claude ou dans VS Code), que les hooks `SessionStart` et `UserPromptSubmit` portent ; puis le nom que donne la ligne d'état (votre titre, sinon celui que Claude a généré), qui demande le relais de la ligne d'état (Réglages, Agents, « Install relay ») ; sinon le dossier. Un nom vide ne remplace jamais un nom connu. Le nom reste en mémoire avec la ligne et part avec elle : il n'est ni écrit dans `nb.log`, qui dit seulement qu'un nom est arrivé, ni envoyé nulle part. Le relais de la ligne d'état transmet désormais ce nom à l'île ; sa sortie ne change pas. Que la ligne d'état tourne dans VS Code et dans l'onglet Code n'est pas documenté : à vérifier sur Mac. Les tâches Cowork n'ont pas de nom dans l'île : rien de documenté ne le donne à une app du Mac.
+- **Test de bout en bout.** Un 9e scénario : le nom donné par la ligne d'état titre la ligne et la vue de fin, un titre venu d'un hook passe devant, et la note de l'onglet Code nomme la session par lui.
+
 ## 0.3.1 (non publiée)
 
 Retouches du lot 6 après la build intermédiaire 0.3.0 (build 14). Build 15. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.
