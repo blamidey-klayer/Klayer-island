@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 (non publiée)
+
+Lot 6 : l'île au service de l'app Claude. Build 14. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.
+
+- **Maison.** De gauche à droite : une bande d'icônes grises (Spotify si sa pastille est active, GitHub si sa pastille est active et qu'un jeton est réglé, Granola toujours), Klay, puis les conversations sur 484 pt des 640 pt de l'île. Un clic sur Spotify ou GitHub montre sa carte à la place de la liste ; un second clic, ou l'onglet maison, rend la liste. Granola ouvre une nouvelle note. Le badge d'alerte de GitHub passe sur son icône. Les pastilles Claude Code et Claude Desktop quittent la maison : leurs sessions sont dans la liste, et leurs identifiants restent pour le routage et les cartes.
+- **Conversations du jour.** Les sessions en cours d'abord, puis celles finies ou en erreur dans la journée, en gris, avec « Terminé à HH:mm » ou « Erreur à HH:mm » : 10 au plus, effacées à minuit (calendrier du Mac). Quitter Claude Code après une réponse garde la ligne. Toutes les lignes sont dans la liste, qui défile dans la carte. Les 3 derniers choix suivent (5 auparavant).
+- **Raccourcis des pastilles.** ⌃⌥] et ⌃⌥[ (⌘→ et ⌘← dans l'île) passent de la liste à la carte Spotify, puis à la carte GitHub, dans l'ordre de la bande ; ⌘1 montre la liste, ⌘2 et ⌘3 les cartes de la bande. Les pastilles Claude ne sont plus parcourues.
+- **Chat.** Il s'ouvre sans pastille de contexte automatique : l'onglet du chat ne capture plus la fenêtre de l'app précédente, et un fichier déposé n'entre dans le chat qu'avec « Poser une question ». Klay glissé sur une fenêtre et ⌃⌥W attachent toujours la fenêtre ; un script de la CI vérifie qu'aucune autre capture n'existe.
+- **Zone de dépôt.** Un seul Klay, celui de l'île, au milieu de la carte. Quand un fichier approche, il ouvre les bras et le suit des yeux ; au dépôt, il l'avale (écrasement, yeux fermés). La boîte aux lettres et la seconde figure disparaissent. Un fichier qui repart sans être déposé : Klay baisse les bras et revient au centre.
+- **Onglet Code de l'app Claude.** Une notification Claude Code d'une session de l'app Claude qui demande quelque chose (une autorisation, le formulaire d'un serveur MCP) ouvre l'île sur « Claude attend ta réponse » avec « Ouvrir Claude », quand aucune carte de cette session n'est déjà affichée. Une attente qui suit une fin déjà montrée n'ouvre rien. Le terminal ne change pas.
+- **Chat et Cowork, expérimental.** Réglage « Suivre Chat et Cowork dans l'app Claude (expérimental) », activé par défaut (Réglages, Agents). Avec l'accès Accessibilité, l'île lit les boutons de l'app Claude (rôle et libellé, jamais le texte des messages) et s'ouvre sur « Claude a fini de répondre » ou « Claude attend ta réponse » quand cela arrive pendant que vous êtes dans une autre app. Elle ne clique jamais dans l'app Claude et ne répond à rien. Elle ne lit que pendant que l'app Claude est au premier plan ou qu'une réponse repérée est en cours, toutes les 2 s. Le bouton « Copier le diagnostic de l'app Claude » copie les rôles et libellés des boutons, pour régler les libellés reconnus sur votre Mac.
+- La demande d'accès Accessibilité de macOS dit désormais : « Pour lire le titre de la fenêtre active et l'attacher comme contexte, et pour suivre les réponses de l'app Claude. »
+- **Test de bout en bout.** La CI macOS construit une seconde app, de test, jamais livrée, et vérifie à chaque run qu'une fin de session, une autorisation et une question de l'app Claude s'affichent dans l'île et que les réponses données dans l'île repartent vers Claude Code, sans rien autoriser seule (étape « End-to-end island test »). Elle vérifie aussi que l'app livrée ne contient aucune commande de test.
+
 ## 0.1.0 (non publiée)
 
 Première version de Klayer Island, à partir de Coucou 0.2.2 (macOS). Voir [NOTICE.md](NOTICE.md).
@@ -21,3 +35,4 @@ Première version de Klayer Island, à partir de Coucou 0.2.2 (macOS). Voir [NOT
 - Au premier lancement de cette build, l'app supprime une fois la clé Anthropic du Trousseau et le réglage du modèle du chat (deuxième étape du nettoyage, `removedFeatureCleanupVersion` à 2).
 - Retouches de fin de lot : rouvrir l'île avec une demande en attente remet sa pastille en focus et Klay dans la pose de la demande ; activer ou couper une pastille dans les Réglages ne fait plus sortir Klay ; la ligne d'état du relais de forfait se reconnaît par la règle des hooks, jamais par le seul mot « nb-hook ». La lecture des conditions d'Anthropic attend la validation d'un fondateur avant toute diffusion à l'équipe.
 - Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md).
+- La build de test des lots 1 à 4 affichait la version « 0.2.2 », un numéro hérité de Coucou : elle correspond à cette section 0.1.0.

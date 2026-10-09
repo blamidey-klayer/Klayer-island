@@ -51,61 +51,67 @@ Bouton Granola (île `compact` uniquement, jamais en `hidden` ni en `expanded`) 
 10. **Alertes** (permission, question, erreur) : l'île s'ouvre seule sur la vue de l'alerte, même sans survol et même cachée. Une autorisation ou une question en attente tient l'île ouverte jusqu'à la réponse, y compris quand elle arrive alors que l'île est déjà ouverte ou pendant le salut de lancement : aucun minuteur ni aucune sortie de la souris ne la replie. Un clic ailleurs, Échap, le raccourci de fermeture ou le saut au terminal la replient seulement en `compact`, avec le badge (règle 7). La demande ne quitte l'île qu'à la réponse, au choix « répondre dans le terminal », ou quand la connexion du hook se ferme ou expire : changer de vue ou replier l'île ne la renvoie jamais au terminal. Tant qu'une demande attend, les autres alertes ne prennent pas sa place dans l'île ouverte ; sinon elles suivent la règle 6 (île ouverte par l'app).
 11. **Terminé** : l'île s'ouvre sur la vue `finished` et reste ouverte jusqu'au prochain survol suivi d'une sortie, ou jusqu'à un clic ailleurs.
 12. **Plusieurs demandes en même temps** : une carte à la fois. La carte à l'écran ne change jamais pour une demande de l'autre sorte (une question sur une autorisation, ou l'inverse) : celle-ci attend derrière, avec un badge sur sa pastille et le son `approval`. Quand une demande part (réponse, « répondre dans le terminal », traitée ailleurs, expirée), l'île montre l'autre demande en attente, l'autorisation d'abord, sinon la maison (`PendingRequest.after`). Une note « Handled in … » ou « Still waiting in … » reste 3 s, puis laisse la place à la demande en attente, ou replie l'île s'il n'y en a aucune (`PendingRequest.noteEnd`) ; le minuteur d'une note ne touche jamais une note plus récente. Une nouvelle demande de la même sorte remplace la précédente, qui repart dans son terminal ou dans l'app (réponse `ask`). Les boutons d'une carte d'autorisation ou de question restent estompés et inactifs 0,6 s après chaque changement de la demande à l'écran (nouvelle demande, autre carte, ouverture de l'île sur la carte) : un clic visé sur la carte précédente ne répond jamais à la suivante.
-13. **Focus** : le gros bonhomme représente la tâche en focus (la dernière alerte, sinon la première qui travaille). Les autres tâches sont les mini-bonhommes. Cliquer un mini-bonhomme le met en focus.
+13. **Focus** : le gros bonhomme représente la tâche en focus (la dernière alerte, sinon la première qui travaille). Depuis le lot 6, la maison n'affiche plus de pastilles : les sessions sont des lignes (un clic ouvre la session), et seules les icônes Spotify et GitHub de la bande d'icônes mettent leur pastille en focus (§5, Maison).
 
 ## 4. Animations de l'island
 
 - Ouverture / agrandissement : 520 ms, ressort avec léger dépassement, équivalent `cubic-bezier(.32,1.22,.42,1)`. En SwiftUI, partir de `.spring(response: 0.5, dampingFraction: 0.72)` et ajuster à l'œil contre le prototype.
 - Fermeture / rétrécissement : 340 ms, `cubic-bezier(.45,0,.2,1)`, sans dépassement.
-- Largeur, hauteur, rayon, position et taille du bonhomme, position et taille des mini-bonhommes animent **ensemble** (effet « élément partagé » : les mini-bonhommes passent des pastilles de la maison à la colonne des autres vues sans disparaître).
+- Largeur, hauteur, rayon, position et taille du bonhomme animent **ensemble**. Depuis le lot 6, la maison n'a plus de pastilles et aucune vue n'a de colonne de mini-bonhommes : les seuls mini-bonhommes sont ceux des lignes de la maison.
 - Contenu des vues : sortie 160 ms (opacité 0, flou 8, échelle 0,97) ; entrée 300 ms avec 160 ms de retard (après que le conteneur a commencé à grandir). L'en-tête apparaît avec 300 ms de retard.
-- Mini-bonhommes : décalage de 35 ms par index.
-- Libellés des pastilles : apparaissent 220 ms après le début du mouvement.
 - Au passage en `expanded`, le bonhomme cligne des yeux.
 - Sons : `open` à l'ouverture, `close` à la fermeture.
 
 ## 5. Vues (mode expanded, largeur 640)
 
-Structure commune : en-tête de 34 pt (onglets à gauche : Vue d'ensemble, Demander, Déposer ; à droite : « N en cours » + bouton son). Contenu inséré de 36 en haut, 10 à gauche, droite, bas. Cartes : rayon 20, fond `#141518`, bord blanc 3,5 %. Dans les vues autres que `overview`, les mini-bonhommes passent en **colonne** à droite (Ø 16, x = largeur − 31, y = 50 + i × 24) et la carte laisse 42 pt à droite.
+Structure commune : en-tête de 34 pt (onglets à gauche : Vue d'ensemble, Demander, Déposer ; à droite : « N en cours » + bouton son). Contenu inséré de 36 en haut, 10 à gauche, droite, bas. Cartes : rayon 20, fond `#141518`, bord blanc 3,5 %.
 
 Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, centre 50 % / 130 %), couleur de l'état prise dans le même tableau que Klay (`StateColor`, §7) :
 `approval` à 42 %, `question` à 38 %, `error` à 55 %, `finished` à 50 %, `dizzy` à 55 % (vue `confused`), `searching` à 50 % (aussi la carte du chat), neutre blanc à 8 %.
 
 | Vue | Hauteur | Bonhomme (x, Ø) | Contenu | Capture |
 |---|---|---|---|---|
-| `overview` | 220 | 68, 58 | carte gauche 322 de large : maison (conversations en cours, derniers choix), ou carte GitHub ou Spotify ; carte droite : pastilles | 03 |
+| `overview` | 220 | 96, 58 | bande d'icônes (36 pt), puis une carte : Klay dans sa colonne (100 pt) et la liste (484 pt) des sessions en cours, des sessions finies du jour et des 3 derniers choix, ou la carte GitHub ou Spotify à la place de la liste (voir Maison) | 03 |
 | `empty` | 160 | 70, 62 | « Rien ne tourne pour l'instant. » + bouton « Demander à Claude » | 16 |
 | `approval` | 160 | 62, 56 | projet de la session + « needs permission », bloc code avec la demande (`ApprovalSummary` : la commande d'un Bash ; l'outil et le fichier, relatif au projet, pour Write, Edit, MultiEdit, NotebookEdit, Read ; l'adresse de WebFetch, la requête de WebSearch, le motif et le chemin de Grep et Glob ; « serveur · outil » et un argument court pour un outil MCP ; sinon le JSON compact, coupé à 200 caractères), Refuser, Autoriser, Toujours (estompés 0,6 s, règle 12) | 04 |
 | `question` | 160, plus si la question l'exige (`AskQuestion.estimatedIslandHeight`) | 62, 56 | agent + question (1/N) + options en boutons (single-select ou multi-select) + « Reply in terminal » ; bouton Send/Next pour multi-select ou multi-questions ; « Other… » → saisie libre | 05 |
 | `error` | 160 | 62, 58 | projet de la session en échec (`failedSession`, comme `finishedSession`) + « Failed », « Claude s'est arrêté sur une erreur », détail en rouge `#FF8D97` sur une ligne : le texte de l'erreur du hook `StopFailure` (`last_assistant_message`, sinon `error_details`, sinon `error`), ou « Aucun détail d'erreur disponible. » ; Ouvrir le terminal (Ouvrir Claude pour une session de l'app Claude) et OK, mêmes règles que la vue `finished` | 06 |
 | `finished` | 160 | 62, 58 | agent + résumé, Voir le terminal, OK | 07 |
 | `confused` | 160 | 76, 66 | « Trop de claques d'un coup. » | 08 |
-| `upload` | 176 | 140, 62 | zone pointillée, Klay les bras ouverts et « Dépose ton fichier » | 09 |
+| `upload` | 176 | 320, 62 | zone pointillée, Klay au milieu de la carte (y 92) et « Dépose ton fichier » dessous ; un fichier qui approche : la zone de dépôt prend le relais (§8) | 09 |
 | `uploading` | 176 | sur la barre, Ø 20 | « Envoi de fichier » + %, barre verte, le bonhomme est le curseur de la barre | 10 |
 | `choose` | 176 | 60, 52 | « fichier est prêt. », Poser une question, Préparer un email | 11 |
 | `mail` | 240 | 56, 46 | brouillon Gmail (§15.2) : champs À, Objet (facultatif) et « Ce que tu veux dire », Préparer le brouillon, Annuler ; puis « Préparation du brouillon… », puis « Brouillon prêt dans Gmail » ou un échec avec Réessayer | 12 |
-| `prompt` | 160 | 52, 44 | chat rapide (§15.1) : pastille de contexte, bulles de la conversation, champ + micro + envoyer ; à la place du champ, la marche à suivre quand Claude Code manque ou n'est pas connecté | 13 |
-| `note` | 160 | 60, 50 | message court : une erreur du chat, ou « Handled in … » et « Still waiting in … » (3 s, règle 12) | aucune |
+| `prompt` | 160 | 52, 44 | chat rapide (§15.1) : pastille de contexte quand un acte explicite en a posé une, bulles de la conversation, champ + micro + envoyer ; à la place du champ, la marche à suivre quand Claude Code manque ou n'est pas connecté | 13 |
+| `note` | 160 | 60, 50 | message court : une erreur du chat, ou « Handled in … » et « Still waiting in … » (3 s, règle 12) ; ou une demande de l'app Claude (§16) : titre, ligne, « Ouvrir Claude » et OK | aucune |
 | `settings` | 160 | 54, 46 | son et volume, délai **Close after** (10, 15 ou 30 s), état des hooks Claude Code et du chat (Claude Code installé et connecté avec un compte claude.ai ; lu quand la vue s'affiche), « Réglages… » | aucune |
 
-Centre vertical du bonhomme : le centre de la carte de 84 pt sous l'en-tête, soit hauteur / 2 + 21 (101 pour une île de 160, 131 pour la maison), sauf `upload` (104), `uploading` (118) et `choose` (101), fixes.
+Centre vertical du bonhomme : le centre de la carte de 84 pt sous l'en-tête, soit hauteur / 2 + 21 (101 pour une île de 160, 131 pour la maison), sauf `upload` (92), `uploading` (118) et `choose` (101), fixes.
 
 ### Maison (overview)
 
-Carte gauche de 322 pt, Klay à sa gauche, contenu à partir de x = 108 (spec refonte §6) :
+De gauche à droite, sur 640 pt (`HomeLayout`, testé par `scripts/test-home-layout.sh`) : le bord de 10 pt, la **bande d'icônes** (36 pt) sur le noir de l'île, puis une carte qui porte **Klay** dans sa colonne de 100 pt (centre x = 96, Ø 58 : le cercle de son canvas, où un clic le claque, ne touche ni les icônes ni les lignes) et la **liste** (484 pt à partir de x = 146, au moins les 3/4 de l'île), puis le bord de 10 pt. La bande garde sa largeur quelles que soient ses icônes. Hauteur : 220 pt, soit une carte de 168 pt (8 en haut, en-tête de 34, 10 en bas) ; Klay reste centré verticalement sur la carte.
 
-1. **Conversations en cours** : une ligne par session (`AppState.sessions`, registre `SessionRoster`), la plus récente activité d'abord, 3 au plus, 26 pt chacune. Mini-Klay de Ø 18 sur un disque de la couleur de son état (`StateColor`, §7), titre (dossier du projet, 12 pt semibold), état en clair (11 pt `#8E939C` : « En attente », « Réfléchit », « Travaille », « Cherche », « Attend ton accord », « Te pose une question », « Limite atteinte », « Erreur », « Terminé »), dernière action sur une ligne (10,5 pt `#6B7079`, tronquée). Sans session : « Aucune conversation en cours. » (12 pt `#8E939C`) ; si les hooks Claude Code manquent dans `~/.claude/settings.json` (`HookServer.claudeHooksInstalled()`, lu quand la maison s'affiche, jamais à chaque rendu), une seconde ligne grise « Hooks Claude Code non installés » (11 pt `#6B7079`) suivie d'un petit bouton « Réglages… » qui ouvre les Réglages sur Agents.
+La liste défile dans la carte, sans barre, et ne la fait jamais grandir : rebond seulement si elle dépasse, et la dernière ligne visible s'estompe tant qu'il en reste dessous. De haut en bas :
+
+1. **Sessions en cours** (`AppState.sessions`, registre `SessionRoster`, ordre `SessionRoster.listed`) : toutes, la plus récente activité d'abord, 26 pt chacune. Mini-Klay de Ø 18 sur un disque de la couleur de son état (`StateColor`, §7), titre (dossier du projet, 12 pt semibold), état en clair (11 pt `#8E939C` : « En attente », « Réfléchit », « Travaille », « Cherche », « Attend ton accord », « Te pose une question », « Limite atteinte »), dernière action sur une ligne (10,5 pt `#6B7079`, tronquée).
+2. **Sessions finies du jour** : les lignes `finished` et `error`, la fin la plus récente d'abord, en gris : titre `#8E939C`, « Terminé à HH:mm » ou « Erreur à HH:mm » en `#6B7079` (l'heure de la fin sur 24 h, dans le fuseau de l'utilisateur), mini-Klay gris (saturation 0, opacité 60 %) dessiné une fois dans la pose de sa fin, sans animation. 10 au plus.
+   - Sans aucune session : « Aucune conversation en cours. » (12 pt `#8E939C`) ; si les hooks Claude Code manquent dans `~/.claude/settings.json` (`HookServer.claudeHooksInstalled()`, lu quand la maison s'affiche, jamais à chaque rendu), une seconde ligne grise « Hooks Claude Code non installés » (11 pt `#6B7079`) suivie d'un petit bouton « Réglages… » qui ouvre les Réglages sur Agents.
    - Un clic ouvre la session : l'app Claude (`claude://`) pour une session de l'app Claude ; pour une session Claude Code, l'app où elle tourne (terminal ou éditeur, gardée sur sa ligne) si elle est ouverte, sinon l'app Claude.
-   - Une ligne finie, en erreur ou au repos part après 30 min sans activité, toute autre après 2 h, jamais une autorisation ni une question en attente. Le ménage se fait à chaque événement et quand la maison s'affiche (ouverture de l'île, retour à la maison), jamais sur minuterie.
-2. **Derniers choix** : les 5 dernières autorisations et questions répondues depuis l'île (`AppState.recentChoices`, historique local de 20 entrées), en gris `#9398A1` à 55 % d'opacité, 10 pt, une ligne chacune : « HH:mm · session · demande · réponse ». La demande est coupée en bout de ligne, la réponse reste entière (20 caractères au plus). Sans choix, le bloc n'apparaît pas.
-3. **Demande en cours** : une autorisation ou une question en attente a sa vue (`approval`, `question`), qui passe devant la maison.
+   - Ménage (`SessionRoster.prune`) : une ligne finie ou en erreur reste jusqu'à minuit du jour de sa fin, dans le calendrier de l'utilisateur (changements d'heure compris), et seules les 10 fins les plus récentes restent ; une ligne au repos (`idle`) part après 30 min sans activité, une ligne au travail (`thinking`, `working`, `searching`, `ratelimit`) après 2 h ; jamais une autorisation ni une question en attente. `SessionEnd` retire la ligne, sauf une ligne finie ou en erreur : quitter Claude Code après une réponse est la fin normale d'une session, elle reste dans l'historique du jour. Le ménage se fait à chaque événement, quand la maison s'affiche (ouverture de l'île, retour à la maison) et avant ⌃⌥T, jamais sur minuterie : une île laissée ouverte sur la maison au passage de minuit garde les lignes de la veille jusqu'au prochain événement ou à la prochaine ouverture.
+3. **Derniers choix** : les 3 dernières autorisations et questions répondues depuis l'île (`AppState.recentChoices`, `ChoiceHistoryView.limit`, historique local de 20 entrées), en gris `#9398A1` à 55 % d'opacité, 10 pt, une ligne chacune : « HH:mm · session · demande · réponse ». La demande est coupée en bout de ligne, la réponse reste entière (20 caractères au plus). Sans choix, le bloc n'apparaît pas.
+4. **Demande en cours** : une autorisation ou une question en attente a sa vue (`approval`, `question`), qui passe devant la maison.
 
-La maison s'affiche quand la pastille en focus est une pastille Claude (Claude Code, app Claude) ou qu'aucune n'a le focus. Avec GitHub ou Spotify en focus, la carte gauche garde leur carte et son bouton ↗. Hauteur : 220 pt, soit une carte de 168 pt (8 en haut, en-tête de 34, 10 en bas) ; Klay reste centré verticalement sur la carte.
+La liste s'affiche sauf quand GitHub ou Spotify a le focus (`HomeRail.showsCard`) : leur carte existante prend alors sa place, dans une bande de 98 pt centrée dans la carte, avec son bouton ↗, décalée de 8 pt à gauche pour que son texte commence là où commencent les lignes (`HomeLayout.serviceCardShift`). Même bande et même décalage pour la carte de forfait.
 
-Retirés : pastilles d'éditeurs (VS Code, Cursor), boutons terminal et éditeur, défilé de tâches, cartes de diff et compteurs +N −M. À la fin d'une session (`Stop`), la dernière phrase de l'assistant (`last_assistant_message`, nettoyée du Markdown par `ChatMarkdown.toOneLine`, premier paragraphe utile) devient la dernière action de sa ligne et le texte de la vue `finished`.
+Retirés : pastilles d'éditeurs (VS Code, Cursor), boutons terminal et éditeur, défilé de tâches, cartes de diff et compteurs +N −M, et depuis le lot 6 les pastilles de la maison. À la fin d'une session (`Stop`), la dernière phrase de l'assistant (`last_assistant_message`, nettoyée du Markdown par `ChatMarkdown.toOneLine`, premier paragraphe utile) devient la dernière action de sa ligne et le texte de la vue `finished`.
 
-### Pastilles (overview)
-- 132 × 34, rayon 17, fond couleur de l'agent à 13 %, bord à 32 %, mini-bonhomme Ø 24 centré à 17 pt du bord gauche, libellé 12 pt couleur de l'agent éclaircie de 25 %. Deux colonnes, écart 8, centrées verticalement dans la carte droite (qui commence à x = 342).
+### Bande d'icônes (overview)
+
+- Icônes, de haut en bas, une par rangée de 26 pt alignée sur les lignes, sous l'onglet maison (`HomeRail.icons`, `AppState.homeRailIcons`) : Spotify (sa pastille active), GitHub (sa pastille active et un jeton réglé), Granola (toujours). Symboles neutres `music.note`, `arrow.triangle.pull` et `mic` (aucun logo repris), 13 pt, `#8E939C` à 45 % comme le bouton Granola de l'île réduite, `#B0B5BE` au survol, `#F5F6F8` sur une capsule `#1D1F23` pour l'icône dont la carte est à l'écran. Spotify en lecture teinte sa note en vert à 70 %. Le badge d'alerte d'une pastille (CI GitHub en échec ou réussie, revue demandée) passe sur son icône, à 75 %.
+- Infobulles : « Spotify », « GitHub », « Nouvelle note Granola », et « Retour aux conversations » sur l'icône dont la carte est affichée.
+- Clic (`HomeRail.action`) : Spotify ou GitHub met sa pastille en focus et sa carte à la place de la liste (`AppState.showCard`, qui retient la pastille d'avant) ; un second clic sur la même icône, ou l'onglet maison de l'en-tête, rend la liste et le focus d'avant (`AppState.showHomeList`). Granola ouvre une nouvelle note (`GranolaLink`), la maison reste. Une autorisation ou une question qui part rend la liste, pas la carte (`HomeRail.focusAfterRequest`).
+- Les pastilles Claude Code et Claude Desktop n'ont pas d'icône : leurs sessions sont la liste. Leurs identifiants restent pour le routage, la pose de Klay et les cartes. Le badge qu'une fin ou une demande pose sur elles quand l'île sert à autre chose ne s'affiche donc nulle part : seuls le son et la ligne de la session le disent.
 
 ### Catalogue de pastilles
 Toutes les pastilles déclarées sont définies dans `PillCatalog.all` (source de vérité unique). Trois catégories :
@@ -123,7 +129,7 @@ Règles :
 - Max 4 pastilles autres que `mainPillId` actives à la fois (`activeIntegrations`, persisté).
 - `removeTask` sur `mainPillId` ou une pastille déclarée + active → reset à `.idle` + `pillBadge = nil` + nom du catalogue (pas de suppression). Sinon → suppression normale.
 - `sortTasksByCatalog` : pastilles du catalogue dans l'ordre du catalogue ; pastilles hors catalogue juste après `integration_claude`.
-- Claude Code : ses sessions, lancées dans un éditeur ou un terminal, s'affichent sur cette pastille et dans la maison ; les hooks s'installent dans Réglages → Agents. Claude Desktop : rien à installer. Les pastilles Claude ouvrent la maison, jamais une carte d'état ; seules GitHub et Spotify ont leur carte (`IntegrationCardView`). Les autres agents ne sont plus suivis : leurs événements sont ignorés (pas de pastille) et leurs demandes d'autorisation reçoivent `ask` (voir `docs/AGENTS.md`).
+- Claude Code : ses sessions, lancées dans un éditeur ou un terminal, sont routées sur cette pastille et s'affichent dans la maison ; les hooks s'installent dans Réglages → Agents. Claude Desktop : rien à installer. Les pastilles Claude ouvrent la maison, jamais une carte d'état ; seules GitHub et Spotify ont leur carte (`IntegrationCardView`). Les autres agents ne sont plus suivis : leurs événements sont ignorés (pas de pastille) et leurs demandes d'autorisation reçoivent `ask` (voir `docs/AGENTS.md`).
 
 ### Carte GitHub (`GitHubPulseCardView`)
 
@@ -158,7 +164,7 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
 - **Corps** : le glyphe Klayer (`glyph.ts`, généré depuis le SVG du design system), blanc sur l'île sombre, jamais redessiné ni déformé. Il occupe 62 % de la largeur du canvas. Écrasements, inclinaisons, sauts et vrilles s'appliquent au personnage entier.
 - **Halo** : dégradé radial de la couleur de l'état derrière les rayons, rayon 380 unités, opacité 0,55 × teinte au centre. Au repos : teal-light Klayer `#3E7280`, teinte 0,35.
 - **Couleurs d'état** : variantes éclaircies des couleurs de la marque Klayer, pour rester lisibles sur l'île noire (les valeurs exactes de la charte sont trop sombres sur du noir). Le halo de Klay, son badge, le halo de l'île derrière lui et le voile des cartes d'alerte (§5) prennent la couleur de l'état (tableau ci-dessous, `C` dans `engine.ts`, `StateColor` dans `BotEngine.swift`). Les marques du badge (points, « ! », « ? ») sont teal-deep `#071B20` sur un fond clair (luminance relative au-dessus de 0,2, là où blanc et teal-deep contrastent autant), blanches sinon : tous les états qui ont un badge sont clairs, avec un contraste d'au moins 4,6:1.
-- **Yeux** : deux yeux ronds blancs (rayon 52, écart ±56, liseré teal-deep `#071B20` de 9) posés sur le moyeu. La forme d'œil (pilule, arc content, fente, spirale, cœur, étoile…) se dessine dans chaque œil en teal-deep, découpée au bord intérieur du liseré. Le regard (`klayGaze`, `KlayMotion.gaze`, lacet et tangage de −1 à 1, tangage positif vers le haut) décale les blancs de lacet × 48 et tangage × 30, et les pupilles de lacet × 40 et tangage × 32 en plus, bornées dans une ellipse de 26 × 18 pour rester dans le blanc. En tournant, l'œil de ce côté se rétrécit jusqu'à 16 % et l'écart des yeux se resserre jusqu'à 8 % ; les joues suivent les yeux (× 0,8). Les figures scénarisées (accueil, envoi, zone de dépôt) gardent l'ancien décalage (×0,4 et ×0,8 jusqu'à ±14 et ±12).
+- **Yeux** : deux yeux ronds blancs (rayon 52, écart ±56, liseré teal-deep `#071B20` de 9) posés sur le moyeu. La forme d'œil (pilule, arc content, fente, spirale, cœur, étoile…) se dessine dans chaque œil en teal-deep, découpée au bord intérieur du liseré. Le regard (`klayGaze`, `KlayMotion.gaze`, lacet et tangage de −1 à 1, tangage positif vers le haut) décale les blancs de lacet × 48 et tangage × 30, et les pupilles de lacet × 40 et tangage × 32 en plus, bornées dans une ellipse de 26 × 18 pour rester dans le blanc. En tournant, l'œil de ce côté se rétrécit jusqu'à 16 % et l'écart des yeux se resserre jusqu'à 8 % ; les joues suivent les yeux (× 0,8). Le salut de lancement garde l'ancien décalage (×0,4 et ×0,8 jusqu'à ±14 et ±12). Le Klay de la zone de dépôt et de l'envoi suit la règle du regard du Klay de l'île (`KlayMotion.gaze`, sans son ressort), pour que ses yeux ne changent pas quand il prend le relais (§8).
 - **Bras** : nouilles blanches de 26 unités, liseré teal-deep de 7, mains rondes (rayon 26), devant le glyphe pour rester lisibles sur les rayons, sur toutes les surfaces (île, bureau, salut, envoi, zone de dépôt). Épaules à (±82, 50), couvertes d'un disque blanc. La pose des mains dépend de l'état (`limbTargets`) : repos (±168, 150), tape au clavier en `working`, main au menton en `thinking`, les deux mains sur les côtés des jumelles à (±146, −52) en `searching`, qui suivent leur balayage, bras levés en `approval`, grattage de tête en `question`, bras ballants en `error`, `ratelimit` et `sleeping`, V en `finished`, moulinets en `dizzy`. Salut : main droite levée, va-et-vient à 13 rad/s. Zone de dépôt : bras ouverts, mains à (±200, −40) (`armsOpenTargets`).
 - **Jumelles** (`searching`, Klay principal seulement : ni mini-Klay ni zone de dépôt), vues un peu d'en haut pour que la longueur des fûts se voie, de 272 de large sur 177 de haut (`BINO`, `KlayPaint.Bino`) :
   - deux fûts teal-deep `#071B20` d'axe x = ±84 : en haut un tube d'oculaire étroit (48 de large, de −142 à −94, rayon d'angle 10) barré d'une bague brume `#ECEDE7` de 8 à y = −128 ; dessous un tube d'objectif plus large (104 de large, de −104 à 0, rayon d'angle 18) terminé par une ellipse de 104 × 44 centrée en y = 0, tournée vers nous ;
@@ -168,8 +174,8 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
   - ordre de dessin : jambes, glyphe, jumelles, bras, joues ; les yeux ne sont pas dessinés pendant ce temps. Les jumelles restent quand les membres sont masqués (île compacte).
 - **Jambes** : deux jambes blanches derrière le glyphe, hanches à (±17, 104), pieds ovales (32 × 15) à (±36, 212). Piétinement en `working`, tapotement du pied au repos (voir Mouvement).
 - **Membres masqués** en dessous de 30 px de largeur de glyphe (île compacte).
-- **Boîte aux lettres** (dépôt de fichier) : le glyphe rétrécit et s'efface, une boîte blanche à dégradé brume `#ECEDE7` apparaît avec une fente sombre et les mêmes yeux.
-- **Mini-Klay** (pastilles d'agents et de services) : glyphe blanc et yeux sur un disque de la couleur de la pastille, sans membres.
+- **Zone de dépôt** : Klay reste Klay, le glyphe intact (plus de boîte aux lettres depuis le lot 6) ; ses bras s'ouvrent pour le fichier (`KlayPaint.dropLimbs`) et il l'avale (§8).
+- **Mini-Klay** (lignes des conversations de la maison) : glyphe blanc et yeux sur un disque de la couleur de l'état de la session, sans membres ; gris et immobile pour une session finie ou en erreur (§5, Maison).
 - Regard : suit la souris avec retard. Clignement aléatoire toutes les 2,2 à 5,4 s, double clignement 22 % du temps.
 
 ### Mouvement
@@ -182,7 +188,7 @@ Constantes partagées par le banc (`motion.ts`, `MOTION`) et le Mac (`KlayMotion
 - **Survol** (l'île met `tgEs` à 1,08 quand le pointeur est sur Klay, le bureau aussi) : sursaut (sy 1,07 et sx 0,96 en 110 ms, retour en 280 ms avec rebond), montée de 8 unités vers le pointeur, gain du regard × 2,4.
 - **Respiration éveillée** du Klay principal : sy ± 1,2 % à 1,9 rad/s (le sommeil garde ± 3,5 % à 1,8 rad/s).
 - **Pointeur immobile** depuis 3,5 à 6 s (`idle`, `working`, `finished`, hors survol) : Klay regarde autour, un coup d'œil toutes les 0,6 à 1,6 s, 30 % vers le pointeur ; le moindre mouvement du pointeur le ramène.
-- **Occupations au repos** (`idle` seulement, sans survol, émote, salut, danse ni boîte aux lettres) : toutes les 5 à 12 s, un tapotement du pied (3,3 Hz pendant 0,9 s, pointe levée de 20 unités). Pointeur immobile depuis 25 s : un étirement ou un bâillement en alternance, puis un toutes les 35 à 70 s. Étirement : 1,8 s, mains à (±130, −215), corps étiré de 6 % (sx 0,97), yeux fermés de 0,35 à 1,35 s. Bâillement : l'émote Bâille.
+- **Occupations au repos** (`idle` seulement, sans survol, émote, salut ni danse) : toutes les 5 à 12 s, un tapotement du pied (3,3 Hz pendant 0,9 s, pointe levée de 20 unités). Pointeur immobile depuis 25 s : un étirement ou un bâillement en alternance, puis un toutes les 35 à 70 s. Étirement : 1,8 s, mains à (±130, −215), corps étiré de 6 % (sx 0,97), yeux fermés de 0,35 à 1,35 s. Bâillement : l'émote Bâille.
 - **Danse** (Spotify) : 112 BPM, saut de 0,2 R, balancement de 0,1 rad et décalage de 0,08 R autour des semelles, écrasement à chaque atterrissage ; montée 0,3 s, descente 0,5 s ; yeux contents en `idle` et `finished`.
 - **Cadence** : l'île dessine Klay à la fréquence d'affichage et s'arrête quand elle est cachée ; Klay sur le bureau aussi, 10 images/s endormi, en pause écran éteint ou verrouillé. Toutes les vues de l'île ouverte restent dans l'arbre (opacité 0) : celles qui ne sont pas à l'écran arrêtent leurs animations (mini Klays de la maison, zone de dépôt, barre d'envoi).
 
@@ -224,10 +230,10 @@ Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `searching`
 - **Clic** en compact ou hidden → rien, l'île ne s'ouvre jamais au clic (§3), sauf le bouton Granola de l'île réduite, qui ouvre Granola. **Clic** en expanded → claque : écrasement (70/130/170 ms), Agacé 800 ms, halo violet, sons `slap` + `annoyed`.
 - **3 clics en moins de 1,7 s** → état `dizzy` pendant 3,3 s, vue `confused`, son `dizzy`, puis retour à la vue et à l'état d'avant.
 - **Glisser** le bonhomme (> 7 pt) : un bonhomme flottant Ø 54 suit le curseur (Surpris + `pop`), celui du notch disparaît. Lâché sur une fenêtre d'une autre app → **attache** (voir INTEGRATIONS §4). Lâché ailleurs → revient dans le notch en 420 ms en rétrécissant.
-- **Glisser un fichier** depuis le Finder vers la zone du notch (±220 pt autour du centre, jusqu'à 26 pt sous l'island) → vue `upload`, le bonhomme se transforme en « bac » (morph 380 ms avec rebond) et regarde le fichier. Contour vert et voile vert quand le fichier est au-dessus.
-- **Zone de dépôt** : Klay lui-même, au centre de la carte, remplace le pictogramme et les puces « PDF / Images / Code / Docs ». Il est dessiné de 72 pt de haut, glyphe, yeux `wide`, jambes au repos et bras ouverts, avec « Dépose ton fichier » dessous. Il bouge doucement (va-et-vient vertical de 8 unités, mains qui balancent de 6 unités, clignement toutes les 3,6 s) et regarde le fichier. Il s'efface avec la zone et s'assombrit quand le bac passe devant lui. L'onglet Déposer montre la même figure. Banc : cellule « dépôt » de `tools/klay-preview`.
-- **Déposer** : le fichier file dans le bonhomme (360 ms), `gulp` à 330 ms, écrasement + Content, retour à la forme ronde à 950 ms, vue `uploading` (1,2 à 2,1 s, `tick` tous les 10 %, correspond à la copie dans le dossier de travail de l'app), son `approve`, puis vue `choose`.
-- Plusieurs fichiers : même flux, libellé « 3 fichiers ».
+- **Glisser un fichier** depuis le Finder vers la zone du notch (±220 pt autour du centre, jusqu'à 26 pt sous l'island) → vue `upload`. La zone de dépôt (`UploadCanvasView`, `UploadSequenceEngine`, testée par `scripts/test-upload-sequence.sh`) prend le relais du Klay de l'île à la même place et à la même taille (x 320, y 92, Ø 62, règle de taille `KlaySize`) : le Klay de l'île disparaît aussitôt, sans fondu, pour que deux Klay ne se voient jamais, et revient en fondu de 0,25 s quand la zone part. Contour vert et voile vert quand le fichier est au-dessus.
+- **Zone de dépôt** : un seul personnage, Klay, au milieu de la carte pointillée, avec « Dépose ton fichier » dessous (y 133). Dans l'onglet Déposer, c'est le Klay de l'île, au repos (il respire, cligne et suit le pointeur). Quand un fichier approche, il ouvre les bras en 0,38 s avec un léger dépassement (mains vers (±200, −40), `armsOpenTargets`), ouvre grand les yeux, les pose sur le fichier, se déplace pour le suivre et cligne toutes les 3,6 s. Un fichier qui ressort sans être déposé : en 0,3 s les bras retombent et les yeux reviennent au repos, puis Klay retourne au centre ; si le fichier revient, Klay repart de là où il est. Plus de boîte aux lettres ni de seconde figure. Banc : cellules « dépôt : bras ouverts » et « dépôt : avale » de `tools/klay-preview`.
+- **Déposer** : le fichier file dans Klay par une ligne au-dessus de ses yeux (aspiration de 0,30 s, 80 ms après le dépôt) ; Klay s'écrase (1,14 × 0,82 au plus profond, 70 ms après l'aspiration), ferme les yeux, baisse les bras, puis se réduit sur la barre : vue `uploading` (barre de 2,4 s, `tick` tous les 10 %, pendant la copie dans le dossier de travail de l'app), son `approve` au dépôt et à la fin, puis vue `choose`.
+- Plusieurs fichiers : seul le premier est pris (`FileDropHandler`).
 
 ## 9. Sons
 
@@ -243,7 +249,7 @@ Fichiers `assets/sounds/*.wav` (48 kHz stéréo), rendus depuis le moteur du pro
 | permission / question / erreur / limite | `approval` / `question` / `error` / `rate` |
 | terminé | `finish` |
 | décision validée, upload fini | `approve` |
-| fichier avalé / progression | `gulp` / `tick` |
+| fichier déposé / progression | `approve` / `tick` (`gulp` reste parmi les 29 fichiers, sans déclencheur dans l'app pour l'instant) |
 | envoi / attache fenêtre | `send` / `attach` : fichiers gardés parmi les 29, aucun déclencheur dans l'app pour l'instant (l'île n'envoie plus de mail) |
 | émotes | `love`, `pop`, `proud`, `wink`, `yawn`, `sleep` |
 
@@ -255,6 +261,7 @@ Petit item dans la barre de menus (icône : silhouette du Klay, monochrome). Men
 
 Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
 - **Claude Code Hooks** : état des hooks, boutons Installer et Désinstaller. Chacun montre d'abord les entrées du bloc `hooks` qui changent (« - » retirée, « + » ajoutée) et n'écrit qu'après « Confirmer et écrire », avec une sauvegarde datée juste avant. Seules les entrées de Klayer Island sont touchées (INTEGRATIONS §1).
+- **App Claude : Chat et Cowork** (section Agents, lot 6) : interrupteur « Suivre Chat et Cowork dans l'app Claude (expérimental) », activé par défaut (UserDefaults `claudeAppWatchEnabled`) ; ligne « Accès Accessibilité : autorisé » ou « Accès Accessibilité : non autorisé », avec « Autoriser l'accès » ; bouton « Copier le diagnostic de l'app Claude », puis « Copié » 2 s. Voir §16.2.
 - **Plan usage** : toggle **Show in the notch** + bouton **Install relay** / **Uninstall relay**. Voir INTEGRATIONS §1bis. **Jauge de forfait Claude** : petit pill dans l'en-tête de l'île (vue home uniquement). Activé via `showPlanInNotch` (UserDefaults) + `HookServer.statusLineInstalled()`. Couleur = `ClaudePlanGauge.color(for: dominantPct)`. Clic → `showingPlanDetail` bascule et `ClaudePlanCardView` s'affiche à la place de la carte en cours. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode. Grand Klay prend la couleur de l'usage quand `showingPlanDetail == true`.
 - **Integrations** : jeton personnel GitHub (Trousseau).
 - **Sound** : son on/off, volume.
@@ -288,7 +295,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 - Côte à côte avec le prototype, vous ne voyez pas de différence sur le personnage, les couleurs, les timings et les sons.
 - Aucun clic perdu à cause de la fenêtre transparente.
 - Une session Claude Code n'est jamais bloquée par l'app (app fermée, plantée ou lente → le terminal prend le relais).
-- Hidden = 0 % CPU ; compact < 3 % ; mémoire < 100 Mo.
+- Hidden = 0 % CPU ; compact < 3 % ; mémoire < 100 Mo. Seule exception (lot 6, §16.2) : le suivi de Chat et Cowork lit l'app Claude toutes les 2 s tant qu'elle est au premier plan ou qu'une réponse repérée est en cours, et rien sinon.
 
 ## 13. Klay sur le bureau
 
@@ -366,11 +373,12 @@ Ces raccourcis fonctionnent en arrière-plan sans permission Accessibilité.
 | Aller à l'alerte (`goToAlert`) | ⌃⌥A | `shortcut.goToAlert.keyCode` / `.flags` | Oui |
 | Sauter au terminal (`jumpToTerminal`) | ⌃⌥T | `shortcut.jumpToTerminal.keyCode` / `.flags` | Oui |
 | Attacher la fenêtre active (`attachFrontWindow`) | ⌃⌥W | `shortcut.attachFrontWindow.keyCode` / `.flags` | Oui |
-| Pilule suivante (`nextPill`) | ⌃⌥] | `shortcut.nextPill.keyCode` / `.flags` | Oui |
-| Pilule précédente (`prevPill`) | ⌃⌥[ | `shortcut.prevPill.keyCode` / `.flags` | Oui |
+| Entrée suivante de la maison (`nextPill`) | ⌃⌥] | `shortcut.nextPill.keyCode` / `.flags` | Oui |
+| Entrée précédente de la maison (`prevPill`) | ⌃⌥[ | `shortcut.prevPill.keyCode` / `.flags` | Oui |
 | Couper le son (`toggleMute`) | ⌃⌥M | `shortcut.toggleMute.keyCode` / `.flags` | Oui |
 | Klay sur le bureau (`toggleDesktopKlay`) | ⌃⌥D | `shortcut.toggleDesktopKlay.keyCode` / `.flags` | Oui |
 
+- `nextPill` et `prevPill` (« Onglet suivant » et « Onglet précédent » dans les Réglages) parcourent ce que montre la maison, en boucle : la liste, puis la carte de chaque icône de service de la bande, dans son ordre (Spotify, puis GitHub), par le même chemin qu'un clic (`HomeRail.cycle`). Ils ouvrent l'île sur la maison. Les pastilles Claude ne sont pas parcourues : leurs sessions sont la liste.
 - Si Carbon ne peut pas enregistrer un raccourci (conflit système), l'action est marquée `.conflict` dans `HotKeyCenter` et un indicateur apparaît dans Réglages → Raccourcis.
 - `toggleIsland` conserve les clés UserDefaults historiques (`hotkeyCode`, `hotkeyFlags`, `hotkeyEnabled`) pour ne pas casser les préférences existantes.
 
@@ -380,9 +388,9 @@ Ces raccourcis sont gérés par `NSEvent.addLocalMonitorForEvents`. L'île prend
 
 | Raccourci | Action |
 |-----------|--------|
-| ⌘→ | Pilule suivante |
-| ⌘← | Pilule précédente |
-| ⌘1…⌘9 | Passe directement à la pilule n° 1–9 |
+| ⌘→ | Entrée suivante de la maison, comme ⌃⌥] |
+| ⌘← | Entrée précédente de la maison, comme ⌃⌥[ |
+| ⌘1…⌘9 | ⌘1 la liste, ⌘2 et ⌘3 les cartes de la bande d'icônes, dans son ordre ; un numéro sans entrée ne fait rien (`HomeRail.entry`) |
 | ⌘↓ | Descend dans la liste de la carte active |
 | ⌘↑ | Monte dans la liste de la carte active |
 | ⌘O | Ouvre/développe l'élément sélectionné |
@@ -413,6 +421,7 @@ Le chat et l'email passent par le Claude Code installé sur le Mac, avec le forf
 - **Modèle.** `claude-haiku-5-5`, fixe, sans sélecteur. Pas de recherche web.
 - **Aucun outil.** Le chat n'ouvre ni fichier, ni shell, ni page web, ni connecteur : son processus ne charge aucun connecteur et ne démarre aucun serveur MCP, sauf ceux qu'un administrateur impose par `managed-mcp.json`, dont les outils restent retirés. Le seul fichier qu'il lit est celui que l'utilisateur a déposé, dont le contenu est dans le message. Les options de lancement retirent tous les outils ; l'île arrête quand même le processus si un outil apparaît (« Le chat a reçu des outils : arrêt par sécurité. »).
 - **Prérequis.** Claude Code installé et connecté avec un compte claude.ai (`claude auth status` affiche `claude.ai`). Sinon, à la place du champ, une phrase grise : « Claude Code n'est pas installé sur ce Mac. » avec « Installer Claude Code » (page d'installation), ou « Connecte Claude Code : ouvre un terminal, lance claude puis /login. ». Le chat reprend dès la réouverture, sans relancer l'île. Le chat ne demande rien à configurer : il n'y a plus de section Chat dans les Réglages.
+- **Contexte.** Le chat s'ouvre sans contexte (lot 6) : ni son onglet ni ⌃⌥Espace ne capturent la fenêtre de l'app précédente, et un fichier déposé n'y entre qu'avec « Poser une question ». Seuls des actes explicites posent un contexte : « Poser une question » (ou « Poser une question à ce sujet ») sur un fichier déposé, Klay glissé sur une fenêtre, ⌃⌥W (« Attacher la fenêtre de premier plan »). Un contexte reste jusqu'à ce qu'un autre le remplace, ou qu'un fichier refusé le retire. `scripts/test-window-capture-sites.sh` refuse tout autre appel à la capture de fenêtre.
 - **Ce que le message porte.** La question ; avant elle, la fenêtre attachée en texte (app, titre, adresse de l'onglet : jamais une capture) et le fichier déposé :
   - image png, jpg, gif ou webp de 5 Mo au plus ;
   - PDF de 50 Mo au plus, lu en texte et coupé à 200 000 caractères avec une mention ;
@@ -442,3 +451,41 @@ Le chat et l'email passent par le Claude Code installé sur le Mac, avec le forf
 - La clé API Anthropic (Trousseau, `anthropic-api-key`), le sélecteur de modèle (`claudeModel`) et la section Réglages « Anthropic API » ; le fournisseur de chat et son code (`ChatProvider`), la recherche web, les vues `searching` et `result`.
 - L'envoi par Mail.app (AppleScript) et la note « Email sent to … ».
 - Au premier lancement de cette build, l'app supprime une fois la clé Anthropic du Trousseau et le réglage `claudeModel` (deuxième étape de `RemovedFeatureCleanup`, `removedFeatureCleanupVersion` à 2). Le jeton GitHub reste.
+
+## 16. L'app Claude : onglet Code, Chat et Cowork (lot 6)
+
+L'île est la notification de l'app Claude : elle signale chaque fin de réponse ou de session et chaque demande (autorisation, question), même quand l'utilisateur est dans une autre app. Conception : `docs/superpowers/specs/2026-10-09-klayer-island-lot6-app-claude-design.md`. Détail technique : `INTEGRATIONS.md` §1 et §8. Vérification sur Mac : `TEST-MAC.md`, section 5.
+
+| Mode de l'app Claude | Source | Niveau |
+|---|---|---|
+| Code (onglet Code) | hooks Claude Code (`klayer_agent: claude-desktop`) | mécanisme officiel : fins, autorisations, questions (lot 3), et notifications (§16.1) |
+| Chat | lecture des boutons de l'app par l'accessibilité de macOS | expérimental : dépend des libellés de l'interface d'Anthropic |
+| Cowork | idem | expérimental ; le spike S2 (Plugin Cowork) reste ouvert |
+
+Le terminal ne change pas. L'île ne clique jamais dans l'app Claude, n'y répond à rien et n'y lit jamais le texte d'un message. Hors périmètre : claude.ai dans un navigateur, et répondre depuis l'île aux autorisations de Chat ou de Cowork.
+
+### 16.1 Onglet Code : une demande sans carte ouvre l'île
+
+- Une notification Claude Code (hook `Notification`) d'une session de l'app Claude qui demande quelque chose ouvre l'île sur cette session, quand aucune carte de cette session n'est tenue (son autorisation ou sa question à l'écran, ou en attente du survol). Règles pures dans `CodeNotification`, testées par `scripts/test-code-notification.sh`.
+- Ce qui demande quelque chose (`notification_type`) : `permission_prompt` (une autorisation) ; `elicitation_dialog` et `elicitation_url_dialog` (le formulaire ou l'adresse d'un serveur MCP) ; `idle_prompt` (Claude a fini il y a environ 60 s et rien n'a été tapé depuis). Tout autre type ne demande rien. Sans type (Claude Code ancien) : le texte « needs your permission » ou « waiting for your input ».
+- Un `idle_prompt` qui suit une fin déjà montrée (la ligne de la session est finie ou en erreur) n'ouvre rien : la vue `finished` était la notification. Une autorisation ou un formulaire ouvre quelle que soit la ligne.
+- Vue `note` : titre « Claude attend ta réponse » ; ligne « Une autorisation t'attend dans l'app Claude : <projet> » pour une autorisation, « Claude a besoin de toi dans l'app Claude : <projet> » sinon ; boutons « Ouvrir Claude » (ouvre l'app Claude, puis l'île se replie) et OK. Son `approval` pour une autorisation, `question` sinon. La note tient l'île comme une fin de session (règle 6 : jusqu'au survol suivi d'une sortie, un clic ailleurs, Échap, OK ou « Ouvrir Claude ») ; le minuteur de 3 s des notes ne la ferme pas, et une réponse donnée dans l'app ne la replie pas d'elle-même. La même note déjà à l'écran ne rejoue ni son ni ouverture.
+- Ouverture (`AppState.showClaudeAppAlert`, la seule entrée des notes de l'app Claude) : même règle qu'une fin (`FinishPresentation`) : jamais par-dessus un brouillon du chat ou d'un email, une carte en attente ou une île épinglée. Sinon, le son seul et un badge d'autorisation sur la pastille de l'app Claude, quel que soit le type de la demande ; cette pastille ne s'affiche plus (§5, Bande d'icônes).
+- Ligne de la session : « Attend ton accord » pour une autorisation, « Te pose une question » pour une attente, sauf une ligne finie ou en erreur, qui reste dans l'historique du jour. Un `PostToolUse` de la session la remet sur « Travaille » (l'utilisateur a répondu dans l'app), sauf tant qu'une carte de cette session est tenue.
+- Terminal (sans `klayer_agent`) : jamais. Ses notifications gardent leur effet d'avant (limite d'usage, question dans le texte).
+- Les champs et les types viennent de la doc des hooks de Claude Code. Que l'app Claude envoie `idle_prompt` et `elicitation_*` dans ses sessions n'y est pas écrit, et `permission_prompt` n'y part qu'à partir de Claude Code 2.1.233 : à confirmer sur Mac.
+
+### 16.2 Chat et Cowork : suivi expérimental
+
+- Réglage « Suivre Chat et Cowork dans l'app Claude (expérimental) », activé par défaut (§10). Coupé : aucun observateur ni minuteur. Ni lecture ni demande d'accès dans un lancement de test (`KLAYER_ISLAND_TEST=1`).
+- Accès : la permission Accessibilité de macOS, déjà demandée pour le titre de la fenêtre attachée au chat. La demande de macOS s'affiche d'elle-même une seule fois (la première fois que le suivi est actif et que l'app Claude tourne), ensuite seulement par « Autoriser l'accès », qui ouvre aussi Réglages Système sur Accessibilité quand l'accès manque encore. Sans accès, rien n'est lu ni planifié.
+- Lecture (`ClaudeAppWatcher`) : l'app Claude (`com.anthropic.claudefordesktop`, une app Electron) n'expose son interface à l'accessibilité que si son attribut `AXManualAccessibility` est vrai : l'île le met à vrai au début d'une série de lectures et le remet à faux à la fin, seulement si c'est elle qui l'avait mis. Elle parcourt les fenêtres de l'app sur une file à part, hors du fil principal (profondeur 30, 5 000 éléments, 0,5 s au plus par appel, les enfants du dernier au premier pour que la limite coupe les plus anciens messages plutôt que la zone de saisie). Elle lit le rôle de chaque élément parcouru et le libellé des seuls boutons (`AXButton`, `AXMenuButton`, `AXPopUpButton` ; `AXDescription`, sinon `AXTitle`, sinon `AXHelp`, jamais `AXValue`), sans entrer dans les textes, les champs, les liens ni les images. Le titre de la fenêtre principale ne sert qu'à la ligne de la note.
+- Libellés (`ClaudeAppWatchRules`, le seul endroit où ils vivent, testé par `scripts/test-claude-app-watch.sh`) : arrêt « Stop response », « Stop », « Arrêter la réponse », « Arrêter » ; autorisation « Allow », « Allow once », « Always allow », « Allow always », « Autoriser », « Autoriser une fois », « Toujours autoriser » ; refus « Deny », « Don't allow », « Refuser », « Ne pas autoriser ». Comparaison exacte, sans casse ni espaces autour, apostrophe typographique lue comme droite ; jamais « contient ». Une autorisation demande un bouton d'autorisation et un bouton de refus visibles ensemble. Aucun libellé reconnu : aucun événement. Ces listes sont des suppositions que le diagnostic corrige.
+- Événements (`ClaudeAppWatchState`, pur et testé) :
+  - « Claude a fini de répondre », son `finish` : un bouton d'arrêt vu, puis absent à deux lectures de suite, l'app Claude au second plan aux deux lectures et sans autorisation à l'écran. Rien si l'une des deux lectures s'est faite app au premier plan. La note arrive donc 2 à 4 s après la fin.
+  - « Claude attend ta réponse », son `approval` : une autorisation apparue, une fois par apparition, l'app au second plan. Une autorisation vue au premier plan ne déclenche rien, même si elle est encore là quand l'app passe derrière. Elle ne compte comme partie qu'après deux lectures sans elle.
+  - Ligne de la note : le titre de la fenêtre de l'app Claude, sauf vide ou « Claude », et alors « Dans l'app Claude ». Même note et même règle d'ouverture que §16.1.
+  - Onglet Code : dans les 15 s qui suivent un événement de hook d'une session de l'app Claude (`HookServer.lastDesktopHookAt`), un événement du suivi est consommé sans note, pour ne pas doubler les vues que les hooks montrent déjà.
+- CPU : aucun minuteur au repos ; les notifications de macOS (activation, lancement et fin d'app) réveillent le suivi. Une lecture toutes les 2 s, seulement tant que l'app Claude est au premier plan ou qu'une réponse repérée est en cours. Quand une autre app passe devant pendant les lectures, une lecture immédiate décide s'il faut continuer : une réponse envoyée juste avant le changement d'app est suivie jusqu'au bout. Une lecture qui ne dit rien (aucune fenêtre, app masquée, délai dépassé) ne conclut rien ; au second plan, 15 lectures de suite de cette sorte (30 s) abandonnent la réponse sans note, et une réponse suivie de derrière plus de 60 min aussi. L'app Claude quitte : tout est oublié.
+- Diagnostic : « Copier le diagnostic de l'app Claude », sur clic seulement, copie dans le presse-papiers la version de l'app Claude, l'accès (oui ou non), les comptes de la lecture (fenêtres, éléments lus, limites atteintes, durée, lecture complète, boutons), si le bouton d'arrêt et une autorisation sont reconnus, puis une ligne `rôle | libellé` par bouton distinct, 300 lignes au plus. Un libellé de plus de 30 caractères ou de 5 mots s'écrit « (libellé long, N caractères) », un libellé vide « (sans libellé) ». Jamais le texte d'un message, jamais le titre de la fenêtre, rien sur le disque. Un libellé court peut pourtant être le titre d'une conversation : l'utilisateur relit le diagnostic avant de l'envoyer.
+- Journal : `~/Library/Logs/NotchBuddy/claude-app.log`, des événements seulement, jamais un libellé, un titre ni un message.

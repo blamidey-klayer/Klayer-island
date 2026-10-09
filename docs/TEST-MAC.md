@@ -1,6 +1,6 @@
 # Klayer Island : liste de contrôle Mac
 
-Cette liste se parcourt de haut en bas : 10 minutes pour l'installation, 40 minutes pour le parcours de test (points facultatifs exclus), 10 minutes pour les trois spikes (S1, S3, S4), puis 45 minutes pour le lot 4 (chat Haiku et brouillon Gmail par Claude Code). Elle teste la build des lots 1 à 4. Faites le spike S3 avant la section 4.
+Cette liste se parcourt de haut en bas : 10 minutes pour l'installation, 37 minutes pour le parcours de test (points facultatifs exclus), 10 minutes pour les trois spikes (S1, S3, S4), 45 minutes pour le lot 4 (chat Haiku et brouillon Gmail par Claude Code), puis 55 minutes pour le lot 6 (l'île au service de l'app Claude). Elle teste la build 0.3.0 (build 14), qui contient les lots 1 à 4 et le lot 6. Faites le spike S3 avant la section 4. Si vous avez déjà parcouru la liste avec la build des lots 1 à 4, faites la section 1 (installation), puis la section 5.
 
 Ce que contient cette build :
 
@@ -8,6 +8,7 @@ Ce que contient cette build :
 - **Lot 2, comportement.** Klay sort et salue quand la souris s'approche de l'encoche. L'île s'ouvre au survol, jamais au clic, et se ferme au clic ailleurs ou à Échap. Le bouton Granola remplace la grille de pastilles de l'île réduite. La zone de dépôt montre Klay les bras ouverts. Klay a des jumelles en recherche, des couleurs d'état de la marque et un mouvement plus vivant.
 - **Lot 3, contenu.** La maison montre les conversations en cours et les derniers choix. Les autorisations et questions de l'app Claude s'affichent dans l'île. L'île s'ouvre à chaque fin de session.
 - **Lot 4, chat et brouillon Gmail.** Le chat répond avec Haiku par le Claude Code de votre Mac et votre forfait, sans clé, sans modèle à choisir et sans outil. « Préparer un email » crée un brouillon dans votre Gmail par le connecteur de votre compte Claude. L'île n'envoie jamais rien : vous joignez le fichier et vous envoyez depuis Gmail. La clé API et Apple Mail ont disparu.
+- **Lot 6, l'île au service de l'app Claude.** La maison devient une bande d'icônes (Spotify, GitHub, Granola), Klay, puis vos conversations sur les trois quarts de la largeur, avec les sessions finies du jour en gris. Le chat s'ouvre sans pastille de contexte automatique. La zone de dépôt n'a plus qu'un Klay, qui avale le fichier. Une demande de l'onglet Code sans carte dans l'île ouvre l'île sur « Claude attend ta réponse ». Chat et Cowork sont suivis en expérimental, par l'accessibilité de macOS, avec un diagnostic à copier et à nous renvoyer.
 
 ## Comment lire cette liste
 
@@ -26,6 +27,7 @@ Ce que contient cette build :
 - Deux dossiers d'essai : `mkdir -p ~/essai-a ~/essai-b`.
 - Le son activé (haut-parleur dans l'en-tête de l'île).
 - Pour le lot 4 : Claude Code connecté avec un compte claude.ai, le connecteur Gmail ajouté à ce compte sur claude.ai, et Gmail ouvert dans un navigateur. La section 4 liste les fichiers d'essai.
+- Pour le lot 6 : l'app Claude à jour avec Chat, Cowork et l'onglet Code, le Moniteur d'activité, et l'app Notes (ou un éditeur de texte) pour coller le diagnostic. La section 5 dit le reste.
 
 Raccourcis utiles :
 
@@ -40,7 +42,7 @@ Raccourcis utiles :
 
 ## 1. Installer
 
-- [ ] Téléchargez l'artefact `KlayerIsland-macOS` : GitHub, dépôt `blamidey-klayer/Klayer-notif`, Actions, workflow Build, dernier run vert de la branche `claude/klayer-project-reproduction-92uerq`, section Artifacts. L'artefact expire après 14 jours. Dézippez, puis déplacez `KlayerIsland.app` dans `/Applications`.
+- [ ] Téléchargez l'artefact `KlayerIsland-macOS` : GitHub, dépôt `blamidey-klayer/Klayer-notif`, Actions, workflow Build, dernier run vert de la branche `claude/klayer-project-reproduction-92uerq`, section Artifacts. L'artefact expire après 14 jours. L'étape « End-to-end island test » de ce run doit être verte (section 5.8). Dézippez, puis déplacez `KlayerIsland.app` dans `/Applications`.
 - [ ] Premier lancement. L'app est signée ad hoc, pas notariée. Clic droit sur `KlayerIsland.app`, Ouvrir, puis Ouvrir dans la fenêtre. Autre voie : `xattr -dr com.apple.quarantine /Applications/KlayerIsland.app`. Attendu : l'app démarre et une icône Klay apparaît dans la barre de menus, avec Ouvrir Klayer Island, Réglages… et Quitter.
 - [ ] Trousseau. Chaque nouvelle build peut redemander l'accès au jeton GitHub, car la signature ad hoc change. Autorisez. À noter : la demande revient-elle à chaque lancement ?
 - [ ] Salut de lancement. Attendu : Klay salue (halo doré qui vire au teal, badge d'activité teal), puis le salut se replie dans l'île réduite avec Klay seul, sans disque coloré.
@@ -56,6 +58,8 @@ Raccourcis utiles :
 - [ ] Pour la suite, lancez des sessions Claude Code neuves : celles ouvertes avant l'installation peuvent ne pas envoyer d'événements.
 
 ## 2. Parcours de test
+
+Depuis le lot 6, la maison n'affiche plus les pastilles Claude Code et Claude Desktop. Là où les sections 2.3 et 2.4 parlent de la pastille d'une session (son nom, son badge « terminé », son retour au repos), regardez Klay et la ligne de la session dans la maison : le badge d'une pastille Claude ne se voit plus nulle part (section 5.2).
 
 ### 2.1 Île réduite et survol (6 min)
 
@@ -133,27 +137,22 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 
 ### 2.5 Maison (5 min)
 
-- [ ] Sans session, hooks installés. Attendu : la maison fait 220 pt de haut. « Aucune conversation en cours. » en gris, Klay centré à gauche, pastilles à droite, aucune flèche ↗.
-- [ ] Lancez trois sessions dans trois dossiers (deux terminaux différents, un VS Code si possible), puis une quatrième. Attendu : trois lignes au plus, la plus récente d'abord. Chaque ligne a un mini Klay de la couleur de l'état, l'état en clair (« Travaille », « Attend ton accord »…) et la dernière action sur une ligne tronquée. Un titre long se coupe, l'état reste entier.
+- [ ] Sans session, hooks installés. Attendu : la maison fait 220 pt de haut. À gauche, la bande d'icônes (au moins le micro de Granola), puis Klay, puis « Aucune conversation en cours. » en gris. Aucune pastille, aucune flèche ↗. La section 5.1 détaille la bande.
+- [ ] Lancez trois sessions dans trois dossiers (deux terminaux différents, un VS Code si possible), puis une quatrième. Attendu : quatre lignes, la plus récente d'abord ; au-delà de ce que la carte peut montrer, la liste défile (section 5.2). Chaque ligne a un mini Klay de la couleur de l'état, l'état en clair (« Travaille », « Attend ton accord »…) et la dernière action sur une ligne tronquée. Un titre long se coupe, l'état reste entier.
 - [ ] Cliquez la ligne d'un terminal. Attendu : ce terminal passe devant, pas un autre, et l'île se replie. Cliquez la ligne VS Code. Attendu : VS Code passe devant. Fermez un terminal puis cliquez sa ligne. Attendu : l'app Claude s'ouvre (`claude://`).
 - [ ] Session de l'app Claude (onglet Code). Attendu : elle a sa ligne, et son clic ouvre l'app Claude.
-- [ ] Répondez depuis l'île à une autorisation (Autoriser, Refuser, Toujours) et à une question. Attendu : les choix apparaissent sous les conversations, en gris clair : « HH:mm · dossier · demande · Autorisé », la demande étant le texte de la carte (« Write · essai.txt », la commande…). Une commande longue se coupe et la réponse reste visible. Une réponse à plusieurs choix de plus de 20 caractères finit par « … ». Après 6 choix, seuls les 5 derniers s'affichent. Une demande traitée dans le terminal, ou « Répondre dans le terminal », n'ajoute rien. Faites-le aussi pour une session de l'app Claude : le nom du projet apparaît comme session. (facultatif) `~/Library/Application Support/NotchBuddy/choices.json` garde 20 entrées au plus, en local. (facultatif) Faites autoriser depuis l'île une commande qui porte un faux jeton, par exemple `curl -H "Authorization: Bearer abc123def456" https://example.com`. Attendu : la ligne des derniers choix et `choices.json` disent « Bearer ••• », jamais le jeton.
+- [ ] Répondez depuis l'île à une autorisation (Autoriser, Refuser, Toujours) et à une question. Attendu : les choix apparaissent sous les conversations, en gris clair : « HH:mm · dossier · demande · Autorisé », la demande étant le texte de la carte (« Write · essai.txt », la commande…). Une commande longue se coupe et la réponse reste visible. Une réponse à plusieurs choix de plus de 20 caractères finit par « … ». Après 4 choix, seuls les 3 derniers s'affichent. Une demande traitée dans le terminal, ou « Répondre dans le terminal », n'ajoute rien. Faites-le aussi pour une session de l'app Claude : le nom du projet apparaît comme session. (facultatif) `~/Library/Application Support/NotchBuddy/choices.json` garde 20 entrées au plus, en local. (facultatif) Faites autoriser depuis l'île une commande qui porte un faux jeton, par exemple `curl -H "Authorization: Bearer abc123def456" https://example.com`. Attendu : la ligne des derniers choix et `choices.json` disent « Bearer ••• », jamais le jeton.
 - [ ] Une autorisation arrive île ouverte sur la maison. Attendu : la carte passe devant (160 pt), puis l'île revient à la maison après la réponse.
-- [ ] Faites une action de plus de 80 caractères dans une session. Attendu : sa ligne finit par « … » (80 caractères en tout). Quittez une session (`/exit`). Attendu : sa ligne disparaît, même si une autorisation attend pour une autre session de la même pastille.
+- [ ] Faites une action de plus de 80 caractères dans une session. Attendu : sa ligne finit par « … » (80 caractères en tout). Lancez une session sans rien lui demander, puis quittez-la (`/exit`). Attendu : sa ligne disparaît, même si une autorisation attend pour une autre session de la même pastille. Une session quittée après une réponse finie garde sa ligne grise (section 5.2).
 - [ ] Aucun « VS Code » ni « Cursor » dans l'île ni dans les pastilles. Une session VS Code s'affiche sur la pastille « Claude Code ».
 - [ ] (facultatif) Libellés d'état en français, que le Mac soit réglé en français ou en anglais.
-- [ ] (facultatif) Laissez une session finie 30 min sans événement, puis rouvrez l'île. Attendu : sa ligne a disparu. Une ligne qui attend un accord reste.
-- [ ] (facultatif, jeton GitHub dans Réglages, Integrations) Cliquez la pastille GitHub. Attendu : la carte GitHub est inchangée, dans une bande de 98 pt centrée dans la carte. Titre, trois lignes de stats et bouton ↗ (vers github.com/pulls) sont calés en haut de la bande et alignés sur Klay. Cliquez une ligne : le détail s'ouvre, Échap le ferme d'abord. Comparez à une capture de l'ancien build (île de 160 pt) si vous en avez une.
-- [ ] (facultatif, Spotify) Cliquez la pastille Spotify, en lecture puis au repos. Attendu : carte inchangée dans la même bande, ↗ vers Spotify. Klay danse quand Spotify joue. Même contrôle pour la carte GitHub non configurée, le détail GitHub (« My PRs »…) et la carte de forfait si le relais de forfait est installé (Réglages, Agents, Plan usage).
+- [ ] (facultatif) Laissez une session au repos (lancée, sans demande) 30 min sans événement, puis rouvrez l'île. Attendu : sa ligne a disparu. Une ligne qui attend un accord reste, et une ligne finie reste jusqu'à minuit (section 5.2).
+- [ ] (facultatif, jeton GitHub dans Réglages, Integrations) Cliquez l'icône GitHub de la bande d'icônes. Attendu : la carte GitHub est inchangée, dans une bande de 98 pt centrée dans la carte, à la place de la liste. Titre, trois lignes de stats et bouton ↗ (vers github.com/pulls) sont calés en haut de la bande ; le texte commence là où commencent les lignes de la liste. Cliquez une ligne : le détail s'ouvre, Échap le ferme d'abord. Comparez à une capture de l'ancien build (île de 160 pt) si vous en avez une.
+- [ ] (facultatif, Spotify) Cliquez l'icône Spotify de la bande, en lecture puis au repos. Attendu : carte inchangée dans la même bande, ↗ vers Spotify. Klay danse quand Spotify joue. Même contrôle pour le détail GitHub (« My PRs »…) et la carte de forfait si le relais de forfait est installé (Réglages, Agents, Plan usage). Sans jeton GitHub, l'icône GitHub n'apparaît pas : la carte GitHub non configurée ne se montre plus.
 
-### 2.6 Zone de dépôt (3 min)
+### 2.6 Zone de dépôt
 
-- [ ] Glissez un fichier du Finder vers l'encoche. Attendu : Klay, les bras ouverts, au centre de la carte, avec « Dépose ton fichier » dessous. Plus de puces PDF, Images, Code, Docs ni de « Drop your files here ». Contour et voile verts quand le fichier est au-dessus.
-- [ ] Observez la figure. Attendu : elle bouge doucement (balancement, mains, clignement toutes les 3,6 s) et ses yeux suivent le curseur. Les mains à liseré se lisent sur les rayons. Rien n'est rogné en haut de la carte.
-- [ ] Lâchez le fichier. Attendu : le bac se forme à l'entrée, la fente s'ouvre à l'approche, le fichier est aspiré, Klay mâchonne, la barre « Envoi de … en cours » (Uploading …) avance, puis la vue « … est prêt. » s'ouvre avec ses boutons. La figure s'assombrit quand le bac passe devant et disparaît avec la zone. À noter : à 25 %, yeux, moyeu, jambes et liseré des bras forment-ils un seul fantôme uniforme ?
-- [ ] À noter : pendant le glissement, la carte montre le bac à gauche et Klay bras ouverts au centre (deux personnages). Cela vous gêne-t-il ?
-- [ ] Onglet Déposer (bouton + de l'en-tête). Attendu : même figure et même texte. Le texte devient vert pendant un glissement. Rien n'est rogné en haut de la figure.
-- [ ] (facultatif) Déposez trois fichiers. Attendu : le libellé dit « 3 fichiers ».
+Remplacée par la section 5.4 : depuis le lot 6, la zone de dépôt n'a plus qu'un Klay, qui avale le fichier.
 
 ### 2.7 Animations de Klay (5 min)
 
@@ -165,7 +164,7 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 - [ ] (facultatif, 25 s à 70 s) Laissez le pointeur immobile. Attendu : un tapotement du pied toutes les 5 à 12 s, puis après 25 s un étirement (mains en haut, yeux fermés) et plus tard un bâillement.
 - [ ] Cliquez Klay. Attendu : écrasement, mains projetées vers le haut et de côté puis qui se posent, émote « agacé », halo violet. Cliquez trois fois en moins de 1,7 s. Attendu : Klay est sonné (double roulade), la vue « Trop de clics d'un coup. » (Too many hits at once.) s'affiche 3,3 s, puis l'île reprend sa vue d'avant.
 - [ ] Trois clics rapides sur Klay posé sur le bureau. Attendu : l'île s'ouvre sur la vue « sonné » puis reste ouverte jusqu'au prochain survol suivi d'une sortie, ou jusqu'à un clic ailleurs.
-- [ ] Observez les poses. Attendu : les mains levées se lisent sur les rayons blancs. Bras levés en autorisation, V en fin de session, grattage de tête en question, salut de la main à l'approche. Les épaules ne montrent aucun bord sombre sur le moyeu, y compris pendant le fondu de la boîte aux lettres.
+- [ ] Observez les poses. Attendu : les mains levées se lisent sur les rayons blancs. Bras levés en autorisation, V en fin de session, grattage de tête en question, salut de la main à l'approche. Les épaules ne montrent aucun bord sombre sur le moyeu.
 - [ ] Observez les couleurs d'état, sur le halo de Klay, son badge et le halo de l'île derrière lui. Attendu : travaille en teal, réfléchit en teal plus pâle, autorisation en ambre, question en or, erreur en brique, terminé en vert, sonné en brique claire. Les points, le « ! » et le « ? » du badge sont foncés et lisibles.
 - [ ] (facultatif) Limite d'usage atteinte : ocre. Île ouverte à la main sans tâche depuis 10 min : gris filet, yeux fermés, « z » qui montent.
 - [ ] Voiles des cartes d'alerte. Attendu : autorisation ambre, question or, erreur brique, terminé vert, sonné brique claire. La carte du chat (⌃⌥Espace) a un voile teal pâle : le texte reste lisible dessus.
@@ -192,11 +191,11 @@ Gardez deux terminaux avec une session dans `~/essai-a` et une dans `~/essai-b`.
 - [ ] Île réduite. Attendu : moins de 3 % de CPU et moins de 100 Mo de mémoire (critères de `docs/SPEC.md`, §12).
 - [ ] Île ouverte sur la maison avec trois sessions. À noter : le CPU, trois mini Klays de plus qu'avant. Puis, avec les mêmes sessions, une carte d'autorisation à l'écran. À noter : le CPU, normalement plus bas, car les mini Klays de la maison s'arrêtent derrière la carte.
 - [ ] Klay sur le bureau, éveillé puis endormi. À noter : le CPU. Il est affiché à la fréquence de l'écran éveillé (c'était 30 images par seconde avant) et à 10 images par seconde endormi.
-- [ ] Onglet Déposer ouvert. Attendu : charge faible (30 images par seconde).
+- [ ] Onglet Déposer ouvert. À noter : le CPU. Klay y est dessiné à la fréquence de l'écran, comme sur les autres vues, et les pointillés avancent à 20 images par seconde.
 
 ## 3. Spikes
 
-Les trois spikes se font sur votre Mac, avec les vraies apps. S2 (Cowork) est hors périmètre de cette build.
+Les trois spikes se font sur votre Mac, avec les vraies apps. S2 (un Plugin Cowork qui joindrait l'île) reste hors périmètre : la section 5.6 suit Cowork par l'accessibilité de macOS, sans Plugin.
 
 ### S1 : l'app Claude retire-t-elle sa fiche quand l'île répond ?
 
@@ -330,7 +329,7 @@ Si la réponse est non : l'icône ouvre la note (c'est déjà ce que fait le bou
 
 Réponse S4 : …
 
-S2 (Cowork) : hors périmètre de cette build, rien à tester.
+S2 (Plugin Cowork) : hors périmètre de cette build, rien à tester ici.
 
 ## 4. Lot 4 : chat et brouillon Gmail (45 minutes)
 
@@ -407,12 +406,115 @@ Pour les deux points qui lancent l'île depuis un terminal : quittez-la d'abord 
 - [ ] Textes. Sur un Mac en français : la zone de dépôt dit « <nom> est prêt. » ; trois claques sur Klay donnent « Laisse-moi souffler : je reprends dans trois secondes. » ; la pastille de forfait, relais installé et aucune donnée, dit « Claude : en attente ».
 - [ ] Bordure de la zone de dépôt. Sur l'onglet +, les pointillés avancent et respirent comme avant.
 
-## 5. Ce qu'il faut me renvoyer
+## 5. Lot 6 : l'île au service de l'app Claude (55 minutes)
+
+Ce lot fait de l'île la notification de l'app Claude. L'onglet Code passe par les hooks de Claude Code, un mécanisme officiel. Chat et Cowork passent par la lecture des boutons de l'app Claude (accessibilité de macOS) : c'est expérimental, cela dépend des libellés de l'interface d'Anthropic. Le terminal ne change pas. L'île ne clique jamais dans l'app Claude et ne répond jamais à sa place.
+
+Avant de commencer : les hooks installés (section 1), l'app Claude à jour, deux sessions possibles dans `~/essai-a` et `~/essai-b`, le Moniteur d'activité, et l'app Notes. Les journaux de l'île sont dans `~/Library/Logs/NotchBuddy/` : `nb.log` pour les hooks, `claude-app.log` pour le suivi de Chat et Cowork (des événements seulement, jamais un libellé ni un titre).
+
+### 5.1 Maison : bande d'icônes et largeurs (8 min)
+
+- [ ] Version. Ouvrez les Réglages (icône de la barre des menus, « Réglages… »). Attendu : « 0.3.0 » en haut de la barre latérale. La build des lots 1 à 4 affichait « 0.2.2 », un numéro hérité de Coucou.
+- [ ] Granola seul. Coupez Spotify et GitHub dans Réglages, Onglets actifs (Active pills), puis ouvrez l'île sur la maison. Attendu : à gauche, sous l'onglet maison, une seule icône grise, le micro de Granola. Puis Klay, puis la liste, qui commence juste à droite de Klay et va jusqu'au bord droit de la carte : au moins les trois quarts de la largeur de l'île. Aucune pastille Claude Code ni Claude Desktop dans la maison.
+- [ ] (facultatif, Spotify et un jeton GitHub) Trois icônes. Réactivez Spotify et GitHub. Attendu : de haut en bas, une note de musique (Spotify), une flèche de pull request (GitHub), le micro (Granola). Klay et la liste ne bougent pas : la liste garde sa largeur avec une ou trois icônes.
+- [ ] Infobulles. Survolez chaque icône présente. Attendu : « Spotify », « GitHub », « Nouvelle note Granola ». L'icône survolée s'éclaircit. Spotify en lecture : sa note est verte.
+- [ ] (facultatif, Spotify et un jeton GitHub) Cartes. Cliquez l'icône GitHub. Attendu : la carte GitHub remplace la liste, son texte commence là où commençaient les lignes, la flèche ↗ est en haut à droite. L'icône devient blanche sur une capsule sombre et son infobulle dit « Retour aux conversations ». Cliquez-la de nouveau : la liste revient. Cliquez GitHub, puis l'onglet maison de l'en-tête : la liste revient aussi. Même contrôle avec Spotify ; Klay danse sur la carte Spotify quand Spotify joue.
+- [ ] Granola. Cliquez le micro de la bande. Attendu : Granola ouvre une nouvelle note, la maison ne change pas.
+- [ ] (facultatif, jeton GitHub) Badge. Une CI en échec ou une revue demandée sur GitHub. Attendu : le badge d'alerte apparaît sur l'icône GitHub de la bande.
+- [ ] Klay et ses voisins. Cliquez Klay : il se fâche. Cliquez ensuite une icône de la bande, puis le bord gauche d'une ligne de la liste. Attendu : ni l'un ni l'autre ne claque Klay. Le glisser de Klay hors de l'île marche toujours.
+- [ ] (facultatif, Spotify et un jeton GitHub) Raccourcis avec trois icônes. Île sur la liste, tapez ⌃⌥]. Attendu : la carte Spotify, puis au ⌃⌥] suivant la carte GitHub, puis la liste ; ⌃⌥[ fait le chemin inverse. Les pastilles Claude ne sont jamais parcourues. Tapez ⌃⌥Espace (le chat prend le clavier), puis ⌘1 : la liste ; ⌘2 : la carte Spotify ; ⌘3 : la carte GitHub ; ⌘4 : rien. Dans l'île, ⌘→ et ⌘← font comme ⌃⌥] et ⌃⌥[.
+- [ ] Raccourcis avec Granola seul. Coupez de nouveau Spotify et GitHub dans Onglets actifs. Attendu : ⌃⌥] laisse la liste à l'écran. ⌃⌥Espace, puis ⌘1 : la liste ; ⌘2 : rien.
+- [ ] (facultatif, Spotify) Raccourcis avec Spotify seul. Réactivez Spotify, laissez GitHub coupé. Attendu : ⌃⌥] passe de la liste à la carte Spotify, puis revient à la liste. ⌃⌥Espace, puis ⌘2 : la carte Spotify ; ⌘3 : rien.
+- [ ] Libellés des raccourcis. Réglages, Raccourcis (Shortcuts). Attendu : ⌃⌥] et ⌃⌥[ s'appellent « Onglet suivant » et « Onglet précédent » ; parmi les raccourcis de l'île, « Onglet suivant / précédent » et « Passer à l'onglet par numéro ». À noter : ces libellés vous disent-ils ce que font ces raccourcis (la liste, puis les cartes de la bande) ?
+- [ ] (facultatif, Spotify ou un jeton GitHub) Demande pendant une carte. Carte GitHub ou Spotify affichée, une session demande une autorisation ; répondez-y depuis l'île. Attendu : la maison revient sur la liste, pas sur la carte.
+
+### 5.2 Conversations du jour (6 min, plus les points facultatifs)
+
+- [ ] Fin d'une session. Dans une session Claude Code de `~/essai-a` (terminal), demandez « réponds ok » et laissez la session finir. Fermez la vue « terminé », puis rouvrez la maison. Attendu : la ligne de `essai-a` passe sous les sessions en cours, en gris : titre gris, « Terminé à HH:mm » (l'heure de la fin, sur 24 h), mini Klay gris et immobile.
+- [ ] Erreur. Coupez le Wi-Fi pendant une réponse de `essai-b`. Attendu : sa ligne passe aussi en gris, avec « Erreur à HH:mm ». Rallumez le Wi-Fi.
+- [ ] Après `/exit`. Quittez `essai-a` (`/exit`) après sa réponse finie. Attendu : sa ligne grise reste. Une session quittée sans avoir rien fait part toujours (section 2.5).
+- [ ] Défilement. Ayez plus de 5 lignes, sessions en cours et finies comprises. Attendu : la liste défile dans la carte, sans barre ; la dernière ligne visible s'estompe tant qu'il en reste dessous, et ce fondu disparaît en bas de la liste. La carte garde sa taille.
+- [ ] Derniers choix. Répondez depuis l'île à 4 demandes. Attendu : 3 choix au plus, sous les sessions, dans la même liste.
+- [ ] (facultatif, 15 min) Dix au plus. Faites finir 11 sessions dans la journée (dans un même dossier si vous voulez : une session lancée, « réponds ok », puis `/exit`). Attendu : 10 lignes grises, les 10 fins les plus récentes.
+- [ ] Badge invisible. Ouvrez le chat (⌃⌥Espace), tapez un texte sans l'envoyer, et faites finir une session. Attendu : le chat reste, le son `finish` est joué. À noter : aucun badge ne se voit, puisque la maison n'a plus de pastille Claude ; de retour sur la maison, la ligne de la session est grise. Ce signal vous suffit-il ?
+- [ ] ⌃⌥T. Plus aucune session ne tourne, la dernière qui a agi est finie. Tapez ⌃⌥T. Attendu : le terminal de cette session passe devant, même si sa ligne est grise ; c'est vrai jusqu'à minuit, et non plus 30 min au plus.
+- [ ] (facultatif, autour de minuit) Laissez l'île ouverte sur la maison au passage de minuit. Attendu : les lignes grises de la veille restent tant qu'aucun événement n'arrive. Fermez l'île d'un clic ailleurs, puis rouvrez-la : elles ont disparu. Les sessions en cours restent.
+
+### 5.3 Chat sans pastille automatique (3 min)
+
+- [ ] Onglet du chat. Quittez Klayer Island (menu de la barre des menus, Quitter) puis rouvrez-la : un contexte posé plus tôt, par exemple en 2.1, reste jusqu'à ce qu'un autre le remplace. Mettez Safari (ou une autre app) au premier plan, survolez l'encoche et cliquez l'onglet du chat (la bulle) de l'en-tête. Attendu : aucune pastille de contexte. Fermez l'île, puis tapez ⌃⌥Espace. Attendu : toujours aucune pastille.
+- [ ] Fichier. Déposez un fichier, cliquez « Préparer un email », puis l'onglet du chat, sans préparer de brouillon. Attendu : pas de pastille du fichier. Déposez de nouveau le fichier et cliquez « Poser une question à ce sujet » sur l'écran de dépôt. Attendu : la pastille du fichier, et la question part avec lui.
+- [ ] Fenêtre. Glissez Klay sur la fenêtre de Safari. Attendu : le chat s'ouvre avec la pastille de cette fenêtre (app et domaine), qui remplace celle du fichier. Le raccourci ⌃⌥W (« Attacher la fenêtre de premier plan ») attache aussi la fenêtre au premier plan.
+
+### 5.4 Zone de dépôt : un seul Klay (5 min)
+
+- [ ] Onglet Déposer. Depuis la maison, cliquez + dans l'en-tête. Attendu : Klay rejoint le milieu de la carte pointillée d'un mouvement continu, sans éclair et sans second personnage. Il respire, cligne des yeux et suit le pointeur du regard. « Dépose ton fichier » est sous lui. Plus de boîte aux lettres ni de puces PDF, Images, Code, Docs.
+- [ ] Fichier qui approche. Onglet Déposer ouvert, glissez un fichier du Finder au-dessus de l'île sans le lâcher. Attendu : Klay ne saute pas et ne change pas de taille quand le fichier arrive. Il ouvre les bras (environ 0,4 s), ses yeux s'agrandissent et suivent le fichier, il se déplace pour le suivre et cligne des yeux toutes les 3,6 s. Le contour pointillé passe au vert. Le texte reste.
+- [ ] Fichier qui repart. Ressortez le fichier de l'île sans le lâcher. Attendu : Klay baisse les bras, ses yeux reviennent au repos et il retourne au centre. Ramenez le fichier : il repart de là où il est, sans saut.
+- [ ] Avalé. Lâchez le fichier. Attendu : le fichier file dans Klay au-dessus de ses yeux ; Klay s'écrase, ferme les yeux, baisse les bras, puis se réduit sur la barre « Envoi de … en cours ». La vue « … est prêt. » s'ouvre ensuite avec ses boutons. Son `approve` au dépôt et à la fin, `tick` tous les 10 %.
+- [ ] Île fermée. Île cachée ou réduite, glissez un fichier sur l'encoche. Attendu : l'île s'ouvre sur la zone de dépôt avec un seul Klay au milieu ; à aucun moment deux Klay ne se voient, même un instant.
+- [ ] Départ de la zone. Ressortez un fichier sans le lâcher, puis cliquez l'onglet maison. Refaites-le après un dépôt, en cliquant « Poser une question à ce sujet ». À noter : le Klay de l'île revient en fondu (0,25 s) pendant que celui de la zone s'efface. Un second Klay se voit-il pendant ce fondu ?
+- [ ] (facultatif) Plusieurs fichiers. Déposez trois fichiers d'un coup. Attendu : seul le premier est pris, sous son nom (« <nom> est prêt. »).
+
+### 5.5 Onglet Code de l'app Claude (10 min)
+
+Dans l'app Claude, onglet Code, dossier `~/essai-a`, mode qui demande les autorisations.
+
+- [ ] Carte d'abord. Demandez « crée le fichier code-6.txt avec le mot bonjour ». Attendu : la carte d'autorisation s'ouvre dans l'île (section 2.3). Ne répondez nulle part pendant 15 s. Attendu : aucune note ne passe par-dessus la carte, même quand Claude Code envoie sa notification d'autorisation, environ 6 s après la demande. Répondez depuis l'île.
+- [ ] Sans carte. Copiez vos réglages : `cp ~/.claude/settings.json ~/settings-essai.json`. Dans `~/.claude/settings.json`, sous `hooks`, `PermissionRequest`, retirez l'entrée dont la commande contient `NotchBuddy/nb-hook` (et son groupe s'il reste vide). Ouvrez une nouvelle session dans l'onglet Code, redemandez une autorisation et n'y répondez pas. Attendu : environ 6 s plus tard, l'île s'ouvre sur une note : « Claude attend ta réponse », puis « Une autorisation t'attend dans l'app Claude : essai-a », avec « Ouvrir Claude » et « OK », et le son `approval`. La ligne de la session dit « Attend ton accord ». `grep Notification ~/Library/Logs/NotchBuddy/nb.log | tail -n 3` montre « Notification permission from the Claude app ». Si rien ne vient en 20 s : notez la version de l'app Claude (d'après la doc de Claude Code, cette notification n'existe dans les sessions de l'app qu'à partir de Claude Code 2.1.233).
+- [ ] La note. Attendu : le titre, la ligne et les deux boutons tiennent dans la carte, rien n'est rogné ; un nom de projet long se coupe par « … ». Cliquez « Ouvrir Claude ». Attendu : l'app Claude passe devant, l'île se replie. Répondez dans l'app.
+- [ ] Note restée. Redemandez une autorisation (toujours sans carte). Quand la note est là, passez sur l'app Claude par ⌘⇥ et répondez au clavier, sans cliquer. À noter : la note « Une autorisation t'attend » reste-t-elle affichée ? D'après le code, elle reste jusqu'à un clic ailleurs, Échap, OK, ou un survol suivi d'une sortie.
+- [ ] Île occupée. Ouvrez le chat avec un texte tapé, puis faites demander une autorisation (toujours sans carte). Attendu : la vue du chat ne change pas, le son `approval` est joué. À noter : aucun badge ne se voit. Le code pose sur la pastille de l'app Claude un badge d'autorisation, même pour une attente, et cette pastille ne s'affiche plus.
+- [ ] Remettez vos réglages : `cp ~/settings-essai.json ~/.claude/settings.json`, puis ouvrez une nouvelle session dans l'onglet Code pour la suite.
+- [ ] Attente après une fin. Faites finir une session de l'onglet Code (« réponds ok ») : l'île montre sa vue « terminé ». Fermez-la avec OK et ne tapez rien dans l'app Claude pendant 90 s. Attendu : aucune seconde note et aucun son vers 60 s, quand Claude Code envoie sa notification d'attente (`idle_prompt`). Le journal n'en dit rien : seules les notifications qui ouvrent l'île y sont écrites.
+- [ ] (facultatif, un serveur MCP qui ouvre un formulaire) Dans l'onglet Code, appelez un outil qui vous demande de remplir un formulaire, et n'y répondez pas. Attendu : environ 6 s plus tard, la note « Claude attend ta réponse » avec « Claude a besoin de toi dans l'app Claude : essai-a » et le son `question` ; dans `nb.log`, « Notification waiting from the Claude app ». À noter : si la note vient, et la ligne du journal.
+- [ ] Terminal inchangé. Décochez « Answer questions and permissions from terminal sessions in the notch » (Réglages, Agents), demandez une autorisation dans un terminal et attendez 15 s. Attendu : aucune note de l'île, le terminal demande lui-même. Recochez la case.
+
+### 5.6 Chat et Cowork : suivi expérimental (15 min)
+
+Le suivi lit le rôle et le libellé des boutons de l'app Claude, et le titre de sa fenêtre pour la ligne de la note. Il ne lit jamais le texte des messages et ne clique jamais dans l'app. S'il ne réagit pas, le diagnostic (5.7) nous dira pourquoi.
+
+- [ ] Réglages. Réglages, Agents. Attendu : entre « Hooks Claude Code » et « Utilisation du forfait », un bloc « App Claude : Chat et Cowork » : l'interrupteur « Suivre Chat et Cowork dans l'app Claude (expérimental) », activé ; une phrase qui dit que l'île lit les boutons de l'app Claude, jamais le texte des messages ; la ligne « Accès Accessibilité : autorisé », ou « Accès Accessibilité : non autorisé » suivie du bouton « Autoriser l'accès » ; le bouton « Copier le diagnostic de l'app Claude », et une phrase sur ce qu'il copie.
+- [ ] Première demande. À noter : au premier lancement de cette build, l'app Claude ouverte, macOS a-t-il montré sa demande d'accès Accessibilité pour Klayer Island ? L'île ne la montre d'elle-même qu'une fois ; ensuite, seulement par « Autoriser l'accès ». Quittez puis relancez Klayer Island. Attendu : elle ne revient pas seule.
+- [ ] « Autoriser l'accès ». Si la ligne dit « non autorisé », cliquez « Autoriser l'accès ». Attendu : la demande de macOS, ou Réglages Système ouvert sur Confidentialité et sécurité, Accessibilité. À noter : les deux s'ouvrent-ils ? Activez Klayer Island dans la liste, puis revenez aux Réglages de l'île. Attendu : « Accès Accessibilité : autorisé ». Si Klayer Island est cochée mais que la ligne dit « non autorisé » : une build signée ad hoc peut perdre cet accès à chaque mise à jour. Retirez Klayer Island de la liste (bouton −), puis cliquez de nouveau « Autoriser l'accès ».
+- [ ] Réponse finie ailleurs. Dans l'app Claude, Chat, envoyez « Écris 600 mots sur l'histoire de Lyon », puis passez tout de suite au Finder. Attendu : quand la réponse se termine, l'île s'ouvre sur « Claude a fini de répondre », avec en dessous le titre de la conversation ou « Dans l'app Claude », les boutons « Ouvrir Claude » et « OK », et le son `finish`, environ 2 à 4 s après la fin. Cliquez « Ouvrir Claude » : l'app Claude passe devant, l'île se replie. À noter : ce que dit la ligne sous le titre.
+- [ ] Dans l'app Claude. Envoyez la même demande et restez dans l'app Claude jusqu'à la fin. Attendu : ni note ni son.
+- [ ] Départ immédiat. Passez sur une autre app, revenez à l'app Claude, envoyez une question longue et repartez dans la seconde. À noter : la fin ouvre-t-elle l'île ? Juste après le retour de l'app Claude au premier plan, son interface peut ne pas être encore lisible, et une réponse quittée aussitôt peut être manquée.
+- [ ] Autorisation dans Cowork. Lancez dans Cowork une tâche qui demande une autorisation, puis passez sur une autre app avant qu'elle n'apparaisse. Attendu : quand elle apparaît, l'île s'ouvre sur « Claude attend ta réponse » (le titre de la conversation ou « Dans l'app Claude » en dessous), une seule fois, avec le son `approval`. Répondez dans l'app Claude : l'île n'a aucun bouton qui réponde à votre place.
+- [ ] Autorisation vue. Refaites-le en restant dans l'app Claude jusqu'à ce que l'autorisation s'affiche, puis passez sur une autre app sans répondre. Attendu : rien, vous l'avez vue.
+- [ ] (facultatif) Même contrôle avec une autorisation dans Chat, si un de vos connecteurs en demande une.
+- [ ] Onglet Code. Dans l'onglet Code, lancez une tâche longue, puis passez sur une autre app. Attendu : à la fin, la seule vue « terminé » de la session (section 2.4), sans seconde note « Claude a fini de répondre ». Une autorisation de l'onglet Code pendant que vous êtes ailleurs : la carte seule, sans note « Claude attend ta réponse » en plus.
+- [ ] (facultatif, 2 min) Carte de l'onglet Code laissée sans réponse. Laissez une carte d'autorisation de l'onglet Code plus de 2 min, en restant dans une autre app. Attendu : « Still waiting in Claude. » pendant 3 s. À noter : une note « Claude attend ta réponse » du suivi vient-elle ensuite ? C'est possible : la demande est alors revenue dans l'app Claude.
+- [ ] Fenêtre masquée. Envoyez une question longue dans Chat, puis masquez l'app Claude (⌘H) pendant la réponse. À noter : la fin ouvre-t-elle l'île ? Si macOS ne donne plus la fenêtre d'une app masquée, le suivi ne voit plus rien et abandonne la réponse au bout d'environ 30 s, sans alerte. Même question en fermant la fenêtre de l'app Claude.
+- [ ] Interrupteur. Coupez « Suivre Chat et Cowork dans l'app Claude (expérimental) » et refaites « Réponse finie ailleurs ». Attendu : rien. Réactivez-le et refaites-le : l'île s'ouvre de nouveau, sans relancer Klayer Island.
+- [ ] CPU de Klayer Island. Moniteur d'activité, colonne % CPU de « KlayerIsland ». Attendu : 0 % avec l'app Claude en arrière-plan et aucune réponse en cours. À noter : le CPU pendant que l'app Claude est au premier plan (une lecture toutes les 2 s), puis pendant une réponse suivie depuis une autre app. Après ⌘H ou la fenêtre fermée, retour à 0 % dès la lecture suivante sans réponse en cours, en 30 s au plus pendant une réponse.
+- [ ] CPU de l'app Claude. À noter : le CPU de « Claude » quand elle passe au premier plan, suivi activé puis coupé. Pendant ses lectures, le suivi active l'arbre d'accessibilité de l'app Claude (une app Electron), ce qui peut lui coûter du CPU.
+- [ ] (facultatif) Quitter. Quittez Klayer Island pendant que l'app Claude est au premier plan. Attendu : Klayer Island quitte tout de suite et l'app Claude reste utilisable.
+
+### 5.7 Diagnostic à copier et à nous renvoyer (5 min)
+
+Le suivi reconnaît le bouton d'arrêt d'une réponse et les boutons d'une autorisation par leur libellé. Les libellés de départ sont des suppositions : le diagnostic nous donne ceux de votre app Claude. Il copie la version de l'app Claude, l'accès, des comptes, puis une ligne par bouton : son rôle et son libellé. Jamais le texte des messages, jamais le titre de la fenêtre. Rien n'est écrit sur le disque.
+
+- [ ] Pendant une réponse. Ouvrez les Réglages de Klayer Island sur Agents. Dans Chat, envoyez « Écris 600 mots sur l'histoire de Lyon », revenez aussitôt aux Réglages et cliquez « Copier le diagnostic de l'app Claude ». Attendu : « Copié » pendant 2 s. Dans une nouvelle note de Notes, tapez « Pendant une réponse » et collez (⌘V). Attendu : « Diagnostic de l'app Claude (Klayer Island) », « App Claude : lancée, version … », « Accès Accessibilité : oui », les comptes (fenêtres, nœuds lus, durée de lecture, boutons), « Bouton d'arrêt reconnu : … », puis des lignes de la forme `AXButton | <libellé>`.
+- [ ] Pendant une autorisation. Refaites-le pendant qu'une autorisation de Cowork (ou de Chat) est à l'écran, sans y répondre. Collez sous « Pendant une autorisation », dans la même note.
+- [ ] Relisez la note avant de l'envoyer. Un libellé de plus de 30 caractères ou de 5 mots est déjà remplacé par « (libellé long, N caractères) ». Un libellé court peut pourtant être le titre d'une conversation de la barre latérale : effacez toute ligne qui nomme un client, une personne ou un projet. Si une ligne montre le texte d'un message, un lien ou le titre de la fenêtre, effacez-la et signalez-le : c'est un défaut.
+- [ ] Envoyez la note relue dans le fil de cette liste (section 6). Nous réglerons avec elle les libellés reconnus (arrêt, autorisation, refus) ; une ligne « Bouton d'arrêt reconnu : non » copiée pendant une réponse nous dit déjà qu'un libellé manque.
+
+### 5.8 Test de bout en bout sur la CI (2 min, lecture)
+
+La CI macOS (workflow Build) construit, à côté de l'app livrée, une app de test qui n'est jamais livrée, et la fait tourner à chaque run : c'est l'étape « End-to-end island test ». Elle joue des sessions de l'app Claude par le vrai relais `nb-hook`, comme Claude Code le lance, et vérifie 8 scénarios : une fin de session ouvre l'île cachée sur cette fin ; une fin pendant le chat laisse le chat ; une autorisation s'affiche, et l'accord donné depuis l'île repart vers Claude Code ; une question s'affiche, et la réponse repart ; une autorisation traitée dans l'app ferme la carte sans décision ; une notification d'autorisation sans carte ouvre « Claude attend ta réponse » ; un agent inconnu et une session de terminal (cartes décochées) reçoivent « ask » tout de suite ; rien n'est autorisé sans réponse. Elle vérifie aussi que l'app livrée ne contient aucune commande de test et n'en répond aucune.
+
+Ce test ne remplace pas votre Mac : il ne voit ni la vraie app Claude ni sa version de Claude Code, ni l'accessibilité et le suivi de Chat et Cowork (coupé dans l'app de test), ni l'encoche, les sons, le dessin de Klay ou le CPU. Les sections 5.1 à 5.7 restent nécessaires. Le script `scripts/test-e2e-island.sh` est fait pour la CI : ne le lancez pas sur votre Mac. Il prend la socket et les préférences de Klayer Island et refuse de tourner tant qu'elle est ouverte.
+
+- [ ] Sur GitHub, Actions, workflow Build, le run dont vous avez téléchargé l'artefact. Attendu : l'étape « End-to-end island test » est verte. Si elle échoue, le run n'a pas d'artefact `KlayerIsland-macOS` : prenez le dernier run vert.
+
+## 6. Ce qu'il faut me renvoyer
 
 Renvoyez-moi ces éléments dans le fil où vous avez reçu ce lien :
 
 - [ ] Les réponses S1, S3 et S4, avec les notes demandées sous chaque spike.
-- [ ] Chaque point en échec, du parcours comme de la section 4, avec sa capture d'écran et ce que vous avez vu à la place.
-- [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, deux Klay pendant le glissement, CPU relevés, `CLAUDE.md` personnel dans le chat, dossier `~/.claude/projects`, délai du message « Gmail n'est pas connecté », texte de la note d'erreur de tour.
+- [ ] Chaque point en échec, du parcours comme des sections 4 et 5, avec sa capture d'écran et ce que vous avez vu à la place.
+- [ ] Les points « À noter » : Trousseau, autorisation pour Échap, infobulle Granola, CPU relevés, `CLAUDE.md` personnel dans le chat, dossier `~/.claude/projects`, délai du message « Gmail n'est pas connecté », texte de la note d'erreur de tour. Pour le lot 6 : libellés des raccourcis, badge invisible, second Klay pendant le fondu de la zone de dépôt, note restée après une réponse au clavier, ligne sous « Claude a fini de répondre », réponse quittée aussitôt, fenêtre masquée, demande d'accès Accessibilité (une fois, les deux fenêtres), carte de l'onglet Code laissée plus de 2 min, CPU de Klayer Island et de l'app Claude.
+- [ ] La note du diagnostic de l'app Claude (section 5.7), relue, et les lignes de `nb.log` demandées en 5.5.
 - [ ] Le nom exact de l'outil Gmail et le champ `tools` de l'événement `init` du chat et du brouillon, si S3 les montre.
-- [ ] Votre contexte : version de l'app (en haut de la barre latérale des Réglages), version de macOS, modèle de Mac (avec ou sans encoche), versions de l'app Claude et de Claude Code.
+- [ ] Votre contexte : version de l'app (en haut de la barre latérale des Réglages, « 0.3.0 » pour cette build), version de macOS, modèle de Mac (avec ou sans encoche), versions de l'app Claude et de Claude Code.

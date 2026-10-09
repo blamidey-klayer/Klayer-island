@@ -30,17 +30,28 @@ claude (terminal, VS Code, app Claude)
 | `SessionStart` | crée la tâche (nom = dossier), état `idle` |
 | `UserPromptSubmit` | état `thinking`, dernière action de la session = début du prompt |
 | `PreToolUse` | état `working`, ligne = outil + cible (« Edit Invoice.swift », « Bash npm test ») ; état `searching` (jumelles, ligne « Cherche ») pour Grep, Glob, LS, WebSearch, WebFetch et une commande Bash de recherche (`rg`, `grep`, `find`, `fd`, `ls`, `tree`, `wc`) |
-| `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; repasse en `working`, mais garde les jumelles d'une recherche au moins 1,5 s (`SessionPhase.searchDwell`, comparaison de dates, sans minuteur) ; un échec reste `working` |
+| `PostToolUse` / `PostToolUseFailure` | met à jour la ligne ; repasse en `working`, mais garde les jumelles d'une recherche au moins 1,5 s (`SessionPhase.searchDwell`, comparaison de dates, sans minuteur) ; un échec reste `working`. Une ligne qu'une notification de l'app Claude avait mise sur `approval` ou `question` repasse sur « Travaille » (l'utilisateur a répondu dans l'app), sauf tant qu'une carte de cette session est tenue |
 | `PermissionRequest` | alerte `approval` (voir plus bas) |
-| `Notification` | selon le type : attente d'entrée → `question` si une question est posée, sinon rien ; limite d'usage → `ratelimit` |
+| `Notification` | limite d'usage → `ratelimit`. Session de l'app Claude (`klayer_agent: claude-desktop`) qui demande quelque chose sans carte tenue : l'île s'ouvre sur « Claude attend ta réponse » (« Onglet Code de l'app Claude » ci-dessous). Sinon, un message qui finit par « ? » → `question` ; le reste ne change rien |
 | `Stop` | état `finished` → l'île s'ouvre sur la vue `finished` de cette session, que sa pastille ait le focus ou non. Sauf si une autorisation ou une question attend, ou si l'île déjà ouverte sert à autre chose (chat, email, envoi de fichier, réglages) ou est épinglée avec ⌘P : la pastille reçoit alors seulement un badge et la ligne du registre est mise à jour (`FinishPresentation`) ; la pastille repasse au repos (elle disparaît pour l'app Claude) après 5,2 s ; résumé = dernière phrase utile de la réponse si disponible |
 | `StopFailure` | alerte `error`, même règle d'ouverture que `Stop` (badge seul si une carte attend, si l'île sert à autre chose ou est épinglée). La vue `error` nomme la session en échec (`AppState.failedSession`) et montre le texte de l'erreur : `last_assistant_message`, sinon `error_details`, sinon `error` (champs de la doc des hooks) ; la ligne de la session le reprend |
 | `SubagentStart` / `SubagentStop` | étape « + sous-agent » sur la pastille, la ligne de la session ne change pas |
-| `SessionEnd` | retire la tâche |
+| `SessionEnd` | retire la tâche ; la ligne de la session part aussi, sauf une ligne finie ou en erreur, qui reste dans l'historique du jour |
 
 Vérifier dans la doc la liste exacte des événements et leurs champs.
 
-**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase (« Cherche » pendant une recherche, voir plus haut), dernière action (80 caractères au plus) et app où tourne la session (le terminal reconnu, sinon le `bundle_id` du hook : un éditeur, l'app Claude). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished`, `error` ou `idle` sans activité depuis 30 minutes est retirée, toute autre (`searching` comprise) depuis 2 heures, sauf `approval` et `question`. Le ménage se fait à chaque événement et quand la maison de l'île s'affiche, jamais sur minuterie. La maison montre les 3 lignes les plus récentes (voir `docs/SPEC.md`, Maison) ; un clic ouvre l'app Claude pour une session de l'app, l'app où tourne une session Claude Code si elle est ouverte, sinon l'app Claude (`claude://`).
+**Registre des sessions** : une pastille ne porte qu'une session à la fois, l'app tient donc en plus une ligne par session (`session_id`, `SessionRoster`) : pastille, nom du dossier, phase (« Cherche » pendant une recherche, voir plus haut), dernière action (80 caractères au plus) et app où tourne la session (le terminal reconnu, sinon le `bundle_id` du hook : un éditeur, l'app Claude). Les événements ci-dessus la nourrissent, ainsi qu'une autorisation (`approval`, la commande) et une question (`question`, le texte de la première question) ; `SessionEnd` retire la ligne. Une ligne `finished` ou `error` reste jusqu'à minuit du jour de sa fin, dans le calendrier de l'utilisateur, et seules les 10 fins les plus récentes restent ; une ligne `idle` sans activité depuis 30 minutes est retirée, une ligne au travail (`searching` comprise) depuis 2 heures, jamais `approval` ni `question`. Le ménage se fait à chaque événement, quand la maison de l'île s'affiche et avant ⌃⌥T, jamais sur minuterie. La maison montre toutes les lignes, celles en cours puis celles finies du jour en gris (voir `docs/SPEC.md`, Maison) ; un clic ouvre l'app Claude pour une session de l'app, l'app où tourne une session Claude Code si elle est ouverte, sinon l'app Claude (`claude://`).
+
+### Onglet Code de l'app Claude : notifications (lot 6)
+
+Source : la doc des hooks (https://code.claude.com/docs/en/hooks, « Notification »). Un hook `Notification` reçoit, en plus des champs communs, `message`, un `title` facultatif et `notification_type`. Le relais transmet tout le JSON : `notification_type` arrive à `HookServer`. Le hook `Notification` fait partie des hooks installés (délai 10 s).
+
+- Types qui demandent quelque chose (`CodeNotification.alert`) : `permission_prompt` (autorisation : dans une session hébergée par l'app Claude, environ 6 s après la demande, et pas du tout si l'utilisateur ou un hook `PermissionRequest` a répondu avant), `idle_prompt` (Claude a fini il y a environ 60 s, rien n'a été tapé), `elicitation_dialog` et `elicitation_url_dialog` (formulaire ou adresse d'un serveur MCP). Les autres types (`auth_success`, `elicitation_complete`, `elicitation_response`, `agent_needs_input`, `agent_completed`, `quota_auto_resume_*`) ne demandent rien ici. Sans `notification_type` (ou vide), le texte décide : « needs your permission », « waiting for your input ».
+- Ouverture (`CodeNotification.shouldOpen`) : seulement pour `klayer_agent: claude-desktop` (jamais le terminal), seulement si aucune carte de cette session n'est tenue (`CodeNotification.holdsCard` : son autorisation, ou sa question tant qu'une question attend). Un `idle_prompt` sur une ligne finie ou en erreur n'ouvre rien : la vue « terminé » a déjà prévenu. Le type est lu avant que la ligne ne bouge.
+- Effet : la ligne passe sur `approval` (autorisation) ou `question` (attente), sauf une ligne finie ou en erreur ; la pose de Klay suit. Puis `AppState.showClaudeAppAlert` : note « Claude attend ta réponse », ligne « Une autorisation t'attend dans l'app Claude : <projet> » ou « Claude a besoin de toi dans l'app Claude : <projet> », « Ouvrir Claude » et OK, son `approval` ou `question`. Même règle d'ouverture qu'une fin (`FinishPresentation`) ; sinon le son seul et un badge `.approval` sur la pastille de l'app Claude, qui ne s'affiche plus dans la maison.
+- Journal : `~/Library/Logs/NotchBuddy/nb.log` note chaque notification qui ouvre l'île : « Notification permission from the Claude app (<début de l'id>) », « … waiting … » ou « … idle … ». Une notification qui n'ouvre rien n'y laisse rien.
+- `HookServer.lastDesktopHookAt` retient l'heure du dernier événement d'une session de l'app Claude (événements, autorisations, questions) : le suivi de Chat et Cowork (§8) se tait 15 s après.
+- À confirmer sur Mac : que l'app Claude envoie `idle_prompt` et `elicitation_*` dans ses sessions (la doc ne le dit pas) ; `permission_prompt` n'y part qu'à partir de Claude Code 2.1.233 (doc). Désactivable côté Claude Code par `CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS=1`.
 
 ### Approuver depuis le notch
 - Sur `PermissionRequest`, `nb-hook` **attend** la décision de l'app (118 s au plus) puis écrit sur stdout le JSON de décision du hook (`hookSpecificOutput` avec `decision.behavior` = `allow` ou `deny`). Timeout du hook dans settings.json : 120 s.
@@ -62,7 +73,7 @@ Vérifier dans la doc la liste exacte des événements et leurs champs.
 - Fallback : si l'app ne répond pas (absente, timeout 125 s) ou renvoie `ask`, nb-hook n'émet rien → Claude Code re-pose la question dans le terminal.
 
 ### Sauter au terminal
-⌃⌥T vise d'abord la session la plus récente du registre, avec la règle d'un clic sur sa ligne : son terminal ou son éditeur s'il tourne, l'app Claude pour une session de l'app. Sinon (hôte inconnu ou fermé, aucune session), le terminal de la pastille en focus, puis Terminal. Le tableau ci-dessous reste le plan d'origine.
+⌃⌥T vise d'abord la session la plus récente du registre (celle qui a agi en dernier, une ligne finie dans la journée comprise), avec la règle d'un clic sur sa ligne : son terminal ou son éditeur s'il tourne, l'app Claude pour une session de l'app. Sinon (hôte inconnu ou fermé, aucune session), le terminal de la pastille en focus, puis Terminal. Le tableau ci-dessous reste le plan d'origine.
 
 | Contexte capté | Action |
 |---|---|
@@ -207,6 +218,7 @@ Stripe, n8n, Resend, Cal.com, Notion, Vercel et Apple Music ne sont plus pris en
     - texte et code (txt, md, csv, json, swift, py, js, ts, html, css, xml, yaml, yml, 200 Ko au plus) : en clair.
     - Un autre type, ou un fichier trop gros ou illisible : une note le dit (« Ce type de fichier n'est pas pris en charge. », « Cette image dépasse 5 Mo. », « Ce fichier dépasse 200 Ko. », « Ce PDF dépasse 50 Mo. », « Ce PDF ne contient pas de texte lisible. » ou « Impossible de lire ce fichier. »), Claude n'est pas lancé pour ce fichier, le fichier quitte le chat et les questions suivantes partent sans lui.
   - **Préparer un email** → vue `mail` (§6). Le fichier ne part pas chez Claude : seul son nom est dans la demande.
+  - Déposer un fichier seul n'ajoute rien au chat (lot 6) : après « Préparer un email », le chat s'ouvre sans la pastille du fichier.
 - Nettoyer l'inbox après 7 jours.
 
 ---
@@ -219,6 +231,8 @@ Stripe, n8n, Resend, Cal.com, Notion, Vercel et Apple Music ne sont plus pris en
 4. Vue `prompt` avec la pastille « Safari, escale.fr » (app + domaine), focus sur le champ.
 
 Permissions : Accessibilité (titre de la fenêtre) et Automatisation (navigateur). Si elles sont refusées, l'attache continue sans titre ou sans URL.
+
+Ouvrir le chat ne capture rien (lot 6) : ni l'onglet du chat ni ⌃⌥Espace ne lisent la fenêtre de l'app précédente. `WindowContextCapture.captureActive` n'est appelée que par le lâcher de Klay sur une fenêtre (`windowContextAtPoint`, depuis l'île comme depuis Klay sur le bureau) et par ⌃⌥W, « Attacher la fenêtre de premier plan » (`performAttachFrontWindow`) ; `scripts/test-window-capture-sites.sh` (étape de CI « Test window capture sites ») échoue sur tout autre appel.
 
 ---
 
@@ -378,9 +392,59 @@ L'île ne pilote plus Mail. `NSAppleEventsUsageDescription` dit « Pour sauter a
 |---|---|---|
 | Automatisation → Terminal / iTerm / navigateur | sauter au bon onglet, lire l'URL | première utilisation |
 | Automatisation → Spotify | lire la position, le shuffle, le volume ; piloter la lecture | activation de la pill Spotify, ou première ouverture de sa carte |
-| Accessibilité | lire le titre de la fenêtre attachée au chat | première attache |
+| Accessibilité | lire le titre de la fenêtre attachée au chat ; lire les boutons de l'app Claude pour le suivi de Chat et Cowork (§8) | première attache ; pour le suivi, une fois d'elle-même quand l'app Claude tourne, ensuite par « Autoriser l'accès » dans Réglages, Agents |
 | Micro + Reconnaissance vocale (optionnel) | dictée | premier clic sur le micro |
 
-Les raccourcis globaux (Carbon) n'ont besoin d'aucune permission Accessibilité. Seule la lecture du titre de la fenêtre attachée la demande ; sans elle, le titre reste vide. L'île ne demande ni l'enregistrement de l'écran (elle ne capture rien) ni l'automatisation de Mail (elle n'envoie rien).
+Les raccourcis globaux (Carbon) n'ont besoin d'aucune permission Accessibilité. Seules la lecture du titre de la fenêtre attachée et le suivi de Chat et Cowork la demandent ; sans elle, le titre reste vide et le suivi ne lit rien. Le texte de la demande (`NSAccessibilityUsageDescription`) : « Pour lire le titre de la fenêtre active et l'attacher comme contexte, et pour suivre les réponses de l'app Claude. » L'île ne demande ni l'enregistrement de l'écran (elle ne capture rien) ni l'automatisation de Mail (elle n'envoie rien).
 
+---
 
+## 8. Chat et Cowork dans l'app Claude (expérimental, lot 6)
+
+Chat et Cowork n'émettent aucun hook. L'île lit donc l'interface de l'app Claude par l'accessibilité de macOS : un bouton d'arrêt qui apparaît puis disparaît est une réponse finie, un bouton d'autorisation à côté d'un bouton de refus est une autorisation demandée. Cela dépend des libellés de l'interface d'Anthropic : c'est expérimental. L'onglet Code reste suivi par ses hooks (§1). Comportement visible : `docs/SPEC.md` §16.2.
+
+### Code
+
+- `ClaudeAppWatchRules.swift` (Foundation, testé sous Linux par `scripts/test-claude-app-watch.sh`, étape de CI « Test Claude app watch ») : les libellés, seul endroit où ils vivent ; les règles de comparaison ; la machine d'état `ClaudeAppWatchState` ; le texte du diagnostic.
+- `ClaudeAppWatcher.swift` (AppKit et ApplicationServices) : les observateurs de `NSWorkspace` (activation, lancement, fin d'app), la planification des lectures, et `ClaudeAppReader`, qui fait tous les appels d'accessibilité sur une file série à part (`.utility`) ; seuls des résumés (`ClaudeAppSnapshot`) en sortent vers le fil principal.
+- Démarré par `AppDelegate` au lancement, arrêté à la fermeture de l'app (l'attribut de l'app Claude est alors remis comme il était avant de quitter). Jamais dans un lancement de test (`KLAYER_ISLAND_TEST=1`).
+
+### Appels faits à l'app Claude
+
+- `AXUIElementCreateApplication` sur le processus de l'app Claude (`com.anthropic.claudefordesktop`, `HookRouting.desktopBundleId`), `AXUIElementSetMessagingTimeout` à 0,5 s sur chaque élément lu.
+- `AXUIElementCopyAttributeValue` : `AXWindows`, `AXMainWindow` et son `AXTitle`, puis pour chaque élément parcouru `AXRole` et `AXChildren`, et pour un bouton seulement `AXDescription`, sinon `AXTitle`, sinon `AXHelp`. Jamais `AXValue`. Les textes, zones de texte, champs, liens et images ne sont pas parcourus ; un bouton non plus (ses enfants sont son propre texte).
+- `AXUIElementSetAttributeValue` pour `AXManualAccessibility` seulement : l'app Claude est une app Electron, son arbre d'accessibilité n'existe que tant que cet attribut est vrai. L'île le met à vrai au début d'une série de lectures, s'il ne l'était pas déjà, et le remet à faux à la fin de la série seulement si c'est elle qui l'avait mis (un utilisateur de VoiceOver garde le sien).
+- Aucun autre appel : jamais d'action, de clic, de focus ni de touche envoyés à l'app Claude.
+- Bornes d'une lecture : profondeur 30, 5 000 éléments, enfants pris du dernier au premier (la zone de saisie et les derniers messages sont lus avant que la borne ne coupe les plus anciens). Une erreur « ne peut pas aboutir » ou l'absence de fenêtre rend une lecture qui ne dit rien ; un refus d'accès (`apiDisabled`) arrête les lectures.
+
+### Planification
+
+- Aucun minuteur au repos. L'app Claude passe au premier plan, avec l'accès : une lecture tout de suite, puis toutes les 2 s tant que `ClaudeAppWatchState.needsPolling` (app au premier plan, ou réponse repérée en cours et encore lisible). Une autre app passe devant pendant les lectures : une lecture immédiate avant de décider de s'arrêter. Une lecture compte comme faite au premier plan seulement si l'app l'était à la demande et l'est encore après le parcours.
+- Lectures qui ne disent rien, au second plan : 15 de suite (30 s) abandonnent la réponse sans note. Une réponse suivie de derrière plus de 60 min est abandonnée sans note, et le même bouton d'arrêt n'est plus suivi de derrière avant une lecture au premier plan ou sans lui.
+- L'app Claude quitte : état remis à zéro, élément oublié, plus de minuteur.
+- Événements : `answerFinished` (bouton d'arrêt absent à deux lectures de suite, aucune des deux au premier plan, sans autorisation à l'écran) ; `permissionRequested` (une fois par apparition, au second plan ; partie après deux lectures sans elle). Dans les 15 s (incluses) qui suivent `HookServer.lastDesktopHookAt`, un événement est consommé sans note (onglet Code, §1). La note passe par `AppState.showClaudeAppAlert` : « Claude a fini de répondre » (son `finish`) ou « Claude attend ta réponse » (son `approval`), ligne = titre de la fenêtre, sauf vide ou « Claude », alors « Dans l'app Claude ».
+
+### Accès
+
+- `AXIsProcessTrusted` décide : sans accès, rien n'est lu ni planifié. La demande de macOS (`AXIsProcessTrustedWithOptions` avec l'invite) s'affiche d'elle-même une seule fois (UserDefaults `claudeAppWatchPrompted`), la première fois que le suivi est actif et que l'app Claude tourne. Ensuite, seulement par « Autoriser l'accès » dans Réglages, Agents, qui ouvre aussi Réglages Système sur Confidentialité et sécurité, Accessibilité quand l'accès manque encore. La ligne « Accès Accessibilité : … » se relit à l'affichage des Réglages et quand Klayer Island redevient l'app active.
+- Réglage : UserDefaults `claudeAppWatchEnabled`, vrai par défaut. Coupé : observateurs retirés, lectures arrêtées, attribut de l'app Claude remis.
+
+### Diagnostic
+
+« Copier le diagnostic de l'app Claude » (clic seulement) fait une lecture, après 1 s si l'arbre de l'app Claude vient d'être activé pour elle, et copie dans le presse-papiers : « Diagnostic de l'app Claude (Klayer Island) », la version de l'app Claude (ou « non lancée »), « Accès Accessibilité : oui/non », les fenêtres, les éléments lus, les limites de profondeur et d'éléments atteintes, la durée et la complétude de la lecture, le nombre de boutons et de lignes, « Bouton d'arrêt reconnu » et « autorisation reconnue », puis une ligne `rôle | libellé` par bouton distinct, dans l'ordre de lecture, 300 lignes au plus. Un libellé de plus de 30 caractères ou de 5 mots s'écrit « (libellé long, N caractères) », un libellé vide « (sans libellé) ». Jamais le titre de la fenêtre ni une valeur ; rien n'est écrit sur le disque. Un libellé court peut être le titre d'une conversation : TEST-MAC (5.7) demande de relire avant d'envoyer.
+
+### Journal
+
+`~/Library/Logs/NotchBuddy/claude-app.log` : les événements du suivi (« A permission waits in the Claude app », « An answer finished in the Claude app », la demande d'accès montrée, un accès refusé), jamais un libellé, un titre ni un message.
+
+---
+
+## 9. Test de bout en bout (CI macOS, lot 6)
+
+Le workflow Build construit, après l'app livrée (Release), une seconde app de test : configuration Debug, dossier `build-e2e`, condition de compilation `KLAYER_E2E`. Elle n'est jamais livrée ni téléversée.
+
+- Commandes de test sur la socket (`HookServerE2E.swift`, compilé seulement avec `KLAYER_E2E`, actif seulement si l'app est lancée avec `KLAYER_ISLAND_TEST=1`) : `e2e_state` (l'état de l'île, lu sur le fil principal), `e2e_decide` et `e2e_answer` (appellent ce qu'appellent les boutons de la carte, et seulement pour la carte à l'écran), `e2e_shortcut` (un raccourci, par le gestionnaire des raccourcis).
+- `scripts/test-e2e-island.sh` lance `tests/e2e/island_e2e.py` (Python 3, bibliothèque standard), qui joue des sessions de l'app Claude par le vrai `nb-hook` que l'app écrit, comme Claude Code le lance (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`), et vérifie 8 scénarios : une fin ouvre l'île cachée sur cette fin ; une fin pendant le chat laisse le chat ; une autorisation autorisée depuis l'île donne la sortie `allow` du relais ; une question répondue donne `updatedInput` ; un hook tué (réponse dans l'app) ferme la carte sans décision ; une notification d'autorisation sans carte ouvre « Claude attend ta réponse » ; un `klayer_agent` inconnu et une session de terminal (cartes décochées) reçoivent `ask` tout de suite ; rien n'est autorisé sans `e2e_decide`.
+- Contrôles de la build livrée : l'étape « The shipped binary has no test command » échoue si le binaire Release contient `e2e_state`, `e2e_decide`, `e2e_answer` ou `e2e_shortcut` (et l'étape de la build de test vérifie qu'elle, au contraire, contient `e2e_decide` : le contrôle voit bien ces noms) ; le script lance aussi l'app Release, puis l'app de test sans `KLAYER_ISLAND_TEST=1`, et vérifie qu'elles ne répondent à aucune commande de test.
+- Le test n'écrit jamais `~/.claude/settings.json`. Il utilise le dossier de support et les préférences de Klayer Island du compte qui le lance et refuse de tourner si Klayer Island est ouverte : il est fait pour la CI. Étape « End-to-end island test », 10 min au plus ; en cas d'échec, les journaux sont téléversés (`e2e-island-logs`, 7 jours).
+- Ce qu'il ne couvre pas : la vraie app Claude et sa version de Claude Code, l'accessibilité et le suivi de §8, l'encoche, le dessin et les sons. La liste de contrôle Mac (`TEST-MAC.md`, section 5) les vérifie.
