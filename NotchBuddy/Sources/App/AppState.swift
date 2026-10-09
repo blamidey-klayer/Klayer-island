@@ -376,8 +376,9 @@ final class AppState: ObservableObject {
     /// Keeps the island in step with its pills. With no task left, a compact island hides (the
     /// window controller tells the state machine). Klay comes out only through the state machine
     /// (spec §4): a pill that appears while the island is hidden posts a reveal, which hides him
-    /// again 60 s after the pointer is away. A pill that goes (`revealing` false) brings nothing
-    /// out. Setting `mode` to compact here left the state machine hidden and Klay out for good.
+    /// again 60 s after the pointer is away. A pill that goes, or a pill turned on or off in
+    /// Settings (`revealing` false), brings nothing out: only session events do (SPEC rule 3).
+    /// Setting `mode` to compact here left the state machine hidden and Klay out for good.
     func syncMode(revealing: Bool = true) {
         if tasks.isEmpty && mode == .compact {
             mode = .hidden
@@ -443,7 +444,8 @@ final class AppState: ObservableObject {
                 sortTasksByCatalog()
             }
         }
-        syncMode()
+        // A choice made in Settings: Klay does not come out for it.
+        syncMode(revealing: false)
     }
 
     /// Sort tasks so catalog pills are in catalog order, undeclared pills sit right after
