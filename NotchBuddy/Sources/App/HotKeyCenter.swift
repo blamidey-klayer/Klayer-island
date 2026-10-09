@@ -139,3 +139,13 @@ final class HotKeyCenter {
         }
     }
 }
+
+#if KLAYER_E2E
+extension HotKeyCenter {
+    /// The test build of the macOS CI only (HookServerE2E.swift): runs `action` through the handler
+    /// a pressed shortcut reaches, as if its keys had been typed.
+    func performForTest(_ action: ShortcutAction) {
+        gOnAction?(action)
+    }
+}
+#endif

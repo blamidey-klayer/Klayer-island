@@ -123,11 +123,54 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
+      - name: The shipped binary has no test command
+        run: |
+          # The test commands exist only in the test build (KLAYER_E2E); the step after next checks
+          # that the test build does carry these names, so this check can see them.
+          found=0
+          for f in build/Build/Products/Release/KlayerIsland.app/Contents/MacOS/*; do
+            if strings -a "$f" | grep -E 'e2e_(state|decide|answer|shortcut)'; then
+              echo "::error::$f carries test-only commands"
+              found=1
+            fi
+          done
+          exit $found
+
       - name: Package the app (ad-hoc signed, for internal testing)
         run: |
           APP="build/Build/Products/Release/KlayerIsland.app"
           codesign --force --deep --sign - "$APP"
           ditto -c -k --keepParent "$APP" KlayerIsland-macOS.zip
+
+      - name: Build the end-to-end test app (KLAYER_E2E, never shipped)
+        run: |
+          xcodebuild \
+            -project NotchBuddy/NotchBuddy.xcodeproj \
+            -scheme NotchBuddy \
+            -configuration Debug \
+            -derivedDataPath build-e2e \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) DEBUG KLAYER_E2E'
+          # Control of the check above: the test build carries the test commands' names.
+          strings -a build-e2e/Build/Products/Debug/KlayerIsland.app/Contents/MacOS/* | grep -q 'e2e_decide' \
+            || { echo "::error::the test build has no test command: KLAYER_E2E was not applied"; exit 1; }
+
+      - name: End-to-end island test
+        timeout-minutes: 10
+        env:
+          KLAYER_E2E_RELEASE_APP: build/Build/Products/Release/KlayerIsland.app/Contents/MacOS/KlayerIsland
+        run: bash scripts/test-e2e-island.sh
+
+      - name: Upload the end-to-end logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-island-logs
+          path: build-e2e/e2e-logs/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload the app
         uses: actions/upload-artifact@v4

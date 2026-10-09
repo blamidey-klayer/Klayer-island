@@ -1,5 +1,7 @@
 # Build artefacts
 NotchBuddy/build/
+# The end-to-end test build and its logs (scripts/test-e2e-island.sh)
+build-e2e/
 NotchBuddy/NotchBuddy.xcodeproj/project.xcworkspace/xcuserdata/
 NotchBuddy/NotchBuddy.xcodeproj/xcuserdata/
 NotchBuddy/NotchBuddy.xcodeproj/xcshareddata/

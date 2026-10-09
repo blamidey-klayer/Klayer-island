@@ -385,6 +385,11 @@ final class HookServer: @unchecked Sendable {
 
         let klayerKind = payload["klayer_kind"] as? String ?? ""
 
+        #if KLAYER_E2E
+        // The test build of the macOS CI only: its test commands (HookServerE2E.swift).
+        if handleE2ECommand(kind: klayerKind, payload: payload, fd: fd) { return }
+        #endif
+
         // statusline payloads are handled separately: no session, no reveal, no sound
         if klayerKind == "statusline" {
             Task { @MainActor in self.processStatusLine(payload: payload) }
@@ -1394,7 +1399,7 @@ final class HookServer: @unchecked Sendable {
         appendAppLog("nb.log", message)
     }
 
-    private func sendLine(fd: Int32, text: String) {
+    func sendLine(fd: Int32, text: String) {
         let bytes = Array((text + "\n").utf8)
         bytes.withUnsafeBytes { buffer in
             var sent = 0
