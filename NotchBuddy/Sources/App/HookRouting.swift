@@ -22,8 +22,8 @@ enum HookRouting {
     /// The pill of the Claude desktop app: "agent_claude-desktop". All its sessions share it.
     static let desktopPillId = pillId(agent: "claude-desktop")
 
-    /// The Claude desktop app's bundle id: what « Ouvrir Claude » opens, and the app whose Chat and
-    /// Cowork the island follows (ClaudeAppWatcher).
+    /// The Claude desktop app's bundle id: what « Ouvrir ce chat » and « Ouvrir cette session » bring
+    /// forward, and the app whose Chat and Cowork the island follows (ClaudeAppWatcher).
     static let desktopBundleId = "com.anthropic.claudefordesktop"
 
     /// False while a card of this pill waits for an answer. Removing the pill then resets the

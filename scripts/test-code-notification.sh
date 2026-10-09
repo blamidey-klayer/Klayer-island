@@ -13,6 +13,7 @@ swiftc -swift-version 6 -strict-concurrency=complete \
     NotchBuddy/Sources/App/ClaudeHookDetection.swift \
     NotchBuddy/Sources/App/HookRouting.swift \
     NotchBuddy/Sources/App/SessionRoster.swift \
+    NotchBuddy/Sources/App/ActionText.swift \
     NotchBuddy/Sources/App/CodeNotification.swift \
     NotchBuddy/Sources/App/ClaudeAppAlertHold.swift \
     tests/CodeNotificationTests.swift -o "$TEST_DIR/code-notification-tests"

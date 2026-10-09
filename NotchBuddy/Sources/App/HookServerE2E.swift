@@ -17,12 +17,14 @@ extension HookServer {
         /// Question text → the labels chosen (one for a single-select question). Nil when malformed.
         case answer([String: [String]]?)
         case shortcut(String)
+        /// An app came to the front (its bundle id), as NSWorkspace would say (Task 27).
+        case activate(String)
         case unknown(String)
     }
 
     /// The test commands, named in full in the reply to an unknown one (and found there by the CI's
     /// `strings` check of the test build, its control for the check of the shipped binary).
-    private static let e2eCommandList = "e2e_state, e2e_decide, e2e_answer or e2e_shortcut"
+    private static let e2eCommandList = "e2e_state, e2e_decide, e2e_answer, e2e_shortcut or e2e_activate"
 
     /// Answers a test command on its connection with one JSON line, then closes it. False when `kind`
     /// is not a test command or the app was not launched by the test: the payload then goes on like
@@ -36,6 +38,7 @@ extension HookServer {
         case "e2e_decide":   command = .decide(payload["decision"] as? String ?? "")
         case "e2e_answer":   command = .answer(Self.e2eSelections(payload["answers"]))
         case "e2e_shortcut": command = .shortcut(payload["action"] as? String ?? "")
+        case "e2e_activate": command = .activate(payload["bundle_id"] as? String ?? "")
         default:             command = .unknown(kind)
         }
         Task { @MainActor in
@@ -70,6 +73,7 @@ extension HookServer {
         case .decide(let decision):  reply = e2eDecide(decision)
         case .answer(let chosen):    reply = e2eAnswer(chosen)
         case .shortcut(let name):    reply = e2eShortcut(name)
+        case .activate(let bundleId): reply = e2eActivate(bundleId)
         case .unknown(let kind):     reply = Self.e2eError("unknown test command \(kind): expected \(Self.e2eCommandList)")
         }
         guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys, .withoutEscapingSlashes]),
@@ -88,8 +92,10 @@ extension HookServer {
     @MainActor
     private func e2eState() -> [String: Any] {
         let state = AppState.shared
-        let sessions: [[String: Any]] = state.sessions.map {
-            ["id": $0.id, "phase": $0.phase.rawValue, "title": $0.title, "pill": $0.pillId]
+        let sessions: [[String: Any]] = state.sessions.map { row in
+            let entrypoint: Any = row.entrypoint ?? NSNull()
+            return ["id": row.id, "phase": row.phase.rawValue, "title": row.title, "pill": row.pillId,
+                    "detail": row.detail, "entrypoint": entrypoint, "open": Self.e2eOpenTarget(row.openTarget)]
         }
         let choices: [[String: Any]] = state.recentChoices.map {
             ["kind": $0.kind.rawValue, "prompt": $0.prompt, "answer": $0.answer, "session": $0.session,
@@ -128,7 +134,9 @@ extension HookServer {
             reply["note"] = NSNull()
         }
         if let alert = state.claudeAppAlert {
-            reply["claudeAppAlert"] = ["title": alert.title, "message": alert.message]
+            reply["claudeAppAlert"] = ["title": alert.title, "message": alert.message,
+                                       "source": alert.source == .chat ? "chat" : "codeSession",
+                                       "openLabel": alert.source.openLabel]
         } else {
             reply["claudeAppAlert"] = NSNull()
         }
@@ -169,6 +177,24 @@ extension HookServer {
             selections.append(labels)
         }
         sendQuestionAnswers(AskQuestion.buildAnswers(questions: pending.questions, selections: selections))
+        return ["ok": true]
+    }
+
+    /// What a row opens, as the test reads it: `url:<link>`, `activate:<bundle id>`, or null.
+    private static func e2eOpenTarget(_ target: OpenTarget?) -> Any {
+        switch target {
+        case .url(let url)?:           return "url:" + url.absoluteString
+        case .activate(let bundleId)?: return "activate:" + bundleId
+        case nil:                      return NSNull()
+        }
+    }
+
+    /// An app came to the front: posted as the window controller's own activation input, so the
+    /// card or note on screen steps aside exactly as when NSWorkspace says so (CardStepAside).
+    @MainActor
+    private func e2eActivate(_ bundleId: String) -> [String: Any] {
+        guard !bundleId.isEmpty else { return Self.e2eError("bundle_id is required") }
+        NotificationCenter.default.post(name: .appCameToFront, object: bundleId)
         return ["ok": true]
     }
 

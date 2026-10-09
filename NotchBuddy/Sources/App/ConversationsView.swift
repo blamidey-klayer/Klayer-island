@@ -5,9 +5,10 @@ import AppKit
 
 /// The Claude sessions, on the home of the open island (spec §6, lot 6 spec §2): one row per
 /// session of `AppState.sessions`, the running ones first (latest activity first), then the ones
-/// that finished or failed today, in grey with their end time (latest end first). All of them: the
-/// home scrolls past what fits. Without any, one line in grey says so, and a second one says when
-/// the Claude Code hooks are missing, with a way to Settings.
+/// that finished or failed today, in grey (latest end first). All of them: the home scrolls past
+/// what fits, as a wheel (`listWheel`). The rows are this view's own children, so the list's stack
+/// lays them out and settles on each one. Without any, one line in grey says so, and a second one
+/// says when the Claude Code hooks are missing, with a way to Settings.
 struct ConversationsView: View {
     /// The roster in the order of the list (`SessionRoster.listed`).
     let sessions: [SessionRow]
@@ -39,69 +40,46 @@ struct ConversationsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(sessions) { row in
-                    ConversationRow(row: row)
-                }
+            ForEach(sessions) { row in
+                ConversationRow(row: row)
+                    .listWheel()
             }
         }
     }
 }
 
-/// One session: a mini Klay on the colour of its phase, the project folder, the phase in plain
-/// French, and the last action on one line. A session that finished or failed is in grey, its Klay
-/// grey and still, and says when it ended (« Terminé à 14:05 », « Erreur à 14:05 »). A click opens
-/// the session (`SessionOpener`).
+/// One session (Task 27, Baptiste: « le nom de la session, et en dessous la description de sa
+/// dernière action »): the source icon `</>` in the colour of its phase (`StateColor`, the colours of
+/// Klay's states, as the mini Klay it replaces), the session's name, and under it its last action in
+/// plain French (`SessionRow.detail`). A session that finished or failed is in grey, its icon grey. A
+/// click opens the session (`SessionOpener`).
 private struct ConversationRow: View {
     let row: SessionRow
     @State private var isHovered = false
 
     private var ended: Bool { row.phase.isEnded }
 
-    /// The mini Klay of the row, drawn like the pills' ones: the pose and the colour of the
-    /// phase (`StateColor`, the colours of Klay's states).
-    private var miniTask: AgentTask {
-        let pose = BotState(rawValue: row.phase.rawValue) ?? .idle
-        return AgentTask(id: row.id, name: row.title, color: hexString(StateColor.of(pose)),
-                         state: pose, steps: [], source: .agent)
-    }
-
     var body: some View {
         Button(action: { SessionOpener.open(row) }) {
             HStack(spacing: 8) {
-                // An ended session's Klay is grey and still: its finished or error pose drawn
-                // once, no timeline (up to 10 of them)
-                MiniBotCanvasView(task: miniTask, still: ended)
-                    .frame(width: 18 / 0.6, height: 18 / 0.6)
-                    .frame(width: 18, height: 18, alignment: .center)
+                SourceIconView(icon: row.sourceIcon, color: StateColor.color(of: row.phase))
                     .saturation(ended ? 0 : 1)
                     .opacity(ended ? 0.6 : 1)
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 6) {
-                        Text(row.title)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color(hex: ended ? "#8E939C" : "#F5F6F8"))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(1)
-                        phaseText
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: ended ? "#6B7079" : "#8E939C"))
-                            .lineLimit(1)
-                            .fixedSize()
-                        Spacer(minLength: 0)
-                    }
-                    if !row.lastAction.isEmpty {
-                        Text(row.lastAction)
-                            .font(.system(size: 10.5))
-                            .foregroundColor(Color(hex: "#6B7079"))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                    Text(verbatim: row.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color(hex: ended ? "#8E939C" : "#F5F6F8"))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(verbatim: row.detail)
+                        .font(.system(size: 10.5))
+                        .foregroundColor(Color(hex: ended ? "#6B7079" : "#8E939C"))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 26)
+            .frame(height: ListWheel.rowHeight)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 4)
@@ -112,27 +90,15 @@ private struct ConversationRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
     }
-
-    /// The phase, or for an ended session its end time on the user's clock.
-    @ViewBuilder
-    private var phaseText: some View {
-        switch row.phase {
-        case .finished:
-            Text("Terminé à \(SessionRoster.clock(row.updatedAt, calendar: .autoupdatingCurrent))")
-        case .error:
-            Text("Erreur à \(SessionRoster.clock(row.updatedAt, calendar: .autoupdatingCurrent))")
-        default:
-            // Looked up in the catalog (French keys marked manual: no literal here)
-            Text(LocalizedStringKey(row.phase.label))
-        }
-    }
 }
 
 // MARK: - Opening a session
 
-/// Opens what a click on a row opens (`SessionRow.openTarget`): the Claude app (`claude://`) for a
-/// session of the Claude app, the running terminal or editor of a Claude Code session, and the
-/// Claude app when that host is gone. ⌃⌥T uses the same rule for the most recent session.
+/// Opens what `OpenTarget` decides (Task 27): the VS Code tab of a VS Code extension session (its
+/// documented `vscode://` link, opened with NSWorkspace, never through a shell), the Claude app for a
+/// session of the Claude app, the app any other session runs in (terminal or editor). A row falls
+/// back to the Claude app when its host is unknown or not running, as before; ⌃⌥T uses the same rule
+/// for the most recent session; the open buttons launch the host when it is not running.
 @MainActor
 enum SessionOpener {
     /// A click on a row: opens the session, then folds the island like the finished view's buttons.
@@ -141,30 +107,41 @@ enum SessionOpener {
         NotificationCenter.default.post(name: .islandCollapse, object: nil)
     }
 
-    /// Opens the session where it is known to live: its running host (terminal or editor), or the
-    /// Claude app for a session of the Claude app. False for a Claude Code session whose host is
+    /// Opens the session where it is known to live (`SessionRow.openTarget`). False when its host is
     /// unknown or no longer running: the caller picks the fallback.
     @discardableResult
     static func openKnownTarget(_ row: SessionRow) -> Bool {
-        let apps = NSWorkspace.shared.runningApplications
-        switch row.openTarget(running: Set(apps.compactMap(\.bundleIdentifier))) {
-        case .host(let bundleId):
-            return apps.first(where: { $0.bundleIdentifier == bundleId })?.activate() ?? false
-        case .claudeApp:
-            guard row.pillId == HookRouting.desktopPillId else { return false }
-            openClaudeApp()
+        guard let target = row.openTarget else { return false }
+        return open(target, launching: false)
+    }
+
+    /// Opens `target`: a link with NSWorkspace; the Claude app brought forward or launched; another app
+    /// brought forward, or launched when `launching` (the open buttons). False when nothing opened.
+    @discardableResult
+    static func open(_ target: OpenTarget, launching: Bool) -> Bool {
+        switch target {
+        case .url(let url):
+            return NSWorkspace.shared.open(url)
+        case .activate(let bundleId):
+            if bundleId == HookRouting.desktopBundleId { return openClaudeApp() }
+            if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
+                return app.activate()
+            }
+            guard launching, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+                return false
+            }
+            NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
             return true
         }
     }
 
-    private static func openClaudeApp() {
-        NSWorkspace.shared.open(URL(string: "claude://")!)
+    /// Brings the Claude app forward, or launches it; `claude://` when its bundle is not found.
+    @discardableResult
+    static func openClaudeApp() -> Bool {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: HookRouting.desktopBundleId) {
+            NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
+            return true
+        }
+        return NSWorkspace.shared.open(URL(string: "claude://")!)
     }
-}
-
-/// "#RRGGBB" of an RGB colour: the mini Klay takes its disc colour as a hex string.
-private func hexString(_ color: CGColor) -> String {
-    guard let c = color.components, c.count >= 3 else { return "#FFFFFF" }
-    func byte(_ v: CGFloat) -> Int { Int((max(0, min(1, v)) * 255).rounded()) }
-    return String(format: "#%02X%02X%02X", byte(c[0]), byte(c[1]), byte(c[2]))
 }

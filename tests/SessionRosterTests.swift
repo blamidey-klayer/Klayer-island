@@ -22,7 +22,6 @@ enum SessionRosterTests {
             ("phase_labels_in_plain_french", phaseLabelsInPlainFrench),
             ("host_kept_when_nil_and_replaced_when_given", hostKeptWhenNilAndReplacedWhenGiven),
             ("session_host_is_the_routed_terminal_else_the_bundle", sessionHostIsTheRoutedTerminalElseTheBundle),
-            ("row_opens_its_running_host_else_the_claude_app", rowOpensItsRunningHostElseTheClaudeApp),
             ("search_tools_raise_the_binoculars", searchToolsRaiseTheBinoculars),
             ("a_bash_search_raises_them_other_commands_work", aBashSearchRaisesThemOtherCommandsWork),
             ("post_tool_use_keeps_the_binoculars_1_5_s", postToolUseKeepsTheBinoculars15s),
@@ -46,6 +45,16 @@ enum SessionRosterTests {
             ("names_go_with_their_row", namesGoWithTheirRow),
             ("a_name_without_a_row_is_kept_30_min", aNameWithoutARowIsKept30Min),
             ("a_request_goes_by_its_session_s_name", aRequestGoesByItsSessionsName),
+            // Task 27: a name for every row, its entrypoint, its line of detail
+            ("a_session_without_a_name_goes_by_its_first_prompt", aSessionWithoutANameGoesByItsFirstPrompt),
+            ("a_prompt_name_is_its_first_line_cut_on_a_word", aPromptNameIsItsFirstLineCutOnAWord),
+            ("a_command_or_a_tag_is_no_name", aCommandOrATagIsNoName),
+            ("a_generic_folder_is_session_code", aGenericFolderIsSessionCode),
+            ("claude_is_never_a_session_s_name", claudeIsNeverASessionsName),
+            ("prompt_names_go_with_their_row", promptNamesGoWithTheirRow),
+            ("a_row_keeps_its_entrypoint", aRowKeepsItsEntrypoint),
+            ("an_entrypoint_is_short_text", anEntrypointIsShortText),
+            ("the_detail_line_says_the_last_action", theDetailLineSaysTheLastAction),
         ]
         for (name, run) in cases {
             run()
@@ -351,27 +360,6 @@ enum SessionRosterTests {
                      "an editor session has its bundle id as host")
         precondition(SessionRoster.host(routed: nil, bundleId: "") == nil, "no host known: nil")
         precondition(SessionRoster.host(routed: nil, bundleId: "  \n") == nil, "a blank bundle id is no host")
-    }
-
-    static func rowOpensItsRunningHostElseTheClaudeApp() {
-        func row(_ pillId: String, host: String?) -> SessionRow {
-            SessionRow(id: "s", pillId: pillId, title: "P", phase: .finished, lastAction: "",
-                       updatedAt: t0, hostBundleId: host)
-        }
-        let running: Set<String> = ["dev.warp.Warp-Stable", "com.microsoft.VSCode", "com.anthropic.claudefordesktop"]
-
-        precondition(row("integration_claude", host: "dev.warp.Warp-Stable").openTarget(running: running)
-                     == .host(bundleId: "dev.warp.Warp-Stable"),
-                     "a Claude Code session brings its own terminal forward")
-        precondition(row("integration_claude", host: "com.microsoft.VSCode").openTarget(running: running)
-                     == .host(bundleId: "com.microsoft.VSCode"), "or its editor")
-        precondition(row("integration_claude", host: "com.apple.Terminal").openTarget(running: running) == .claudeApp,
-                     "a host that is not running any more falls back to the Claude app")
-        precondition(row("integration_claude", host: nil).openTarget(running: running) == .claudeApp,
-                     "no host known: the Claude app")
-        precondition(row(HookRouting.desktopPillId, host: "com.anthropic.claudefordesktop")
-                     .openTarget(running: running) == .claudeApp,
-                     "a session of the Claude app opens the Claude app, whatever its host")
     }
 
     // MARK: - Binoculars (review I1, spec §7 « Cherche »)
@@ -865,6 +853,151 @@ enum SessionRosterTests {
                       lastAction: "npm test", at: at(minutes: 0))
         precondition(roster.name(sessionId: "A", "Tests du paiement", at: at(minutes: 1)))
         precondition(SessionRoster.title(of: "A", in: roster.rows, fallback: "Claude Desktop") == "Tests du paiement")
+    }
+
+    // MARK: - A name for every row (Task 27)
+    // Baptiste: « le nom de la session, pas "Claude" ou "Claude Code" ». The session's name first
+    // (Task 25), then its first prompt, then its folder unless that says nothing (« Claude », the home
+    // folder…), then « Session Code ».
+
+    static func aSessionWithoutANameGoesByItsFirstPrompt() {
+        var roster = SessionRoster(homeFolder: "baptiste")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .idle,
+                      lastAction: "Session démarrée", at: at(minutes: 0))
+        precondition(row(roster, "s")?.title == "site", "before any prompt, the folder")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: "Corrige le calcul de la TVA", prompt: "Corrige le calcul de la TVA",
+                      at: at(minutes: 1))
+        precondition(row(roster, "s")?.title == "Corrige le calcul de la TVA",
+                     "the first prompt names it, got \(String(describing: row(roster, "s")?.title))")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: "Ajoute un test", prompt: "Ajoute un test", at: at(minutes: 2))
+        precondition(row(roster, "s")?.title == "Corrige le calcul de la TVA", "only the first prompt names it")
+        precondition(roster.title(of: "s", folder: "site") == "Corrige le calcul de la TVA")
+        // A name, from a hook or the status line, comes first.
+        precondition(roster.name(sessionId: "s", "Facturation", at: at(minutes: 3)))
+        precondition(row(roster, "s")?.title == "Facturation", "the session's name wins over its prompt")
+    }
+
+    static func aPromptNameIsItsFirstLineCutOnAWord() {
+        precondition(SessionName.fromPrompt("Corrige le calcul de la TVA\net ajoute un test")
+                     == "Corrige le calcul de la TVA", "the first line")
+        let long = SessionName.fromPrompt("Prépare la refonte complète de l'onboarding des nouveaux clients")
+        precondition(long == "Prépare la refonte complète de…",
+                     "about 40 characters, cut on a word, got \(String(describing: long))")
+        precondition((long ?? "").count <= SessionName.promptLimit, "40 characters at most")
+        precondition(SessionName.fromPrompt("Reprends 96310fe8-60b7-452f-8cd7-a68a842ae8af") == "Reprends",
+                     "no id in a name")
+        let word = SessionName.fromPrompt(String(repeating: "x", count: 60))
+        precondition(word == String(repeating: "x", count: 39) + "…", "one long word is cut inside")
+    }
+
+    static func aCommandOrATagIsNoName() {
+        for prompt in ["/clear", "  /compact résume", "<command-name>/review</command-name>", "", "  \n ",
+                       #"{"type":"text"}"#] {
+            precondition(SessionName.fromPrompt(prompt) == nil, "« \(prompt) » names nothing")
+        }
+        var roster = SessionRoster(homeFolder: "baptiste")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: nil, prompt: "/clear", at: at(minutes: 0))
+        precondition(row(roster, "s")?.title == "site", "a slash command does not name the session")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: nil, prompt: "Relis le contrat", at: at(minutes: 1))
+        precondition(row(roster, "s")?.title == "Relis le contrat", "the first prompt with words names it")
+    }
+
+    static func aGenericFolderIsSessionCode() {
+        for folder in ["Claude", "claude", "Claude Code", "claude code", "/", "", "Session", ".claude", "baptiste",
+                       "Baptiste", "  "] {
+            precondition(SessionName.isGeneric(folder, home: "baptiste"), "« \(folder) » says nothing")
+        }
+        for folder in ["site", "Klayer-notif", "claude-api-demo", "Claude Island"] {
+            precondition(!SessionName.isGeneric(folder, home: "baptiste"), "« \(folder) » names a project")
+        }
+        precondition(!SessionName.isGeneric("site", home: ""), "no home folder known")
+        var roster = SessionRoster(homeFolder: "baptiste")
+        roster.update(sessionId: "a", pillId: "agent_claude-desktop", folder: "Claude", phase: .working,
+                      lastAction: nil, at: at(minutes: 0))
+        roster.update(sessionId: "b", pillId: "integration_claude", folder: "baptiste", phase: .working,
+                      lastAction: nil, at: at(minutes: 1))
+        precondition(row(roster, "a")?.title == SessionName.genericTitle && row(roster, "b")?.title == "Session Code",
+                     "a generic folder shows « Session Code », got \(roster.rows.map(\.title))")
+        precondition(roster.title(of: "never-seen", folder: "Claude Code") == "Session Code")
+    }
+
+    static func claudeIsNeverASessionsName() {
+        var roster = SessionRoster(homeFolder: "baptiste")
+        roster.update(sessionId: "s", pillId: "agent_claude-desktop", folder: "Claude", phase: .thinking,
+                      lastAction: nil, prompt: "Prépare le compte rendu", at: at(minutes: 0))
+        _ = roster.name(sessionId: "s", "Claude", at: at(minutes: 1))
+        precondition(row(roster, "s")?.title == "Prépare le compte rendu",
+                     "a name « Claude » gives way to the prompt, got \(String(describing: row(roster, "s")?.title))")
+        _ = roster.name(sessionId: "s", "Claude Code", at: at(minutes: 2))
+        precondition(row(roster, "s")?.title == "Prépare le compte rendu", "« Claude Code » too")
+        precondition(roster.name(sessionId: "s", "Compte rendu COPIL", at: at(minutes: 3)))
+        precondition(row(roster, "s")?.title == "Compte rendu COPIL", "a real name is shown")
+    }
+
+    static func promptNamesGoWithTheirRow() {
+        var roster = SessionRoster(homeFolder: "baptiste")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: nil, prompt: "Corrige le bug", at: at(minutes: 0))
+        roster.end(sessionId: "s")
+        precondition(roster.rows.isEmpty, "a working session that ends leaves")
+        precondition(roster.title(of: "s", folder: "site") == "site", "its prompt name went with it")
+        // A finished row keeps it until midnight.
+        roster.update(sessionId: "f", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: nil, prompt: "Relis le contrat", at: at(minutes: 1))
+        roster.update(sessionId: "f", pillId: "integration_claude", folder: "site", phase: .finished,
+                      lastAction: "Fait.", at: at(minutes: 2))
+        roster.end(sessionId: "f")
+        precondition(row(roster, "f")?.title == "Relis le contrat", "kept with the day's finished row")
+    }
+
+    static func aRowKeepsItsEntrypoint() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .thinking,
+                      lastAction: nil, at: at(minutes: 0))
+        precondition(row(roster, "s")?.entrypoint == nil, "none known")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .working,
+                      lastAction: nil, entrypoint: "claude-vscode", at: at(minutes: 1))
+        precondition(row(roster, "s")?.entrypoint == "claude-vscode")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .working,
+                      lastAction: nil, at: at(minutes: 2))
+        precondition(row(roster, "s")?.entrypoint == "claude-vscode", "nil keeps the known one")
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "site", phase: .working,
+                      lastAction: nil, entrypoint: "cli", at: at(minutes: 3))
+        precondition(row(roster, "s")?.entrypoint == "cli", "a new one replaces it")
+    }
+
+    static func anEntrypointIsShortText() {
+        precondition(SessionRoster.entrypoint(from: "claude-vscode") == "claude-vscode")
+        precondition(SessionRoster.entrypoint(from: "  cli \n") == "cli", "trimmed")
+        precondition(SessionRoster.entrypoint(from: String(repeating: "a", count: 60))?.count == 40, "40 at most")
+        let nothing: [Any?] = [nil, "", "   ", 42, ["cli"]]
+        for raw in nothing {
+            precondition(SessionRoster.entrypoint(from: raw) == nil, "\(String(describing: raw)) is none")
+        }
+    }
+
+    static func theDetailLineSaysTheLastAction() {
+        func detail(_ phase: SessionPhase, _ action: String) -> String {
+            SessionRow(id: "s", pillId: "integration_claude", title: "T", phase: phase, lastAction: action,
+                       updatedAt: t0).detail
+        }
+        precondition(detail(.working, "Exécute npm test") == "Exécute npm test", "the last action")
+        precondition(detail(.approval, "Exécute npm test") == "Attend ton accord : exécute npm test",
+                     "a permission says it waits, then what for, got \(detail(.approval, "Exécute npm test"))")
+        precondition(detail(.approval, "") == "Attend ton accord", "without an action")
+        precondition(detail(.question, "Te pose une question : Quelle base ?") == "Te pose une question : Quelle base ?")
+        precondition(detail(.ratelimit, "Exécute npm test") == "Limite atteinte", "the limit says so")
+        precondition(detail(.finished, "La TVA est corrigée.") == "La TVA est corrigée.", "the last sentence")
+        precondition(detail(.finished, "") == "Terminé" && detail(.error, "") == "Erreur" && detail(.thinking, "") == "Réfléchit",
+                     "no action: the phase in plain French")
+        for phase in SessionPhase.allCases {
+            precondition(!detail(phase, "").isEmpty && !detail(phase, "").contains("\u{2014}"),
+                         "a line for every phase, no em dash")
+        }
     }
 }
 

@@ -10091,17 +10091,6 @@
         }
       }
     },
-    "Open Claude": {
-      "extractionState": "manual",
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir Claude"
-          }
-        }
-      }
-    },
     "Vérifie les changements ci-dessous (- retiré, + ajouté), puis confirme.": {
       "localizations": {
         "fr": {
@@ -10558,6 +10547,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "Désactivé : les sessions de Warp, Terminal, iTerm… s'affichent dans l'encoche, mais leurs questions et demandes d'autorisation se posent dans le terminal. Activé : l'encoche les montre d'abord, et le terminal attend que tu y répondes ou que tu fermes l'île (2 min au plus)."
+          }
+        }
+      }
+    },
+    "Ouvrir ce chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir ce chat"
+          }
+        }
+      }
+    },
+    "Ouvrir cette session": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir cette session"
+          }
+        }
+      }
+    },
+    "Session Code": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Code"
+          }
+        }
+      }
+    },
+    "App Claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Claude"
           }
         }
       }

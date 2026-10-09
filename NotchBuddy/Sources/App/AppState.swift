@@ -9,13 +9,17 @@ final class AppState: ObservableObject {
 
     // Island state
     @Published var mode: IslandMode = .hidden {
-        didSet { noteHomeListShown() }
+        didSet {
+            noteHomeListShown()
+            refreshStepAsideWatch()
+        }
     }
     @Published var view: IslandView = .overview {
         // A permission or question card that comes on screen takes Klay's pose back.
         didSet {
             if showsRequestCard { dropBusyPose() }
             noteHomeListShown()
+            refreshStepAsideWatch()
         }
     }
 
@@ -139,8 +143,11 @@ final class AppState: ObservableObject {
     }
 
     /// The alert the note view shows while the app asks something of the user: a title, a line,
-    /// and « Ouvrir Claude ». Set by `showClaudeAppAlert` only; nil for every other note.
-    @Published private(set) var claudeAppAlert: ClaudeAppAlert? = nil
+    /// and « Ouvrir ce chat » or « Ouvrir cette session ». Set by `showClaudeAppAlert` only; nil for
+    /// every other note.
+    @Published private(set) var claudeAppAlert: ClaudeAppAlert? = nil {
+        didSet { refreshStepAsideWatch() }
+    }
 
     /// The Claude app alert held while the island was busy (the latest one), and the Claude app pill's
     /// badge not seen yet: what the house tab's badge shows (ClaudeAppAlertHold, tested).
@@ -195,15 +202,23 @@ final class AppState: ObservableObject {
     @Published var chatHistory: [ChatMessage] = []
 
     // Pending approval request from Claude Code hook
-    @Published var pendingApproval: ApprovalInfo? = nil
+    @Published var pendingApproval: ApprovalInfo? = nil {
+        didSet { refreshStepAsideWatch() }
+    }
 
     // Pending AskUserQuestion from Claude Code hook
     @Published var pendingQuestion: AskQuestion? = nil {
-        didSet { QuestionLayout.height = pendingQuestion?.estimatedIslandHeight }
+        didSet {
+            QuestionLayout.height = pendingQuestion?.estimatedIslandHeight
+            refreshStepAsideWatch()
+        }
     }
     // Token of the pending question (HookServer), set before `pendingQuestion`: the card re-arms
     // its buttons and keeps its draft per request, even for two questions with the same text.
     @Published var pendingQuestionRequestId: Int = 0
+    // The app the pending question's card steps aside for (`CardStepAside.requestHost`), set with
+    // `pendingQuestionRequestId`, before `pendingQuestion`.
+    var pendingQuestionHost: String? = nil
     // What was chosen so far on the question card, for the request it belongs to (QuestionDraft):
     // the card's view is rebuilt on each opening, the draft survives a fold. Read on opening only.
     var questionDraft: QuestionDraft? = nil
@@ -236,12 +251,16 @@ final class AppState: ObservableObject {
     @Published var failedSession: SessionRow? = nil
 
     /// `folder`: the project folder, what the row goes by while the session has no name.
-    /// `hostBundleId`: the app the session runs in, nil keeps the one the row has.
+    /// `hostBundleId`, `entrypoint`: the app the session runs in and its `klayer_entrypoint`, nil
+    /// keeps the ones the row has. `prompt`: a prompt of the session, the first names it while nobody
+    /// did (`SessionName.fromPrompt`).
     func updateSession(sessionId: String, pillId: String, folder: String, phase: SessionPhase,
-                       lastAction: String?, hostBundleId: String? = nil) {
+                       lastAction: String?, hostBundleId: String? = nil, entrypoint: String? = nil,
+                       prompt: String? = nil) {
         let now = Date()
         sessionRoster.update(sessionId: sessionId, pillId: pillId, folder: folder, phase: phase,
-                             lastAction: lastAction, hostBundleId: hostBundleId, at: now)
+                             lastAction: lastAction, hostBundleId: hostBundleId, entrypoint: entrypoint,
+                             prompt: prompt, at: now)
         sessionRoster.prune(now: now, calendar: .autoupdatingCurrent)
         sessions = sessionRoster.rows
     }
@@ -472,7 +491,8 @@ final class AppState: ObservableObject {
 
     /// The one entry that tells the user the Claude app waits for them (a permission or a question
     /// of the Code tab, and Chat and Cowork): the note view shows `title` and `message` with
-    /// « Ouvrir Claude », which opens the Claude app, then folds the island. The island opens the
+    /// « Ouvrir ce chat » (Chat, Cowork) or « Ouvrir cette session » (Code tab), which opens the
+    /// Claude app, then folds the island. The island opens the
     /// way a finished session's does (`.hookExpand`): the state machine holds it until the pointer
     /// has been on it and left, and `FinishPresentation` decides whether it may open at all: it
     /// never covers a draft of the chat or of a mail, a card that waits, or a pinned island. Then
@@ -486,7 +506,7 @@ final class AppState: ObservableObject {
     @discardableResult
     func showClaudeAppAlert(title: String, message: String, sound: String = "question",
                             sessionId: String? = nil) -> Bool {
-        let alert = ClaudeAppAlert(title: title, message: message)
+        let alert = ClaudeAppAlert(title: title, message: message, source: .of(sessionId: sessionId), sound: sound)
         // The same alert is already on screen: no second sound, no new hold on the island.
         if mode == .expanded, view == .note, claudeAppAlert == alert { return true }
         SoundEngine.shared.play(sound)
@@ -522,7 +542,8 @@ final class AppState: ObservableObject {
             requestPending: pendingApproval != nil || pendingQuestion != nil)
         guard let held = claudeAppAlertHold.takeForHome(presentation: presentation, now: Date()) else { return false }
         SoundEngine.shared.play(held.sound)
-        putClaudeAppAlertOnNote(ClaudeAppAlert(title: held.title, message: held.message))
+        putClaudeAppAlertOnNote(ClaudeAppAlert(title: held.title, message: held.message,
+                                               source: .of(sessionId: held.sessionId), sound: held.sound))
         if announce { NotificationCenter.default.post(name: .hookExpand, object: IslandView.note) }
         return true
     }
@@ -573,6 +594,54 @@ final class AppState: ObservableObject {
     func claudeAppCameToFront() {
         guard claudeAppAlertHold != ClaudeAppAlertHold() else { return }
         claudeAppAlertHold.claudeAppCameToFront()
+    }
+
+    // MARK: - The card steps aside in the session's app (Task 27, CardStepAside)
+
+    /// The permission or question card, or the Claude app's note, on screen, with the app it steps
+    /// aside for and whether that app has been in front since it showed. Nil while the island shows
+    /// none of them (folded, another view). Kept in step with the view, the mode and the requests;
+    /// never drawn, so not published.
+    private(set) var stepAsideWatch: StepAsideWatch? = nil
+
+    /// What may step aside on screen now, and its host.
+    private var stepAsideOnScreen: (subject: StepAsideSubject, host: String?)? {
+        guard mode == .expanded else { return nil }
+        switch view {
+        case .approval:
+            guard let approval = pendingApproval else { return nil }
+            return (.approval(requestId: approval.requestId), approval.hostBundleId)
+        case .question:
+            guard pendingQuestion != nil else { return nil }
+            return (.question(requestId: pendingQuestionRequestId), pendingQuestionHost)
+        case .note:
+            guard let alert = claudeAppAlert else { return nil }
+            return (.claudeAppNote(title: alert.title, message: alert.message), HookRouting.desktopBundleId)
+        default:
+            return nil
+        }
+    }
+
+    /// A card that comes on screen starts its watch, from the app in front then; the same card keeps
+    /// its own; none on screen, no watch. Reads the app in front only when something may step aside.
+    private func refreshStepAsideWatch() {
+        guard let onScreen = stepAsideOnScreen else {
+            stepAsideWatch = nil
+            return
+        }
+        if let watch = stepAsideWatch, watch.subject == onScreen.subject, watch.hostBundleId == onScreen.host { return }
+        stepAsideWatch = StepAsideWatch.next(current: stepAsideWatch, onScreen: onScreen, now: Date(),
+                                             frontmostBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    }
+
+    /// An app came to the front (`bundleId`). Returns what steps aside, nil when nothing does: the card
+    /// or note on screen whose app came in front after it showed (`StepAsideWatch.appActivated`). The
+    /// caller folds the island; nothing here answers anything.
+    func appCameToFront(_ bundleId: String?) -> StepAsideSubject? {
+        guard var watch = stepAsideWatch else { return nil }
+        let steps = watch.appActivated(bundleId)
+        stepAsideWatch = watch
+        return steps ? watch.subject : nil
     }
 
     /// The Claude app pill was badged by a hook while the island could not show why (a finish or an
@@ -727,10 +796,14 @@ struct DroppedFile {
     var name: String
 }
 
-/// What the note view says when the Claude app waits for the user: a title and one line.
+/// What the note view says when the Claude app waits for the user: a title and one line. `source`:
+/// a Code tab session or Chat and Cowork, for its icon and its button (« Ouvrir cette session »,
+/// « Ouvrir ce chat »). `sound`: `approval`, `question` or `finish`, the colour of its icon.
 struct ClaudeAppAlert: Equatable {
     var title: String
     var message: String
+    var source: ClaudeAppNoteSource = .chat
+    var sound: String = "question"
 }
 
 // MARK: - GitHub

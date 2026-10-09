@@ -138,3 +138,45 @@ struct HomeLayout {
         (rail, klay, max(0, islandWidth - 2 * edgeInset - rail - klay))
     }
 }
+
+// MARK: - The list as a wheel (Task 27)
+// Baptiste: « un défilement plus sympa en arc de cercle : en haut plus petit, en bas aussi plus
+// petit, au milieu gros au défilement ». The rows near the vertical centre of the list are full
+// size; towards the top and the bottom they shrink, fade and move slightly right, so the list reads
+// as an arc. OverviewView applies it per row with a scroll transition (`phase`: -1 a row leaving at
+// the top, 0 at the centre, 1 leaving at the bottom), computed only while the list moves: nothing
+// runs at rest. Content margins let the first and the last row reach the centre.
+
+enum ListWheel {
+    /// Height of a row of the list.
+    static let rowHeight: CGFloat = 26
+    /// Scale, opacity and shift of a row at the edges.
+    static let edgeScale = 0.78
+    static let edgeOpacity = 0.45
+    /// Points a row at the edges moves right.
+    static let edgeShift = 10.0
+    /// The phase where the edge look is reached: a row fully visible at the top or the bottom of the
+    /// list is already there.
+    static let reach = 0.75
+
+    struct Look: Equatable {
+        var scale: Double
+        var opacity: Double
+        var xOffset: Double
+    }
+
+    /// How a row at `phase` looks: whole at 0, the edge look from `reach` on, a smooth step between,
+    /// the same above and below.
+    static func look(phase: Double) -> Look {
+        let e = min(1, abs(phase) / reach)
+        let eased = e * e * (3 - 2 * e)
+        return Look(scale: 1 - (1 - edgeScale) * eased, opacity: 1 - (1 - edgeOpacity) * eased,
+                    xOffset: edgeShift * eased)
+    }
+
+    /// The margin above the first row and below the last one so each can reach the centre of a list
+    /// `viewport` points tall: half the room a `row` leaves. Never negative.
+    static func centringMargin(viewport: CGFloat, row: CGFloat) -> CGFloat {
+        max(0, (viewport - row) / 2)
+    }
+}

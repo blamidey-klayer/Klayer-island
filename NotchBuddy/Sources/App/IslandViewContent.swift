@@ -38,8 +38,8 @@ struct OverviewView: View {
     /// The Claude Code hooks are missing from ~/.claude/settings.json. Read when the home shows
     /// (`refreshHome`), never in `body`: it reads a file.
     @State private var hooksMissing = false
-    /// More rows below the bottom of the list: its last row fades out.
-    @State private var listHasMoreBelow = false
+    /// The height of the list's scroll view, for the margins of the wheel (`ListWheel.centringMargin`).
+    @State private var listHeight: CGFloat = 0
 
     var agent: AgentTask? { state.focusTask }
 
@@ -133,34 +133,36 @@ struct OverviewView: View {
     /// The list, right of Klay: the running sessions, then the day's finished ones in grey
     /// (`SessionRoster.listed`), then the 3 last choices. What does not fit in the card scrolls
     /// inside it, the card never grows. A permission or a question waiting has its own view.
+    /// A wheel (Task 27, `ListWheel`): the rows near the centre are whole, those towards the top and
+    /// the bottom smaller, fainter and slightly to the right; the scroll settles on a row, and margins
+    /// let the first and the last row reach the centre. The last choices turn on the wheel as one
+    /// block. Nothing runs at rest.
     private var homeContent: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 7) {
-                ConversationsView(sessions: SessionRoster.listed(state.sessions), hooksMissing: hooksMissing)
+        let sessions = SessionRoster.listed(state.sessions)
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 3) {
+                ConversationsView(sessions: sessions, hooksMissing: hooksMissing)
                 if !state.recentChoices.isEmpty {
                     ChoiceHistoryView(choices: state.recentChoices)
+                        .padding(.top, 4)
+                        .listWheel()
                 }
             }
+            .scrollTargetLayout()
             .frame(maxWidth: .infinity, alignment: .topLeading)
             // Room for the rows' hover background, 4 pt past each side
             .padding(.horizontal, 4)
         }
+        // Without a session, the empty line and the choices stay at the top, as before.
+        .contentMargins(.vertical,
+                        sessions.isEmpty ? 0 : ListWheel.centringMargin(viewport: listHeight, row: ListWheel.rowHeight),
+                        for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned)
         .scrollBounceBehavior(.basedOnSize)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.visibleRect.maxY < geometry.contentSize.height - 1
-        } action: { _, moreBelow in
-            listHasMoreBelow = moreBelow
-        }
-        // More below: the last visible row fades out, as in the GitHub lists
-        .mask {
-            LinearGradient(
-                stops: [
-                    .init(color: .black, location: 0),
-                    .init(color: .black, location: listHasMoreBelow ? 0.8 : 1),
-                    .init(color: listHasMoreBelow ? .clear : .black, location: 1.0)
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.containerSize.height
+        } action: { _, height in
+            listHeight = height
         }
         .padding(.top, 9)
         .padding(.bottom, 8)
@@ -712,50 +714,31 @@ struct ErrorView: View {
     }
 }
 
-/// Brings the Claude desktop app forward (or launches it): target of the Claude Desktop pill.
-private func openClaudeDesktopApp() {
-    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: HookRouting.desktopBundleId) {
-        NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
-    }
-}
-
-/// The open button of the finished and error views, then the island folds. A session of the Claude
-/// desktop app opens the app (« Open Claude »); a Claude Code session brings forward the app it runs
-/// in, its terminal or its editor, then any known terminal (« Open terminal »). `session` is the
-/// session the view tells about, nil for the pill in focus (`pillTask`).
+/// « Ouvrir cette session », the open button of the finished and error views of a Claude Code session
+/// (Task 27), then the island folds. What it opens is `OpenTarget`'s: the VS Code tab of a VS Code
+/// extension session, the Claude app for a session of the Claude app, else the app the session runs
+/// in (launched when it is not running). `session` is the session the view tells about, nil for the
+/// pill in focus (`pillTask`). With nothing known, as before: the pill's terminal or editor, then any
+/// known terminal.
 private struct SessionOpenButton: View {
     let session: SessionRow?
     let pillTask: AgentTask?
 
-    /// Sessions from the Claude desktop app live there, not in a terminal.
-    private var isDesktopSession: Bool {
-        (session?.pillId ?? pillTask?.id) == HookRouting.desktopPillId
-    }
-
     var body: some View {
-        if isDesktopSession {
-            PrimaryButton("Open Claude") {
-                openClaudeDesktopApp()
-                NotificationCenter.default.post(name: .islandCollapse, object: nil)
+        PrimaryButton(OpenTarget.sessionLabel) {
+            // The session's own target: its pill may carry another session now.
+            let target = session?.openTarget ?? pillTask.flatMap { task in
+                OpenTarget.of(source: SessionSource.of(pillId: task.id), entrypoint: nil,
+                              hostBundleId: task.id == "integration_claude" ? task.hostApp : nil, sessionId: nil)
             }
-        } else {
-            PrimaryButton("Open terminal") {
-                // The app the session runs in (its terminal or its editor), then any known terminal.
-                // The session's own host: its pill may carry another session now.
-                let opened: Bool
-                if let session {
-                    opened = ClaudeHost.activate(session.hostBundleId)
-                        || TerminalTarget.activate(sessionBundleId: session.hostBundleId)
-                } else {
-                    let task = pillTask
-                    opened = (task?.id == "integration_claude" && ClaudeHost.activate(task?.hostApp))
-                        || TerminalTarget.activate(sessionBundleId: task?.sessionBundleId)
-                }
-                if !opened {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
-                }
-                NotificationCenter.default.post(name: .islandCollapse, object: nil)
+            var opened = target.map { SessionOpener.open($0, launching: true) } ?? false
+            if !opened {
+                opened = TerminalTarget.activate(sessionBundleId: session?.hostBundleId ?? pillTask?.sessionBundleId)
             }
+            if !opened {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+            }
+            NotificationCenter.default.post(name: .islandCollapse, object: nil)
         }
     }
 }
@@ -1470,25 +1453,42 @@ struct TypingDotsView: View {
 struct NoteView: View {
     @ObservedObject var state: AppState
 
+    /// The colour of a Claude app note's icon, from its sound: a permission, Claude waiting, a
+    /// finished answer (the colours of Klay's states, as on the rows).
+    static func color(ofSound sound: String) -> Color {
+        switch sound {
+        case "approval": return StateColor.color(of: .approval)
+        case "finish":   return StateColor.color(of: .finished)
+        default:         return StateColor.color(of: .question)
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             CardBackground(wash: nil)
             if let alert = state.claudeAppAlert {
                 // The Claude app waits for the user (AppState.showClaudeAppAlert): the note holds
-                // until the pointer has been on the island and left, like a finished session's.
+                // until the pointer has been on the island and left, like a finished session's. Its
+                // source icon before the title (Task 27): `</>` for a Code tab session, the Claude mark
+                // for Chat and Cowork, in the colour of what it says.
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(alert.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 6) {
+                        SourceIconView(icon: alert.source.icon, color: Self.color(ofSound: alert.sound))
+                        Text(alert.title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     Text(alert.message)
                         .font(.system(size: 13))
                         .foregroundColor(Color(hex: "#9398A1"))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     HStack(spacing: 8) {
-                        PrimaryButton("Open Claude") {
-                            openClaudeDesktopApp()
+                        // « Ouvrir ce chat » (Chat, Cowork) or « Ouvrir cette session » (Code tab): the
+                        // Claude app comes forward; no link to a given conversation is documented.
+                        PrimaryButton(alert.source.openLabel) {
+                            SessionOpener.openClaudeApp()
                             NotificationCenter.default.post(name: .islandCollapse, object: nil)
                         }
                         SecondaryButton("OK") {

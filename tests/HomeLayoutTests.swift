@@ -20,6 +20,11 @@ enum HomeLayoutTests {
             ("a_request_that_leaves_gives_the_list_back", aRequestThatLeavesGivesTheListBack),
             ("pill_shortcuts_walk_the_list_then_the_rail_cards", pillShortcutsWalkTheListThenTheRailCards),
             ("digit_shortcuts_pick_the_list_or_a_rail_card", digitShortcutsPickTheListOrARailCard),
+            ("a_row_at_the_centre_is_whole", aRowAtTheCentreIsWhole),
+            ("rows_towards_the_edges_shrink_fade_and_move_aside", rowsTowardsTheEdgesShrinkFadeAndMoveAside),
+            ("the_wheel_is_the_same_above_and_below", theWheelIsTheSameAboveAndBelow),
+            ("the_wheel_changes_smoothly", theWheelChangesSmoothly),
+            ("the_first_and_last_rows_can_reach_the_centre", theFirstAndLastRowsCanReachTheCentre),
         ]
         for (name, run) in cases {
             run()
@@ -225,6 +230,48 @@ enum HomeLayoutTests {
         let githubOnly = HomeRail.icons(spotifyActive: false, githubConfigured: true)
         precondition(HomeRail.entry(number: 2, icons: githubOnly) == .showCard(github))
         precondition(HomeRail.entry(number: 3, icons: githubOnly) == nil)
+    }
+
+    // MARK: - The list as a wheel (Task 27)
+    // Baptiste: « un défilement plus sympa en arc de cercle : en haut plus petit, en bas aussi plus
+    // petit, au milieu gros au défilement ». `phase`: the scroll transition's value, 0 for a row at the
+    // centre of the list, -1 and 1 for a row leaving at the top and at the bottom.
+
+    static func aRowAtTheCentreIsWhole() {
+        precondition(ListWheel.look(phase: 0) == ListWheel.Look(scale: 1, opacity: 1, xOffset: 0), "full size")
+    }
+
+    static func rowsTowardsTheEdgesShrinkFadeAndMoveAside() {
+        let edge = ListWheel.look(phase: 1)
+        precondition(abs(edge.scale - 0.78) < 1e-9 && abs(edge.opacity - 0.45) < 1e-9 && edge.xOffset == ListWheel.edgeShift,
+                     "about 0.78 and 0.45 at the edges, got \(edge)")
+        precondition(ListWheel.edgeShift > 0 && ListWheel.edgeShift <= 12, "a slight shift, so the list reads as an arc")
+        precondition(ListWheel.look(phase: ListWheel.reach) == edge, "the edge look is reached before the very edge")
+        precondition(ListWheel.look(phase: 3) == edge && ListWheel.look(phase: -3) == edge, "clamped past the edges")
+    }
+
+    static func theWheelIsTheSameAboveAndBelow() {
+        for p in stride(from: 0.0, through: 1.0, by: 0.05) {
+            precondition(ListWheel.look(phase: p) == ListWheel.look(phase: -p), "symmetric at \(p)")
+        }
+    }
+
+    static func theWheelChangesSmoothly() {
+        var previous = ListWheel.look(phase: 0)
+        for p in stride(from: 0.02, through: 1.0, by: 0.02) {
+            let look = ListWheel.look(phase: p)
+            precondition(look.scale <= previous.scale && look.opacity <= previous.opacity
+                         && look.xOffset >= previous.xOffset, "monotonic at \(p)")
+            precondition(previous.scale - look.scale < 0.03, "no jump at \(p)")
+            previous = look
+        }
+        let near = ListWheel.look(phase: 0.05)
+        precondition(near.scale > 0.995, "a row next to the centre is nearly whole, got \(near.scale)")
+    }
+
+    static func theFirstAndLastRowsCanReachTheCentre() {
+        precondition(ListWheel.centringMargin(viewport: 151, row: 26) == 62.5, "half the room left by a row")
+        precondition(ListWheel.centringMargin(viewport: 20, row: 26) == 0, "never negative")
     }
 }
 

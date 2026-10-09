@@ -6,8 +6,10 @@ It takes the relay out of HookServer.swift as the app writes it (nb-hook.py), ru
 Code does (the hook input on stdin, --statusline for the status line) against a stub of the island's
 Unix socket, and checks what it forwards, prints and exits with: the session's name in --statusline
 mode (trimmed, 120 characters at most, nothing for a blank or non-string name), the previous status
-line's output passed through unchanged, exit 0 at once when the island does not answer, and the hook
-payload forwarded whole (session_title included).
+line's output passed through unchanged, exit 0 at once when the island does not answer, the hook
+payload forwarded whole (session_title included), and CLAUDE_CODE_ENTRYPOINT forwarded as
+klayer_entrypoint on every hook event, permission and question (40 characters at most, absent when
+unset), never on the status line.
 
 Usage: hook_relay_test.py <repository root> <empty work directory>. HOME is set to a path relative
 to the work directory, so the socket path stays under the 104 bytes of sun_path. Python 3 standard
@@ -204,7 +206,70 @@ def main():
     got = island.received()
     check("internal_processes_relay_nothing", code == 0 and out == b"" and got == [],
           "exit %r, printed %r, forwarded %r" % (code, out, got))
+
+    # Task 27: CLAUDE_CODE_ENTRYPOINT goes to the island as klayer_entrypoint on every hook event (what
+    # opens the session: the VS Code extension's « claude-vscode » has a documented link). Text, 40
+    # characters at most, absent when unset or blank. The rest of the payload is unchanged.
+    event = {"session_id": "sess-1234-abcd", "cwd": "/Users/me/projets/site", "hook_event_name": "PreToolUse",
+             "tool_name": "Read", "tool_input": {"file_path": "/Users/me/projets/site/README.md"}}
+    code, out, _ = run(json.dumps(event).encode(), [], {"CLAUDE_CODE_ENTRYPOINT": "claude-vscode",
+                                                         "__CFBundleIdentifier": "com.microsoft.VSCode"})
+    got = island.received()
+    check("an_event_carries_its_entrypoint",
+          code == 0 and out == b"" and len(got) == 1 and got[0].get("klayer_entrypoint") == "claude-vscode"
+          and got[0].get("bundle_id") == "com.microsoft.VSCode" and got[0].get("tool_input") == event["tool_input"]
+          and "klayer_agent" not in got[0],
+          "exit %r, printed %r, forwarded %r" % (code, out, got))
+
+    code, out, _ = run(json.dumps(event).encode(), [])
+    got = island.received()
+    check("no_entrypoint_when_unset", code == 0 and len(got) == 1 and "klayer_entrypoint" not in got[0],
+          "forwarded %r" % got)
+
+    for label, value in (("blank", "   "), ("empty", "")):
+        code, out, _ = run(json.dumps(event).encode(), [], {"CLAUDE_CODE_ENTRYPOINT": value})
+        got = island.received()
+        check("no_entrypoint_when_%s" % label, code == 0 and len(got) == 1 and "klayer_entrypoint" not in got[0],
+              "forwarded %r" % got)
+
+    code, out, _ = run(json.dumps(event).encode(), [], {"CLAUDE_CODE_ENTRYPOINT": "  sdk-" + "x" * 60 + " "})
+    got = island.received()
+    check("entrypoint_cut_to_40_characters",
+          len(got) == 1 and got[0].get("klayer_entrypoint") == ("sdk-" + "x" * 60)[:40], "forwarded %r" % got)
+
+    forged = dict(event, klayer_entrypoint="claude-vscode")
+    code, out, _ = run(json.dumps(forged).encode(), [])
+    got = island.received()
+    check("only_the_environment_sets_the_entrypoint", len(got) == 1 and "klayer_entrypoint" not in got[0],
+          "forwarded %r" % got)
+
+    # A permission request and a question carry it too; the stub answers no decision, so the relay
+    # prints nothing and Claude Code asks itself.
+    permission = dict(event, hook_event_name="PermissionRequest", tool_name="Bash", tool_input={"command": "npm test"})
+    code, out, _ = run(json.dumps(permission).encode(), [], {"CLAUDE_CODE_ENTRYPOINT": "claude-vscode"})
+    got = island.received()
+    check("a_permission_request_carries_its_entrypoint",
+          code == 0 and out == b"" and len(got) == 1 and got[0].get("klayer_entrypoint") == "claude-vscode",
+          "exit %r, printed %r, forwarded %r" % (code, out, got))
+    question = dict(event, tool_name="AskUserQuestion", tool_input={"questions": [{"question": "Q ?", "options": []}]})
+    code, out, _ = run(json.dumps(question).encode(), ["--ask"], {"CLAUDE_CODE_ENTRYPOINT": "claude-desktop"})
+    got = island.received()
+    check("a_question_carries_its_entrypoint",
+          code == 0 and out == b"" and len(got) == 1 and got[0].get("klayer_entrypoint") == "claude-desktop"
+          and got[0].get("klayer_agent") == "claude-desktop" and got[0].get("klayer_kind") == "ask_user_question",
+          "exit %r, printed %r, forwarded %r" % (code, out, got))
+
+    # The status line is not a hook event: its relay stays as it was.
+    code, out, _ = run(raw, ["--statusline"], {"CLAUDE_CODE_ENTRYPOINT": "claude-vscode"})
+    got = island.received()
+    check("the_status_line_relay_is_unchanged",
+          code == 0 and got == [dict(base, session_name="Refonte de l'onboarding")], "forwarded %r" % got)
     island.close()
+
+    # The island away: an event with an entrypoint still exits 0 at once.
+    code, out, elapsed = run(json.dumps(event).encode(), [], {"CLAUDE_CODE_ENTRYPOINT": "claude-vscode"})
+    check("island_away_an_event_exits_0_at_once", code == 0 and out == b"" and elapsed < 2.0,
+          "exit %r, printed %r, %.2f s" % (code, out, elapsed))
     print("Hook relay: %d checks passed" % passed, flush=True)
 
 

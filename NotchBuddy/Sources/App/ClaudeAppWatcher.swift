@@ -6,7 +6,7 @@ import ApplicationServices
 // The Claude app's Chat and Cowork modes emit no hook, so the island reads the app's interface
 // through macOS Accessibility: a stop button that appears then disappears is a finished answer, an
 // allow button next to a deny button is a permission asked. When that happens while the Claude app
-// is not in front, the island opens on a note with « Ouvrir Claude » (AppState.showClaudeAppAlert).
+// is not in front, the island opens on a note with « Ouvrir ce chat » (AppState.showClaudeAppAlert).
 // What may be concluded lives in ClaudeAppWatchRules (tested); this file only reads and schedules.
 //
 // - Reads only buttons (role and label), and the main window's title for the alert's line. Never a

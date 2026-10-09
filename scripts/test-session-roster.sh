@@ -9,6 +9,7 @@ swiftc -swift-version 6 -strict-concurrency=complete \
     NotchBuddy/Sources/App/ClaudeHookDetection.swift \
     NotchBuddy/Sources/App/HookRouting.swift \
     NotchBuddy/Sources/App/SessionRoster.swift \
+    NotchBuddy/Sources/App/ActionText.swift \
     NotchBuddy/Sources/KlayerIslandKit/IslandScreenGeometry.swift \
     NotchBuddy/Sources/KlayerIslandKit/IslandTypes.swift \
     tests/SessionRosterTests.swift -o "$TEST_DIR/session-roster-tests"

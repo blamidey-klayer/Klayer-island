@@ -32,6 +32,7 @@ SOCKET_PATH = os.path.join(SUPPORT_DIR, "nb.sock")
 RELAY_PATH = os.path.join(SUPPORT_DIR, "nb-hook")
 
 DESKTOP_PILL = "agent_claude-desktop"   # HookRouting.desktopPillId
+CLAUDE_APP = "com.anthropic.claudefordesktop"   # HookRouting.desktopBundleId
 PROJECTS = "/Users/klayer-e2e/projets"  # cwd of the sessions: the island titles them by the last folder
 
 POLL = 0.1              # e2e_state polling interval (s)
@@ -375,17 +376,20 @@ def ok(name):
 
 
 def scenario_1_finish_while_hidden(run):
-    """A session of the Claude app ends while the island is hidden: it opens on the finished view."""
+    """A session of the Claude app ends while the island is hidden: it opens on the finished view,
+    titled by the session's first prompt (nobody named it, Task 27)."""
     sid, project = new_session(), "atelier-facturation"
-    start_turn(sid, project, "Corrige le calcul de la TVA")
+    prompt = "Corrige le calcul de la TVA"
+    start_turn(sid, project, prompt)
     print("  ..  waiting for the island to hide after the launch greeting (about 65 s)", flush=True)
     wait_until("the island hidden", lambda s: s["mode"] == "hidden", timeout=HIDE_TIMEOUT)
     stop(sid, project, "La TVA est corrigée et les tests passent.")
     wait_until("the island open on the finished view of %s (Claude app pill)" % project,
                lambda s: s["mode"] == "expanded" and s["view"] == "finished"
-               and s["finishedSession"]["id"] == sid and s["finishedSession"]["title"] == project
-               and s["finishedSession"]["pill"] == DESKTOP_PILL and phase(s, sid) == "finished")
-    ok("1 a finished Claude app session opens the hidden island on its end, titled %s" % project)
+               and s["finishedSession"]["id"] == sid and s["finishedSession"]["title"] == prompt
+               and s["finishedSession"]["pill"] == DESKTOP_PILL and phase(s, sid) == "finished"
+               and session(s, sid)["detail"] == "La TVA est corrigée et les tests passent.")
+    ok("1 a finished Claude app session opens the hidden island on its end, titled « %s »" % prompt)
 
 
 def scenario_2_finish_during_prompt(run):
@@ -409,14 +413,16 @@ def scenario_3_permission_allowed(run):
     if not isinstance(reply, dict) or reply.get("ok") is not False:
         raise Failure("e2e_decide with no card on screen was answered %s; expected a refusal" % json.dumps(reply))
     sid, project = new_session(), "pipeline-donnees"
-    start_turn(sid, project, "Lance les tests")
+    name = "Lance les tests"   # the first prompt names the session
+    start_turn(sid, project, name)
     choices_before = read_state()["choices"]
     _, relay = permission_request(sid, project, "npm test", claude_app_env())
     wait_until("the permission card of %s showing npm test" % project,
                lambda s: pending(relay, "the permission of %s" % project)
                and s["mode"] == "expanded" and s["view"] == "approval"
                and s["pendingApproval"]["pill"] == DESKTOP_PILL and s["pendingApproval"]["command"] == "npm test"
-               and s["pendingApproval"]["session"] == sid and phase(s, sid) == "approval")
+               and s["pendingApproval"]["session"] == sid and phase(s, sid) == "approval"
+               and session(s, sid)["detail"] == "Attend ton accord : exécute npm test")
     # Scenario 8: left alone, the request is not approved.
     unanswered(relay, "the permission of %s" % project, lambda s: s["pendingApproval"]["session"] == sid
                and s["choices"] == choices_before)
@@ -424,7 +430,7 @@ def scenario_3_permission_allowed(run):
     expect_output(relay, ALLOW_OUTPUT, "PermissionRequest allowed")
     wait_until("the permission card closed and « Autorisé » recorded for npm test",
                lambda s: s["pendingApproval"] is None and s["view"] != "approval"
-               and choices_since(s, run["started"]) == [("permission", "npm test", "Autorisé", project)])
+               and choices_since(s, run["started"]) == [("permission", "npm test", "Autorisé", name)])
     # Deny: the second button of the card, the same path.
     _, relay = permission_request(sid, project, "git push --force", claude_app_env())
     wait_until("the permission card of %s showing git push --force" % project,
@@ -435,8 +441,8 @@ def scenario_3_permission_allowed(run):
     expect_output(relay, DENY_OUTPUT, "PermissionRequest denied")
     wait_until("the permission card closed and « Refusé » recorded for git push --force",
                lambda s: s["pendingApproval"] is None and s["view"] != "approval"
-               and choices_since(s, run["started"]) == [("permission", "git push --force", "Refusé", project),
-                                                        ("permission", "npm test", "Autorisé", project)])
+               and choices_since(s, run["started"]) == [("permission", "git push --force", "Refusé", name),
+                                                        ("permission", "npm test", "Autorisé", name)])
     ok("3 a Claude app permission shows npm test; allowed from the island, nb-hook prints the allow output; "
        "a second one denied prints the deny output")
 
@@ -444,7 +450,8 @@ def scenario_3_permission_allowed(run):
 def scenario_4_question_answered(run):
     """A question (AskUserQuestion, --ask hook) with 2 options: e2e_answer answers it."""
     sid, project = new_session(), "prototype-crm"
-    start_turn(sid, project, "Monte le prototype")
+    name = "Monte le prototype"
+    start_turn(sid, project, name)
     question = "Quelle base de données pour le prototype ?"
     questions = [{"question": question, "header": "Base", "multiSelect": False, "options": [
         {"label": "PostgreSQL", "description": "Robuste, déjà en production"},
@@ -467,7 +474,8 @@ def scenario_4_question_answered(run):
                   "AskUserQuestion answered")
     wait_until("the question card closed and SQLite recorded",
                lambda s: s["pendingQuestion"] is None and s["view"] != "question"
-               and choices_since(s, run["started"])[0] == ("question", question, "SQLite", project))
+               and choices_since(s, run["started"])[0] == ("question", question, "SQLite", name)
+               and session(s, sid)["detail"].startswith("Te pose une question : "))
     ok("4 a Claude app question shows its 2 options; answered from the island, nb-hook prints updatedInput")
 
 
@@ -496,13 +504,15 @@ def scenario_5_answered_in_the_app(run):
 def scenario_6_notification_without_card(run):
     """A permission notification of the Claude app with no card: the island says Claude waits."""
     sid, project = new_session(), "revue-contrats"
-    start_turn(sid, project, "Relis les clauses de résiliation")
+    name = "Relis les clauses de résiliation"
+    start_turn(sid, project, name)
     fire(hook_input(sid, "Notification", project, message="Claude needs your permission to use Bash",
                     notification_type="permission_prompt"), claude_app_env(), "Notification")
-    wait_until("the note « Claude attend ta réponse » for %s" % project,
+    wait_until("the note « Claude attend ta réponse » for « %s »" % name,
                lambda s: s["mode"] == "expanded" and s["view"] == "note"
                and s["claudeAppAlert"] == {"title": "Claude attend ta réponse",
-                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % project}
+                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % name,
+                                           "source": "codeSession", "openLabel": "Ouvrir cette session"}
                and s["pendingApproval"] is None and phase(s, sid) == "approval")
     ok("6 a Claude app permission notification with no card opens « Claude attend ta réponse »")
 
@@ -533,8 +543,8 @@ def scenario_8_nothing_approves_alone(run):
     e2e_decide's."""
     state = read_state()
     permissions = [c for c in choices_since(state, run["started"]) if c[0] == "permission"]
-    if permissions != [("permission", "git push --force", "Refusé", "pipeline-donnees"),
-                       ("permission", "npm test", "Autorisé", "pipeline-donnees")]:
+    if permissions != [("permission", "git push --force", "Refusé", "Lance les tests"),
+                       ("permission", "npm test", "Autorisé", "Lance les tests")]:
         raise Failure("expected two permissions decided in this run by e2e_decide, npm test allowed and git push "
                       "--force denied; choices:\n%s" % show(state["choices"]))
     ok("8 nothing is allowed without e2e_decide (3 s unanswered in 3 and 5, the killed hook printed nothing)")
@@ -600,10 +610,69 @@ def scenario_9_session_name(run):
     wait_until("the note « Claude attend ta réponse » naming « %s »" % latest,
                lambda s: s["mode"] == "expanded" and s["view"] == "note"
                and s["claudeAppAlert"] == {"title": "Claude attend ta réponse",
-                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % latest})
+                                           "message": "Une autorisation t'attend dans l'app Claude : %s" % latest,
+                                           "source": "codeSession", "openLabel": "Ouvrir cette session"})
     ok("9 a session goes by its latest name, whatever its source: the status line's titles its row and its "
        "finished view, a hook title replaces it, a newer status line name replaces that, a newer hook title "
        "wins again, and the Code tab note names the last one")
+
+
+def scenario_10_card_steps_aside(run):
+    """Task 27. A row says its session's name and a readable action, and what opens it. Then the card
+    steps aside when the session's app comes to the front (e2e_activate stands for NSWorkspace's
+    activation): another app changes nothing; the Claude app folds the island without answering, the
+    permission stays pending and nb-hook keeps waiting; back on the island the card is there and the
+    island's answer still goes through. A Code tab note folds the same way."""
+    sid, project = new_session(), "notes-de-frais"
+    name = "Exporte les notes de frais"
+    start_turn(sid, project, name)
+    fire(hook_input(sid, "PreToolUse", project, tool_name="mcp__linear__list_issues", tool_input={"team": "KLA"}),
+         claude_app_env(), "PreToolUse of an MCP tool")
+    wait_until("the row of %s named « %s », saying « Liste les issues (Linear) »" % (project, name),
+               lambda s: title(s, sid) == name and session(s, sid)["detail"] == "Liste les issues (Linear)"
+               and session(s, sid)["entrypoint"] == "claude-desktop"
+               and session(s, sid)["open"] == "activate:" + CLAUDE_APP)
+
+    _, relay = permission_request(sid, project, "npm run export", claude_app_env())
+    wait_until("the permission card of %s" % project,
+               lambda s: pending(relay, "the permission of %s" % project)
+               and s["mode"] == "expanded" and s["view"] == "approval" and s["pendingApproval"]["session"] == sid)
+    command({"klayer_kind": "e2e_activate", "bundle_id": "com.apple.Safari"})
+    keeps("the card on screen while another app comes to the front",
+          lambda s: pending(relay, "the permission of %s" % project)
+          and s["mode"] == "expanded" and s["view"] == "approval" and s["pendingApproval"]["session"] == sid, QUIET)
+
+    choices_before = read_state()["choices"]
+    command({"klayer_kind": "e2e_activate", "bundle_id": CLAUDE_APP})
+    wait_until("the island folded, the permission still pending",
+               lambda s: pending(relay, "the permission of %s" % project)
+               and s["mode"] != "expanded" and s["pendingApproval"] is not None
+               and s["pendingApproval"]["session"] == sid and phase(s, sid) == "approval")
+    unanswered(relay, "the permission of %s after the card stepped aside" % project,
+               lambda s: s["mode"] != "expanded" and s["pendingApproval"]["session"] == sid
+               and s["choices"] == choices_before)
+
+    command({"klayer_kind": "e2e_shortcut", "action": "goToAlert"})
+    wait_until("the card on screen again",
+               lambda s: pending(relay, "the permission of %s" % project)
+               and s["mode"] == "expanded" and s["view"] == "approval" and s["pendingApproval"]["session"] == sid)
+    command({"klayer_kind": "e2e_decide", "decision": "allow"})
+    expect_output(relay, ALLOW_OUTPUT, "PermissionRequest allowed after the card stepped aside")
+    wait_until("the card closed and « Autorisé » recorded for npm run export",
+               lambda s: s["pendingApproval"] is None
+               and choices_since(s, run["started"])[0] == ("permission", "npm run export", "Autorisé", name))
+
+    fire(hook_input(sid, "Notification", project, message="Claude needs your permission to use Bash",
+                    notification_type="permission_prompt"), claude_app_env(), "Notification")
+    wait_until("the Code tab note with « Ouvrir cette session »",
+               lambda s: s["mode"] == "expanded" and s["view"] == "note"
+               and s["claudeAppAlert"]["source"] == "codeSession"
+               and s["claudeAppAlert"]["openLabel"] == "Ouvrir cette session")
+    command({"klayer_kind": "e2e_activate", "bundle_id": CLAUDE_APP})
+    wait_until("the note folded when the Claude app came to the front", lambda s: s["mode"] != "expanded")
+    ok("10 a row says « %s » and « Liste les issues (Linear) »; the card folds when the Claude app comes to the "
+       "front, nothing answered, nb-hook still waiting; back on the island it is there and the allow goes "
+       "through; the Code tab note folds too" % name)
 
 
 def unanswered(relay, what, still):
@@ -630,13 +699,15 @@ SCENARIOS = [
     scenario_7_fall_through,
     scenario_8_nothing_approves_alone,
     scenario_9_session_name,
+    scenario_10_card_steps_aside,
 ]
 
 
 def check_no_test_commands():
     """The app answers the test commands like any unknown event: no state, no decision."""
     for message in ({"klayer_kind": "e2e_state"}, {"klayer_kind": "e2e_decide", "decision": "allow"},
-                    {"klayer_kind": "e2e_answer", "answers": {}}, {"klayer_kind": "e2e_shortcut", "action": "openChat"}):
+                    {"klayer_kind": "e2e_answer", "answers": {}}, {"klayer_kind": "e2e_shortcut", "action": "openChat"},
+                    {"klayer_kind": "e2e_activate", "bundle_id": CLAUDE_APP}):
         reply = send(message)
         if reply != {"ok": True}:
             raise Failure("%s was answered %s; expected the plain {\"ok\":true} of an ignored event"

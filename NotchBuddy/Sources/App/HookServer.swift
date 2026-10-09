@@ -163,6 +163,19 @@ final class HookServer: @unchecked Sendable {
         state.view = kind == .approval ? .approval : .question
     }
 
+    /// The card on screen stepped aside: the app of its session came to the front (Task 27,
+    /// CardStepAside), and the window controller folds the island. No decision is sent: the requests
+    /// stay pending, their pills badged (the Claude app's on the house tab), and hovering the island
+    /// shows the card again (`showHeldRequest` clears the badge). Answering in the app closes the card
+    /// as before (its hook connection closes).
+    @MainActor
+    func requestsSteppedAside() {
+        let state = AppState.shared
+        if let approval = state.pendingApproval { setPillBadge(id: approval.pillId, badge: .approval) }
+        if state.pendingQuestion != nil { setPillBadge(id: questionPillId, badge: .approval) }
+        nbLog("The card stepped aside: its session's app came to the front")
+    }
+
     /// Token of the note on screen: the 3 s timer of an earlier note never ends a later one.
     private var noteToken = 0
 
@@ -627,7 +640,7 @@ final class HookServer: @unchecked Sendable {
                 SoundEngine.shared.play("rate")
             } else if let kind = asked {
                 // A permission or a wait of a session of the Claude app, with no card of it held
-                // (spec §5): the island opens on it with « Ouvrir Claude », unless it may not open
+                // (spec §5): the island opens on it with « Ouvrir cette session », unless it may not open
                 // (then the pill is badged). Never for the terminal: askedRequest is nil for it.
                 // The row was put on approval or question by trackSession above, and Klay follows
                 // it; a finished session's row that stays finished leaves the pill alone.
@@ -906,12 +919,17 @@ final class HookServer: @unchecked Sendable {
                           hostApp: terminalHost?.bundleId, bundleId: bundleId)
         // The pill of the question card on screen keeps the question's pose.
         if takesScreen || pillId != cardPill { state.updateTask(id: pillId, state: .approval) }
+        // The row says what is asked in plain French (« Attend ton accord : exécute npm test »).
         state.updateSession(sessionId: sessionId, pillId: pillId, folder: projectName, phase: .approval,
-                            lastAction: SessionRoster.line(command),
-                            hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
+                            lastAction: SessionRoster.line(ActionText.describe(tool: tool, input: toolInput)),
+                            hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId),
+                            entrypoint: SessionRoster.entrypoint(from: payload["klayer_entrypoint"]))
         state.pendingApproval = ApprovalInfo(sessionId: sessionId, tool: tool,
                                               command: command, inputKey: inputKey, pillId: pillId,
-                                              requestId: token)
+                                              requestId: token,
+                                              hostBundleId: CardStepAside.requestHost(
+                                                desktopSession: validateAgent(rawAgent) != nil,
+                                                terminalSession: terminalHost != nil, bundleId: bundleId))
         state.isPinned = true
         SoundEngine.shared.play("approval")
 
@@ -1052,10 +1070,14 @@ final class HookServer: @unchecked Sendable {
         // The pill of the permission card on screen keeps the permission's pose.
         if takesScreen || pillId != cardPill { state.updateTask(id: pillId, state: .question) }
         state.updateSession(sessionId: sessionId, pillId: pillId, folder: projectName, phase: .question,
-                            lastAction: parsed.questions.first.flatMap { SessionRoster.line($0.question) },
-                            hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId))
-        // The request id first: the card keys its draft and the arming of its buttons on it.
+                            lastAction: SessionRoster.line(ActionText.question(parsed.questions.first?.question ?? "")),
+                            hostBundleId: SessionRoster.host(routed: terminalHost?.bundleId, bundleId: bundleId),
+                            entrypoint: SessionRoster.entrypoint(from: payload["klayer_entrypoint"]))
+        // The request id first: the card keys its draft and the arming of its buttons on it. Its host
+        // with it: the app the card steps aside for.
         state.pendingQuestionRequestId = token
+        state.pendingQuestionHost = CardStepAside.requestHost(desktopSession: validateAgent(rawAgent) != nil,
+                                                              terminalSession: terminalHost != nil, bundleId: bundleId)
         state.pendingQuestion = parsed
         state.isPinned = true
         SoundEngine.shared.play("approval")
@@ -1258,28 +1280,33 @@ final class HookServer: @unchecked Sendable {
                               pillId: String, folder: String, host: String?, asked: CodeNotification.Kind?) {
         let phase: SessionPhase
         var action: String? = nil
+        var prompt: String? = nil
         switch name {
         case "SessionStart":
             phase = .idle
             action = "Session démarrée"
         case "UserPromptSubmit":
             phase = .thinking
-            if let prompt = payload["prompt"] as? String { action = SessionRoster.line(String(prompt.prefix(60))) }
+            // Its first line; the first prompt with words names a session nobody named (Task 27).
+            prompt = payload["prompt"] as? String
+            if let prompt, let line = ActionText.prompt(prompt) { action = SessionRoster.line(line) }
         case "PreToolUse":
             let tool = payload["tool_name"] as? String ?? "Tool"
             // AskUserQuestion has its own card: processQuestionRequest puts the row on "question".
             guard tool != "AskUserQuestion" else { return }
             let input = payload["tool_input"] as? [String: Any] ?? [:]
             phase = SessionPhase.of(tool: tool, input: input)   // « Cherche » for a search
-            action = SessionRoster.line(localizedStep(tool: tool, input: input))
+            action = SessionRoster.line(ActionText.describe(tool: tool, input: input))   // « Lit README.md »
         case "Notification":
             if Self.isRateLimit(payload["message"] as? String ?? "") {
                 phase = .ratelimit
             } else if let asked,
                       let next = CodeNotification.rowPhase(for: asked, current: rowPhase(of: sessionId)) {
                 // The Claude app asks something and no card of that session shows it: the home's
-                // list does (« Attend ton accord », « Te pose une question »).
+                // list does (the icon's colour; « Attend ton accord : <the tool> », « Attend ta
+                // réponse » when Claude waits).
                 phase = next
+                if next == .question { action = "Attend ta réponse" }
             } else {
                 return
             }
@@ -1293,10 +1320,10 @@ final class HookServer: @unchecked Sendable {
             return
         case "Stop":
             phase = .finished
-            action = SessionRoster.line(Self.finalText(of: payload))
+            action = SessionRoster.line(ActionText.clean(Self.finalText(of: payload)))
         case "StopFailure":
             phase = .error
-            action = SessionRoster.failureText(of: payload)
+            action = SessionRoster.failureText(of: payload).flatMap { SessionRoster.line(ActionText.clean($0)) }
         case "SessionEnd":
             AppState.shared.endSession(sessionId)
             return
@@ -1304,7 +1331,9 @@ final class HookServer: @unchecked Sendable {
             return
         }
         AppState.shared.updateSession(sessionId: sessionId, pillId: pillId, folder: folder,
-                                      phase: phase, lastAction: action, hostBundleId: host)
+                                      phase: phase, lastAction: action, hostBundleId: host,
+                                      entrypoint: SessionRoster.entrypoint(from: payload["klayer_entrypoint"]),
+                                      prompt: prompt)
     }
 
     /// The card of a session was answered or closed: its row leaves "approval" or "question" and goes
@@ -1728,6 +1757,17 @@ private let nbHookPython = """
 # Reads JSON from stdin, forwards to Klayer Island via Unix socket, translates response.
 import sys, json, os, socket
 
+def tag_entrypoint(payload):
+    # CLAUDE_CODE_ENTRYPOINT (claude-vscode, cli, claude-desktop...) goes to the island as
+    # klayer_entrypoint: what opens the session from the island. Only the environment sets it:
+    # text, trimmed, 40 characters at most, absent when unset or blank.
+    payload.pop('klayer_entrypoint', None)
+    value = os.environ.get('CLAUDE_CODE_ENTRYPOINT', '')
+    if isinstance(value, str):
+        value = value.strip()[:40].rstrip()
+        if value:
+            payload['klayer_entrypoint'] = value
+
 def main():
     # The Claude Code processes that Klayer Island starts itself (quick chat, Gmail draft) set
     # this variable: relay nothing for them, in any mode (events, permission, --ask, statusline).
@@ -1803,6 +1843,7 @@ def main():
         # like the other events so the island shows the question instead of answering "ask".
         if not payload.get('klayer_agent') and os.environ.get('CLAUDE_CODE_ENTRYPOINT') == 'claude-desktop':
             payload['klayer_agent'] = 'claude-desktop'
+        tag_entrypoint(payload)
         env = os.environ
         payload.setdefault('term_program', env.get('TERM_PROGRAM', ''))
         payload.setdefault('iterm_session_id', env.get('ITERM_SESSION_ID', ''))
@@ -1861,6 +1902,7 @@ def main():
     # route them to the Claude Desktop pill instead of dropping them (no VS Code terminal).
     if not payload.get('klayer_agent') and os.environ.get('CLAUDE_CODE_ENTRYPOINT') == 'claude-desktop':
         payload['klayer_agent'] = 'claude-desktop'
+    tag_entrypoint(payload)
 
     # Enrich with terminal context
     env = os.environ

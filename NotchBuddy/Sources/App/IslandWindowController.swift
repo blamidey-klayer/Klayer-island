@@ -971,15 +971,20 @@ final class IslandWindowController: NSWindowController {
             finishDrag()
         }
 
-        // The user went to the Claude app: a Claude app alert held while the island was busy is
-        // dropped, and the house tab loses its badge (ClaudeAppAlertHold).
+        // An app came to the front: the Claude app drops a Claude app alert held while the island was
+        // busy and the house tab's badge (ClaudeAppAlertHold); the app of the card on screen folds it
+        // (CardStepAside). Delivered on the main queue; nothing runs while no app changes.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil, queue: .main
-        ) { note in
+        ) { [weak self] note in
             let bundleId = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
-            guard bundleId == HookRouting.desktopBundleId else { return }
-            MainActor.assumeIsolated { AppState.shared.claudeAppCameToFront() }
+            MainActor.assumeIsolated { self?.appCameToFront(bundleId) }
+        }
+        // The same, posted by the end-to-end test build (e2e_activate, HookServerE2E.swift).
+        NotificationCenter.default.addObserver(forName: .appCameToFront, object: nil, queue: .main) { [weak self] note in
+            let bundleId = note.object as? String
+            MainActor.assumeIsolated { self?.appCameToFront(bundleId) }
         }
 
         // Track last external app for window context capture
@@ -993,6 +998,24 @@ final class IslandWindowController: NSWindowController {
                app.bundleIdentifier != ourBundle {
                 self.state.lastExternalApp = app
             }
+        }
+    }
+
+    // MARK: - An app came to the front (Task 27)
+
+    /// `bundleId` came to the front. The Claude app drops its held alert and the house tab's badge, as
+    /// before. Then the card on screen steps aside when its session's app is the one that came
+    /// (`AppState.appCameToFront`, CardStepAside): a permission or a question folds with the request
+    /// still pending (no decision is sent, the pill is badged, hovering shows the card again, an answer
+    /// in the app closes it); a note of the Claude app folds.
+    func appCameToFront(_ bundleId: String?) {
+        if bundleId == HookRouting.desktopBundleId { state.claudeAppCameToFront() }
+        guard state.mode == .expanded, let subject = state.appCameToFront(bundleId) else { return }
+        if subject.isRequest {
+            HookServer.shared.requestsSteppedAside()
+            collapse(keepingPendingRequest: true)
+        } else {
+            collapse()
         }
     }
 
@@ -1420,6 +1443,9 @@ extension Notification.Name {
     static let openFullSettings    = Notification.Name("notchBuddy.openFullSettings")
     static let hookReveal       = Notification.Name("notchBuddy.hookReveal")
     static let finishedSessionMovedOn = Notification.Name("notchBuddy.finishedSessionMovedOn")
+    // An app came to the front (object: its bundle id): the test build's stand-in for NSWorkspace's
+    // activation, handled the same way (IslandWindowController.appCameToFront).
+    static let appCameToFront = Notification.Name("notchBuddy.appCameToFront")
     static let spotifyReveal    = Notification.Name("notchBuddy.spotifyReveal")
     // Greeting ↔ IslandWindowController
     static let greetComplete    = Notification.Name("notchBuddy.greetComplete")

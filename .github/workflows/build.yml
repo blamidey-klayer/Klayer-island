@@ -67,6 +67,15 @@ jobs:
       - name: Test Code notification
         run: bash scripts/test-code-notification.sh
 
+      - name: Test action text
+        run: bash scripts/test-action-text.sh
+
+      - name: Test open target
+        run: bash scripts/test-open-target.sh
+
+      - name: Test card step aside
+        run: bash scripts/test-card-step-aside.sh
+
       - name: Test hook relay
         run: bash scripts/test-hook-relay.sh
 
@@ -148,7 +157,7 @@ jobs:
               echo "::error::strings printed nothing for $f: the check would pass without reading it"
               exit 1
             fi
-            if printf '%s\n' "$out" | grep -E 'e2e_(state|decide|answer|shortcut)'; then
+            if printf '%s\n' "$out" | grep -E 'e2e_(state|decide|answer|shortcut|activate)'; then
               echo "::error::$f carries test-only commands"
               found=1
             fi

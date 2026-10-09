@@ -3,7 +3,7 @@
 # the Claude app, and they are answered from the island (tests/e2e/island_e2e.py).
 #   1. the shipped build (KLAYER_E2E_RELEASE_APP, set by the CI) answers no test command;
 #   2. the test build (KLAYER_E2E) launched without KLAYER_ISLAND_TEST=1 answers none either;
-#   3. the test build launched with KLAYER_ISLAND_TEST=1 passes the 9 scenarios.
+#   3. the test build launched with KLAYER_ISLAND_TEST=1 passes the 10 scenarios.
 # Build the test app first, as .github/workflows/build.yml does. Made for the CI runner: it uses this
 # account's ~/Library/Application Support/NotchBuddy and the island's preferences (terminal cards must
 # be off), and never writes ~/.claude/settings.json. Logs go to build-e2e/e2e-logs/. Outside the CI

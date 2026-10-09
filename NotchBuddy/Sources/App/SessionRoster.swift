@@ -33,10 +33,12 @@ enum SessionPhase: String, Equatable, CaseIterable {
 }
 
 /// One running session. `id` is the hook's session id, `pillId` the pill that routes it,
-/// `title` what the session goes by (its name when one is known, `SessionName`, else its project
-/// folder), `lastAction` one short line (empty until there is one), `hostBundleId` the app the
-/// session runs in (a terminal or an editor), nil when unknown, `folder` the project folder name,
-/// what the title falls back to.
+/// `title` what the session goes by (its name when one is known, `SessionName`, else its first
+/// prompt, else its project folder unless that says nothing, else « Session Code »), `lastAction` one
+/// short line (empty until there is one, `ActionText`), `hostBundleId` the app the session runs in (a
+/// terminal or an editor), nil when unknown, `folder` the project folder name, what the title falls
+/// back to, `entrypoint` the `CLAUDE_CODE_ENTRYPOINT` its hooks reported (`claude-vscode`, `cli`,
+/// `claude-desktop`…, the relay's `klayer_entrypoint`), nil when unknown.
 struct SessionRow: Equatable, Identifiable {
     let id: String
     var pillId: String
@@ -46,6 +48,23 @@ struct SessionRow: Equatable, Identifiable {
     var updatedAt: Date
     var hostBundleId: String? = nil
     var folder: String = ""
+    var entrypoint: String? = nil
+
+    /// The second line of the row (Task 27): what the session did last, in plain French. A permission
+    /// says it waits, then for what (« Attend ton accord : exécute npm test »); a limit says so; with
+    /// no action yet, the phase (« Réfléchit », « Terminé »). Never empty. The state itself is the
+    /// colour of the row's icon.
+    var detail: String {
+        switch phase {
+        case .approval:
+            guard let first = lastAction.first else { return phase.label }
+            return phase.label + " : " + first.lowercased() + lastAction.dropFirst()
+        case .ratelimit:
+            return phase.label
+        default:
+            return lastAction.isEmpty ? phase.label : lastAction
+        }
+    }
 }
 
 // MARK: - The name of a session (Task 25)
@@ -80,25 +99,36 @@ struct SessionName: Equatable {
         guard !line.isEmpty else { return nil }
         return String(line.prefix(limit)).trimmingCharacters(in: .whitespaces)
     }
-}
 
-/// What a click on a row of the open island opens.
-enum SessionOpenTarget: Equatable {
-    /// The Claude app (`claude://`).
-    case claudeApp
-    /// The running app the session runs in, brought forward.
-    case host(bundleId: String)
-}
+    // MARK: Without a name (Task 27)
+    // Baptiste: « le nom de la session, pas "Claude" ou "Claude Code" ». A session nobody named goes
+    // by its first prompt, else by its folder, unless the folder says nothing of the work (« Claude »,
+    // the home folder, « / »): then « Session Code ». A name « Claude » or « Claude Code » is never
+    // shown either.
 
-extension SessionRow {
-    /// A session of the Claude app opens the Claude app. A Claude Code session brings forward the
-    /// terminal or editor it runs in, when that app is still running (`running`: the bundle ids
-    /// of the running apps), and the Claude app otherwise.
-    func openTarget(running: Set<String>) -> SessionOpenTarget {
-        if pillId != HookRouting.desktopPillId, let host = hostBundleId, running.contains(host) {
-            return .host(bundleId: host)
-        }
-        return .claudeApp
+    /// Longest name made from a prompt, « … » included.
+    static let promptLimit = 40
+    /// What a session goes by when nothing names it.
+    static let genericTitle = "Session Code"
+
+    /// The name a first prompt gives its session: its first line with text, without ids, cut on a
+    /// word at 40 characters with « … ». Nil for a slash command (`/clear`), a tag (`<command-name>`),
+    /// raw JSON or a blank prompt: the next prompt names the session.
+    static func fromPrompt(_ prompt: String) -> String? {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first, first != "/", first != "<",
+              let line = ActionText.prompt(trimmed) else { return nil }
+        return ActionText.cut(line, limit: promptLimit)
+    }
+
+    /// A folder or a name that says nothing of the work: empty, « / », « Claude », « Claude Code »,
+    /// « .claude », « Session » (the island's own stand-in), or the user's home folder (`home`, its
+    /// last component; empty when unknown). Letter case is ignored.
+    static func isGeneric(_ name: String, home: String) -> Bool {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["", "/", "claude", "claude code", ".claude", "session"].contains(n) { return true }
+        let h = home.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !h.isEmpty && n == h
     }
 }
 
@@ -123,12 +153,32 @@ struct SessionRoster {
     /// session's row (kept 30 min). They leave with their row (`end`, `prune`).
     private(set) var names: [String: SessionName] = [:]
 
+    /// The name each session's first prompt gives it (`SessionName.fromPrompt`), by session id, for
+    /// a session nobody named. Only for sessions with a row; it leaves with the row.
+    private(set) var promptNames: [String: String] = [:]
+
+    /// The last component of the user's home folder: a session there says nothing of its work
+    /// (`SessionName.isGeneric`).
+    let homeFolder: String
+
+    /// The user's home folder's last component, for the roster the app keeps.
+    static var userHomeFolder: String {
+        URL(fileURLWithPath: NSHomeDirectory()).lastPathComponent
+    }
+
+    init(homeFolder: String = SessionRoster.userHomeFolder) {
+        self.homeFolder = homeFolder
+    }
+
     /// Creates or updates the row of `sessionId` and moves it to the top. `folder` is the project
-    /// folder name: the row goes by the session's name when one is known (`name`), else by it. A nil
-    /// `lastAction` keeps the previous one (empty for a new row); a given one is cut to 80
-    /// characters. A nil `hostBundleId` keeps the host the session had (none for a new row).
+    /// folder name: the row goes by the session's name when one is known (`name`), else by its first
+    /// prompt, else by it (`title(of:folder:)`). A nil `lastAction` keeps the previous one (empty for
+    /// a new row); a given one is cut to 80 characters. A nil `hostBundleId` or `entrypoint` keeps the
+    /// one the session had (none for a new row). `prompt`: the prompt of a `UserPromptSubmit`, which
+    /// names the session when it is its first with words.
     mutating func update(sessionId: String, pillId: String, folder: String, phase: SessionPhase,
-                         lastAction: String?, hostBundleId: String? = nil, at date: Date) {
+                         lastAction: String?, hostBundleId: String? = nil, entrypoint: String? = nil,
+                         prompt: String? = nil, at date: Date) {
         let previous = rows.first { $0.id == sessionId }
         let action: String
         if let lastAction {
@@ -137,11 +187,23 @@ struct SessionRoster {
             action = previous?.lastAction ?? ""
         }
         names[sessionId]?.hadRow = true
+        if promptNames[sessionId] == nil, let prompt, let name = SessionName.fromPrompt(prompt) {
+            promptNames[sessionId] = name
+        }
         rows.removeAll { $0.id == sessionId }
         let row = SessionRow(id: sessionId, pillId: pillId, title: self.title(of: sessionId, folder: folder),
                              phase: phase, lastAction: action, updatedAt: date,
-                             hostBundleId: hostBundleId ?? previous?.hostBundleId, folder: folder)
+                             hostBundleId: hostBundleId ?? previous?.hostBundleId, folder: folder,
+                             entrypoint: entrypoint ?? previous?.entrypoint)
         rows.insert(row, at: rows.firstIndex { $0.updatedAt <= date } ?? rows.count)
+    }
+
+    /// The `klayer_entrypoint` of a hook as a row keeps it: text, trimmed, 40 characters at most; nil
+    /// for anything else or nothing (the relay leaves it out when `CLAUDE_CODE_ENTRYPOINT` is unset).
+    static func entrypoint(from raw: Any?) -> String? {
+        guard let text = raw as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(40))
     }
 
     /// A name of `sessionId` arrived (`raw`, as a hook's `session_title` or the status line's
@@ -161,21 +223,26 @@ struct SessionRoster {
         names[sessionId] = known
         guard known.name != before else { return false }
         if let index = rows.firstIndex(where: { $0.id == sessionId }) {
-            rows[index].title = known.name
+            rows[index].title = title(of: sessionId, folder: rows[index].folder)
         }
         return true
     }
 
-    /// What session `sessionId` goes by: its name when one is known, else `folder`.
+    /// What session `sessionId` goes by: its name when one is known and says something (never
+    /// « Claude » nor « Claude Code »), else its first prompt's name, else `folder` unless it says
+    /// nothing of the work, else « Session Code » (`SessionName`).
     func title(of sessionId: String, folder: String) -> String {
-        names[sessionId]?.name ?? folder
+        if let name = names[sessionId]?.name, !SessionName.isGeneric(name, home: "") { return name }
+        if let prompt = promptNames[sessionId] { return prompt }
+        return SessionName.isGeneric(folder, home: homeFolder) ? SessionName.genericTitle : folder
     }
 
     /// The names whose row left go with it. A name that came before its row stays 30 min after the
     /// last one noted (`now`; nil keeps them all, for `end`, which has no date).
     private mutating func dropNames(now: Date?) {
-        guard !names.isEmpty else { return }
         let ids = Set(rows.map(\.id))
+        if !promptNames.isEmpty { promptNames = promptNames.filter { ids.contains($0.key) } }
+        guard !names.isEmpty else { return }
         names = names.filter { id, name in
             if ids.contains(id) { return true }
             if name.hadRow { return false }

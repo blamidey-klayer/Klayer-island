@@ -40,6 +40,9 @@ struct ApprovalInfo: Sendable {
     var pillId: String
     /// Token of the held request (HookServer): the card re-arms its buttons when it changes.
     var requestId: Int = 0
+    /// The app the card steps aside for when it comes to the front (`CardStepAside.requestHost`):
+    /// the Claude app, an editor; nil for a terminal session or an unknown host.
+    var hostBundleId: String? = nil
 }
 
 // MARK: - Pill badge (shown on pill edge when non-focused task has an alert)
