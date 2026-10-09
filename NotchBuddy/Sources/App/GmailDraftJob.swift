@@ -42,12 +42,17 @@ final class GmailDraftJob {
         answer = GmailDraftAnswer(requestedTo: request.to)
     }
 
-    /// Prepares one draft and returns how it ended. Never sends anything.
-    static func run(to: [String], subject: String, intent: String, fileName: String?) async -> Outcome {
+    /// Prepares one draft and returns how it ended. Never sends anything. `stillWanted` is asked
+    /// once Claude Code is found: when the binary moved, the lookup goes through a login shell (up
+    /// to 3 s), and « Annuler » in that time finds no job to stop.
+    static func run(to: [String], subject: String, intent: String, fileName: String?,
+                    stillWanted: () -> Bool = { true }) async -> Outcome {
         guard let binary = await ChatSession.shared.locateBinary() else {
             ChatSession.shared.claudeCodeIsMissing()
             return .failed(missingMessage)
         }
+        // Cancelled while Claude Code was looked for: no process starts, no draft lands in Gmail.
+        guard stillWanted() else { return .failed(cancelledMessage) }
         current?.finish(.failed(GmailDraftAnswer.stoppedMessage), atQuit: false)
         guard let folder = emptyFolder() else { return .failed(folderError) }
         let request = GmailDraftRequest(to: to, subject: subject, intent: intent, fileName: fileName)
@@ -283,8 +288,9 @@ final class GmailDraftFlow: ObservableObject {
             if await ChatSession.shared.availability() == .ready {
                 // Cancelled while Claude Code was checked: nothing is started.
                 guard run == runID else { return }
+                // « Annuler » during the binary lookup that `run` may do: nothing is started either.
                 outcome = await GmailDraftJob.run(to: recipients, subject: subject, intent: intent,
-                                                  fileName: dropped?.name)
+                                                  fileName: dropped?.name, stillWanted: { run == self.runID })
             }
             // Cancelled: the form is already back.
             guard run == runID else { return }

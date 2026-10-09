@@ -298,7 +298,7 @@ Le micro du champ dicte par `SFSpeechRecognizer`, dans la langue de l'app et sur
 - **À** : une ou plusieurs adresses séparées par des virgules, de la forme simple `x@y.z` (pas de nom d'affichage). **Objet** : facultatif. **Ce que tu veux dire** : obligatoire.
 - « Préparer le brouillon » reste atténué tant qu'une adresse manque ou est invalide, ou que le texte est vide.
 - Une ligne rouge sous « À » nomme les adresses invalides. Pendant la saisie, seules celles qu'une virgule suit sont contrôlées ; en quittant le champ, toutes le sont.
-- Le travail se fait dans `GmailDraftFlow` (un seul exemplaire) : l'île peut se replier pendant la préparation, le résultat attend à sa réouverture. « Annuler » pendant la préparation arrête le processus et rend le formulaire tel qu'il était.
+- Le travail se fait dans `GmailDraftFlow` (un seul exemplaire) : l'île peut se replier pendant la préparation, le résultat attend à sa réouverture. « Annuler » pendant la préparation arrête le processus et rend le formulaire tel qu'il était. Pendant la recherche de Claude Code qui précède (jusqu'à 3 s par le shell de connexion quand le binaire a changé de place), « Annuler » empêche le processus de démarrer.
 
 ### Le processus du brouillon
 
