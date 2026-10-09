@@ -110,9 +110,18 @@ struct ClaudeAppAlertHold: Equatable, Sendable {
 
     /// The badge of the house tab, nil for none: the held alert's (unless past 30 min) or the unseen
     /// pill badge, the strongest of the two.
-    func houseBadge(now: Date) -> PillBadge? {
+    /// `requestWaitsOffScreen` (Task 27): a permission or a question waits and its card is not on
+    /// screen (it stepped aside when its session's app came to the front, or the chat is open over
+    /// it): the house tab carries the request's mark too, whatever app the session runs in.
+    func houseBadge(now: Date, requestWaitsOffScreen: Bool = false) -> PillBadge? {
         let fromHeld = held.flatMap { Self.expired($0, now: now) ? nil : $0.badge }
-        return Self.strongest(fromHeld, unseenBadge)
+        return Self.strongest(Self.strongest(fromHeld, unseenBadge), requestWaitsOffScreen ? .approval : nil)
+    }
+
+    /// Whether a permission (`approval`) or a question (`question`) waits while the island's view
+    /// (`view`, the raw value of `IslandView`) is not its card.
+    static func requestWaitsOffScreen(approval: Bool, question: Bool, view: String) -> Bool {
+        (approval && view != "approval") || (question && view != "question")
     }
 
     /// One badge for two: a request first, then an error, then a finish.

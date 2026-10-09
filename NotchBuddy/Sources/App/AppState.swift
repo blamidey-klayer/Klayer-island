@@ -654,7 +654,8 @@ final class AppState: ObservableObject {
 
     /// The badge of the house tab of the header, nil for none (ClaudeAppAlertHold.houseBadge).
     var houseTabBadge: PillBadge? {
-        claudeAppAlertHold.houseBadge(now: Date())
+        claudeAppAlertHold.houseBadge(now: Date(), requestWaitsOffScreen: ClaudeAppAlertHold.requestWaitsOffScreen(
+            approval: pendingApproval != nil, question: pendingQuestion != nil, view: view.rawValue))
     }
 
     /// The home's list is on screen (the island open on the home, no GitHub or Spotify card in its

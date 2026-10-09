@@ -54,6 +54,7 @@ enum CodeNotificationTests {
             ("the_house_tab_is_badged_while_an_alert_is_held", theHouseTabIsBadgedWhileAnAlertIsHeld),
             ("an_unseen_claude_app_badge_stays_until_the_list_shows", anUnseenClaudeAppBadgeStaysUntilTheListShows),
             ("the_house_tab_shows_the_strongest_badge", theHouseTabShowsTheStrongestBadge),
+            ("a_request_waiting_off_screen_badges_the_house_tab", aRequestWaitingOffScreenBadgesTheHouseTab),
             ("the_claude_app_in_front_clears_the_house_tab", theClaudeAppInFrontClearsTheHouseTab),
             // Residuals of the final re-review (I-1, M-1)
             ("a_held_alert_of_a_session_that_moved_on_is_dropped", aHeldAlertOfASessionThatMovedOnIsDropped),
@@ -560,6 +561,28 @@ enum CodeNotificationTests {
         precondition(hold.houseBadge(now: at(0)) == .error)
         hold.alertCame(alert("Claude attend ta réponse"), presentation: .badgeOnly)
         precondition(hold.houseBadge(now: at(0)) == .approval)
+    }
+
+    // Task 27: a card that stepped aside (its session's app came to the front) leaves its request
+    // pending: the house tab carries the request's mark while its card is not on screen, whatever
+    // app the session runs in (VS Code too, whose pill's badge is drawn nowhere).
+    static func aRequestWaitingOffScreenBadgesTheHouseTab() {
+        var hold = ClaudeAppAlertHold()
+        precondition(hold.houseBadge(now: at(0), requestWaitsOffScreen: true) == .approval, "a request off screen")
+        precondition(hold.houseBadge(now: at(0), requestWaitsOffScreen: false) == nil, "its card on screen, or none")
+        hold.pillBadged(.finished)
+        precondition(hold.houseBadge(now: at(0), requestWaitsOffScreen: true) == .approval, "a request over a finish")
+        precondition(hold.houseBadge(now: at(0)) == .finished, "without a request, as before")
+        precondition(ClaudeAppAlertHold.requestWaitsOffScreen(approval: true, question: false, view: "approval") == false,
+                     "the permission's card on screen")
+        precondition(ClaudeAppAlertHold.requestWaitsOffScreen(approval: true, question: false, view: "prompt"),
+                     "the chat over a pending permission")
+        precondition(ClaudeAppAlertHold.requestWaitsOffScreen(approval: true, question: true, view: "question"),
+                     "the question's card on screen, the permission behind it")
+        precondition(!ClaudeAppAlertHold.requestWaitsOffScreen(approval: false, question: false, view: "overview"),
+                     "nothing pending")
+        precondition(IslandView(rawValue: "approval") == .approval && IslandView(rawValue: "question") == .question,
+                     "the card views' raw values are the ones the rule reads")
     }
 
     // The user went to the Claude app: what it has to say is there, the tab is clear.
