@@ -88,11 +88,12 @@ export function walkPlan(from: P, to: P): WalkPlan {
 /**
  * How far along the walk Klay is (0…1) `t` seconds in. His speed rises from 0 over the first
  * step and falls back to 0 over the last one (a half cosine), and stays even in between.
+ * Without a walk (dropped within WALK.minDistance), 0: he stays where he was dropped.
  */
 export function walkProgress(plan: WalkPlan, t: number): number {
   const T = plan.duration;
-  if (T <= 0 || t >= T) return 1;
-  if (t <= 0) return 0;
+  if (T <= 0 || t <= 0) return 0;
+  if (t >= T) return 1;
   const r = plan.ramp;
   const v = 1 / (T - r);
   // Distance covered `u` seconds into a ramp from rest.
@@ -125,6 +126,14 @@ export function walkPhase(plan: WalkPlan, t: number): number {
   if (plan.duration <= 0) return 0;
   const steps = clamp(t, 0, plan.duration) * WALK.cadence;
   return (((steps / 2) % 1) + 1) % 1;
+}
+
+/**
+ * Where the hop starts: where the walk leaves him, the doorstep, or where he was dropped when
+ * there is no walk (no jump to the doorstep first).
+ */
+export function walkHopStart(plan: WalkPlan): P {
+  return walkPosition(plan, plan.duration);
 }
 
 /** How far into the hop he is (0…1) `t` seconds after the walk started: null while he walks. */

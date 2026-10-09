@@ -11,7 +11,7 @@
 
 import { BotEngine, drawKlayDrop, hexToRGB } from "./engine";
 import { frameDelta } from "./motion";
-import { WALK, walkAmount, walkDoorstep, walkHop, walkHopProgress, walkPhase, walkPlan, walkPosition } from "./walk";
+import { WALK, walkAmount, walkDoorstep, walkHop, walkHopProgress, walkHopStart, walkPhase, walkPlan, walkPosition } from "./walk";
 import type { BotEmoteName, BotStateName } from "./types";
 
 const STATES: BotStateName[] = [
@@ -118,7 +118,7 @@ function buildSheet() {
     let alpha = 1;
     const hop = walkHopProgress(plan, u);
     if (hop !== null) {
-      const f = walkHop(hop, door, home, GHOST, home.width, false);
+      const f = walkHop(hop, walkHopStart(plan), home, GHOST, home.width, false);
       c = f.center;
       w = f.width;
       alpha = f.alpha;

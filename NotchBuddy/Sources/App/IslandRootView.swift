@@ -291,7 +291,8 @@ struct BotPlacement: View {
                     ))
                     .frame(width: diameter * 2.2, height: diameter * 2.2)
                     .blur(radius: 6)
-                    .opacity(botGlowOpacity(state.effectiveState))
+                    // While Klay walks home his seat is empty: no halo waits for him there.
+                    .opacity(state.klayWalkingHome ? 0 : botGlowOpacity(state.effectiveState))
                     .position(x: cx, y: cy)
                     .animation(.easeInOut(duration: 0.4), value: state.effectiveState)
             }

@@ -105,12 +105,17 @@ enum KlayWalk {
         /// The walk and the hop that ends it (s).
         var total: Double { duration + KlayWalk.hopDuration }
 
+        /// Where the hop starts: where the walk leaves him, the doorstep, or where he was dropped
+        /// when there is no walk (no jump to the doorstep first).
+        var hopStart: CGPoint { position(at: duration) }
+
         /// How far along the walk Klay is (0…1) `t` seconds in. His speed rises from 0 over the
-        /// first step and falls back to 0 over the last one (a half cosine), and stays even in between.
+        /// first step and falls back to 0 over the last one (a half cosine), and stays even in
+        /// between. Without a walk (dropped within minDistance), 0: he stays where he was dropped.
         func progress(at t: Double) -> CGFloat {
             let T = duration
-            if T <= 0 || t >= T { return 1 }
-            if t <= 0 { return 0 }
+            if T <= 0 || t <= 0 { return 0 }
+            if t >= T { return 1 }
             let r = ramp
             let v = 1 / (T - r)
             // Distance covered `u` seconds into a ramp from rest.

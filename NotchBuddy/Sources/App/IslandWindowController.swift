@@ -116,6 +116,9 @@ final class IslandWindowController: NSWindowController {
         dropView.onDragEntered = { [weak self] loc in
             Task { @MainActor in
                 let iLoc = self?.windowToIsland(loc) ?? CGPoint(x: 320, y: 88)
+                // The drop canvas draws its own Klay: a walker still on his way home goes at once,
+                // so two Klays never show.
+                KlayWalker.shared.finishNow()
                 AppState.shared.fileDragOver = true
                 // enterZone sets isActive=true BEFORE hookExpand triggers re-render,
                 // so IslandContainer sees isActive=true when state.view becomes .upload.

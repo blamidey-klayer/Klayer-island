@@ -33,13 +33,15 @@ struct KlayWalkerView: View {
 /// home from the desktop (double-click, ⌃⌥D, a request that calls him back). One walker for all.
 ///
 /// He walks in a straight line from where he is to just under his place in the island (under
-/// the notch when the island is closed), at walking speed, then hops up and shrinks into the
-/// island Klay's place and size, with the `peek` sound; the island's Klay then shows (it is hidden
-/// while `AppState.klayWalkingHome` is true) and the walker's panel closes. The plan and the gait
-/// are KlayWalk's, tested on Linux (scripts/test-klay-walk.sh).
+/// the notch when the island is closed), at walking speed, then hops up into the island Klay's
+/// place, shrinking or growing to his size, with the `peek` sound. On arrival the walker's panel
+/// is hidden and closed in the same main-actor turn as the island's Klay is shown (he is hidden
+/// while `AppState.klayWalkingHome` is true): never two Klays, at worst one frame with none.
+/// The plan and the gait are KlayWalk's, tested on Linux (scripts/test-klay-walk.sh).
 ///
-/// CPU: a 60 Hz timer moves the panel and the panel's TimelineView draws him, both only during
-/// the walk; nothing is left running once he is home.
+/// CPU: a display link of the walker's own view moves the panel at the display's rate (120 Hz on
+/// ProMotion) and the panel's TimelineView draws him, both only during the walk; nothing is left
+/// running once he is home.
 @MainActor
 final class KlayWalker {
     static let shared = KlayWalker()
@@ -50,7 +52,7 @@ final class KlayWalker {
 
     private var panel: NSPanel?
     private var engine: BotEngine?
-    private var timer: Timer?
+    private var displayLink: CADisplayLink?
     private var plan: KlayWalk.Plan?
     private var start: Double = 0
     /// The walker's width while he walks: his panel's width when he set off.
@@ -66,7 +68,7 @@ final class KlayWalker {
     func walkHome(panel given: NSPanel?, then: (() -> Void)? = nil) {
         // One Klay at a time: a walk still under way ends at once (it never happens in use, the
         // island's Klay is hidden and cannot be dragged while a walker is out).
-        if isWalking { arrive(closingAt: 0) }
+        if isWalking { arrive(sound: false) }
         AppState.shared.klayWalkingHome = true
         isWalking = true
         if let then { arrived.append(then) }
@@ -98,14 +100,19 @@ final class KlayWalker {
         hopTarget = nil
         start = CACurrentMediaTime()
 
-        timer?.invalidate()
-        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            // Scheduled on the main run loop: already on the main actor.
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        // The display link of the walker's own view: one step per frame of the screen he is on.
+        displayLink?.invalidate()
+        let link = hosting.displayLink(target: WalkerFrames(self), selector: #selector(WalkerFrames.step(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
         tick()
+    }
+
+    /// Ends the walk at once, without the `peek`: a file dragged onto the island brings the drop
+    /// canvas and its own Klay, so the walker goes (never two Klays). Nothing when he is home.
+    func finishNow() {
+        guard isWalking else { return }
+        arrive(sound: false)
     }
 
     /// The walk's pose for the engine at `now` (KlayWalkerView reads it every frame): the gait
@@ -125,7 +132,8 @@ final class KlayWalker {
 
     // MARK: - Frames
 
-    private func tick() {
+    /// One frame of the walk (WalkerFrames, on the display link): the panel follows the plan.
+    fileprivate func tick() {
         guard let plan, let panel else { return }
         let t = CACurrentMediaTime() - start
         guard let u = plan.hopProgress(at: t) else {
@@ -138,39 +146,34 @@ final class KlayWalker {
             engine?.squash()
         }
         guard let home = hopTarget else { return }
-        let f = KlayWalk.hop(u, from: plan.to, to: home.center, fromWidth: width,
+        // From where the walk left him: the doorstep, or where he was dropped when there was no walk.
+        let f = KlayWalk.hop(u, from: plan.hopStart, to: home.center, fromWidth: width,
                              toWidth: home.shown ? home.width : 0, fades: !home.shown)
         place(panel, center: f.center, width: max(1, f.width))
         panel.alphaValue = f.alpha
-        if u >= 1 {
-            // Into a shown place, the island's Klay draws on its next frame at the same place and
-            // size: the walker stays one more instant so there is never a frame without Klay.
-            arrive(closingAt: home.shown ? 1.0 / 30 : 0)
-        }
+        if u >= 1 { arrive(sound: true) }
     }
 
     private func place(_ panel: NSPanel, center c: CGPoint, width w: CGFloat) {
         panel.setFrame(NSRect(x: c.x - w / 2, y: c.y - w / 2, width: w, height: w), display: true)
     }
 
-    /// He is home: the `peek` sound, the island's Klay shows, the timer stops, the panel closes
-    /// after `delay` seconds, and what waited for him runs.
-    private func arrive(closingAt delay: Double) {
-        timer?.invalidate()
-        timer = nil
-        SoundEngine.shared.play("peek")
+    /// He is home: the `peek` sound (unless `sound` is false), the display link stops, the
+    /// walker's panel is hidden and closed and the island's Klay shown in this same main-actor
+    /// turn, so the two never show together; then what waited for him runs.
+    private func arrive(sound: Bool) {
+        displayLink?.invalidate()
+        displayLink = nil
+        if sound { SoundEngine.shared.play("peek") }
         let leaving = panel
         panel = nil
         engine = nil
         plan = nil
         hopTarget = nil
         isWalking = false
+        leaving?.alphaValue = 0
+        leaving?.close()
         AppState.shared.klayWalkingHome = false
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { leaving?.close() }
-        } else {
-            leaving?.close()
-        }
         let waiting = arrived
         arrived = []
         waiting.forEach { $0() }
@@ -193,5 +196,23 @@ final class KlayWalker {
         p.isOpaque = false
         p.hasShadow = false
         return p
+    }
+}
+
+// MARK: - Display link target
+
+/// The display link's target (it needs an Objective-C object): one walker step per frame of the
+/// screen the walker is on. The link retains it; invalidating the link at the end of the walk
+/// releases both.
+@MainActor
+private final class WalkerFrames: NSObject {
+    private weak var walker: KlayWalker?
+
+    init(_ walker: KlayWalker) {
+        self.walker = walker
+    }
+
+    @objc func step(_ link: CADisplayLink) {
+        walker?.tick()
     }
 }

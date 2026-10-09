@@ -82,7 +82,10 @@ enum KlayWalkTests {
         precondition(close(KlayWalk.duration(distance: 40.5), 0.7), "just over 40 pt: a short walk")
         let p = plan(30)
         precondition(p.duration == 0, "dropped 30 pt from the doorstep: no walk")
-        precondition(close(p.position(at: 0), p.to), "he is at the doorstep at once, ready to hop")
+        // Dropped near his place, he hops from where he was dropped: no jump to the doorstep first.
+        precondition(close(p.position(at: 0), p.from) && close(p.position(at: 1), p.from),
+                     "without a walk he stays where he was dropped")
+        precondition(close(p.hopStart, p.from), "and hops from there")
         precondition(p.amount(at: 0) == 0 && p.pose(at: 0).amount == 0, "no gait without a walk")
         precondition(p.hopProgress(at: 0) == 0, "the hop starts at once")
     }
@@ -92,6 +95,7 @@ enum KlayWalkTests {
         precondition(close(p.position(at: 0), p.from), "the walk starts where he was dropped")
         precondition(close(p.position(at: -1), p.from), "before the start: where he was dropped")
         precondition(close(p.position(at: p.duration), p.to, 1e-6), "the walk ends at the doorstep")
+        precondition(close(p.hopStart, p.to, 1e-6), "the hop starts where the walk ends")
         precondition(close(p.position(at: p.duration + 5), p.to), "after the end: at the doorstep")
     }
 
