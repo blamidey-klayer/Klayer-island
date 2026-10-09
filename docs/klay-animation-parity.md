@@ -36,7 +36,7 @@ Convention commune : tangage positif = Klay regarde vers le haut, lacet positif 
 | 24 | Secousse d'erreur | ox ±0,08 en 280 ms. | Identique. | présent | Les mains suivent la secousse avec inertie. |
 | 25 | Balayage en recherche | Lacet sin(2,6 t) × 0,6, tangage −0,06 (léger regard vers le bas). | Jumelles ; le Mac regardait légèrement en bas, le banc légèrement en haut. | présent | Les deux regardent légèrement en haut (tangage +0,06, comportement du banc). Le corps suit le balayage (penché). |
 | 26 | Tête penchée, regard fixe | `question` penche la tête ; `thinking` regarde en haut à droite. | Identique (0,12 rad). | présent | Le corps se penche aussi vers le regard fixe. |
-| 27 | Glisser le personnage | Fantôme qui grandit en ressort (0,28 s, 0,55). | `GhostBotView`, identique. | présent | Inchangé. |
+| 27 | Glisser le personnage | Fantôme qui grandit en ressort (0,28 s, 0,55). | `GhostBotView`, identique. | présent | Inchangé pendant le glisser ; au lâcher, Klay rentre à pied dans l'île (`KlayWalker`, démarche `KlayWalk`, cellules « marche » du banc, SPEC §13). |
 | 28 | Cadence et dt | TimelineView à la fréquence d'affichage, mais dt calculé entre deux horloges (date depuis 2001 contre temps depuis le démarrage), donc toujours plafonné à 0,05 s : tout ce qui dépend de dt allait 3 fois trop vite à 60 Hz et 6 fois à 120 Hz. | Même défaut ; Klay sur le bureau limité à 30 images/s. | à renforcer | dt pris sur l'horloge du moteur (`KlayMotion.frameDelta`, plafonné à 0,05 s). Bureau à la fréquence d'affichage éveillé, 10 images/s endormi, en pause écran éteint ou verrouillé. Île en pause quand elle est cachée (0 % de CPU). |
 
 ## Dérives corrigées entre le banc et le Mac

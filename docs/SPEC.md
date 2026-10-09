@@ -174,6 +174,7 @@ Référence de rendu : `tools/klay-preview/src/engine.ts` (portée en Swift dans
   - balayage : décalage x = lacet × 12 et rotation de lacet × 0,08 rad autour de (0, −6), soit ±7 unités et ±0,05 rad pendant la recherche ; les yeux grossis bougent avec les verres ; les mains tiennent les côtés extérieurs des verres en (±146, −6) et suivent le même mouvement ;
   - ordre de dessin : jambes, glyphe, bras, jumelles avec les yeux, puis les mains par-dessus (les bras redessinés dans un disque de rayon 40 autour de chaque main, sans couture au poignet) : les bras passent derrière les jumelles, qui couvrent aussi les joues. Les jumelles restent quand les membres sont masqués (île compacte).
 - **Jambes** : deux jambes blanches derrière le glyphe, hanches à (±17, 104), pieds ovales (32 × 15) à (±36, 212). Piétinement en `working`, tapotement du pied au repos (voir Mouvement).
+- **Marche** (retour à l'île, §13 ; `KlayWalk.gait` et `KlayPaint.walkLimbs`, `walkGait` et `walkTargets` sur le banc, cellules « marche ») : une démarche vue de face, lisible à la taille du Klay flottant du glisser. Phase de foulée de 0 à 1 (deux pas) : le pied gauche se lève dans la première moitié, le droit dans la seconde, jamais les deux à la fois. Le pied levé monte jusqu'à 72 unités et avance de 20 vers où Klay marche ; l'autre, au sol, recule de 10. Le corps descend de 20 unités à chaque appui (phases 0 et ½) et remonte d'autant à mi-pas (¼ et ¾) ; les pieds au sol restent en place pendant ce mouvement. La main opposée au pied levé vient vers l'avant : 34 unités vers le milieu et 80 vers le haut ; l'autre recule, 14 vers l'extérieur et 20 vers le haut. Klay se penche de 0,08 rad vers où il marche, autour des semelles, et regarde vers l'île. Toute l'amplitude suit la vitesse : à l'arrêt, c'est la pose de repos. Ni coup d'œil ni occupation pendant la marche. Le glyphe n'est ni déformé ni recoloré.
 - **Membres masqués** en dessous de 30 px de largeur de glyphe (île compacte).
 - **Zone de dépôt** : Klay reste Klay, le glyphe intact (plus de boîte aux lettres depuis le lot 6) ; ses bras s'ouvrent pour le fichier (`KlayPaint.dropLimbs`) et il l'avale (§8).
 - **Mini-Klay** (lignes des conversations de la maison) : glyphe blanc et yeux sur un disque de la couleur de l'état de la session, sans membres ; gris et immobile pour une session finie ou en erreur (§5, Maison).
@@ -191,7 +192,7 @@ Constantes partagées par le banc (`motion.ts`, `MOTION`) et le Mac (`KlayMotion
 - **Pointeur immobile** depuis 3,5 à 6 s (`idle`, `working`, `finished`, hors survol) : Klay regarde autour, un coup d'œil toutes les 0,6 à 1,6 s, 30 % vers le pointeur ; le moindre mouvement du pointeur le ramène.
 - **Occupations au repos** (`idle` seulement, sans survol, émote, salut ni danse) : toutes les 5 à 12 s, un tapotement du pied (3,3 Hz pendant 0,9 s, pointe levée de 20 unités). Pointeur immobile depuis 25 s : un étirement ou un bâillement en alternance, puis un toutes les 35 à 70 s. Étirement : 1,8 s, mains à (±130, −215), corps étiré de 6 % (sx 0,97), yeux fermés de 0,35 à 1,35 s. Bâillement : l'émote Bâille.
 - **Danse** (Spotify) : 112 BPM, saut de 0,2 R, balancement de 0,1 rad et décalage de 0,08 R autour des semelles, écrasement à chaque atterrissage ; montée 0,3 s, descente 0,5 s ; yeux contents en `idle` et `finished`.
-- **Cadence** : l'île dessine Klay à la fréquence d'affichage et s'arrête quand elle est cachée ; Klay sur le bureau aussi, 10 images/s endormi, en pause écran éteint ou verrouillé. Toutes les vues de l'île ouverte restent dans l'arbre (opacité 0) : celles qui ne sont pas à l'écran arrêtent leurs animations (mini Klays de la maison, zone de dépôt, barre d'envoi).
+- **Cadence** : l'île dessine Klay à la fréquence d'affichage et s'arrête quand elle est cachée ; Klay sur le bureau aussi, 10 images/s endormi, en pause écran éteint ou verrouillé ; le Klay qui rentre à pied seulement pendant sa marche (§13). Toutes les vues de l'île ouverte restent dans l'arbre (opacité 0) : celles qui ne sont pas à l'écran arrêtent leurs animations (mini Klays de la maison, zone de dépôt, barre d'envoi).
 
 ### États (`STATES`)
 
@@ -230,7 +231,7 @@ Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `searching`
 - **Survol** (expanded) : clignement, yeux ×1,08, son `hover` ; Klay sursaute, lève les mains et se penche vers le pointeur (§7, Mouvement). Immobile 1,9 s → Amour.
 - **Clic** en compact ou hidden → rien, l'île ne s'ouvre jamais au clic (§3), sauf le bouton Granola de l'île réduite, qui ouvre Granola. **Clic** en expanded → claque : écrasement (70/130/170 ms), Agacé 800 ms, halo violet, sons `slap` + `annoyed`.
 - **3 clics en moins de 1,7 s** → état `dizzy` pendant 3,3 s, vue `confused`, son `dizzy`, puis retour à la vue et à l'état d'avant.
-- **Glisser** le bonhomme (> 7 pt) : un bonhomme flottant Ø 54 suit le curseur (Surpris + `pop`), celui du notch disparaît. Lâché sur une fenêtre d'une autre app → **attache** (voir INTEGRATIONS §4). Lâché ailleurs → revient dans le notch en 420 ms en rétrécissant.
+- **Glisser** le bonhomme (plus de 3 pt) : un Klay flottant (toile de 67 pt, Klay de Ø 40) suit le curseur, celui de l'île disparaît. Lâché sur une fenêtre d'une autre app → **attache** (voir INTEGRATIONS §4) et l'île s'ouvre sur le chat. Où que vous le lâchiez (sur une fenêtre, sur le bureau, près de l'encoche), Klay **rentre à pied** dans l'île depuis l'endroit du lâcher (§13, Retour à pied) : il ne reste plus sur le bureau après un glisser. Le Klay de l'île reste caché jusqu'à son arrivée, pour que deux Klay ne se voient jamais.
 - **Glisser un fichier** depuis le Finder vers la zone du notch (±220 pt autour du centre, jusqu'à 26 pt sous l'island) → vue `upload`. La zone de dépôt (`UploadCanvasView`, `UploadSequenceEngine`, testée par `scripts/test-upload-sequence.sh`) prend le relais du Klay de l'île à la même place et à la même taille (x 320, y 92, Ø 62, règle de taille `KlaySize`) : le Klay de l'île disparaît aussitôt, sans fondu, pour que deux Klay ne se voient jamais, et revient en fondu de 0,25 s quand la zone part. Contour vert et voile vert quand le fichier est au-dessus.
 - **Zone de dépôt** : un seul personnage, Klay, au milieu de la carte pointillée, avec « Dépose ton fichier » dessous (y 133). Dans l'onglet Déposer, c'est le Klay de l'île, au repos (il respire, cligne et suit le pointeur). Quand un fichier approche, il ouvre les bras en 0,38 s avec un léger dépassement (mains vers (±200, −40), `armsOpenTargets`), ouvre grand les yeux, les pose sur le fichier, se déplace pour le suivre et cligne toutes les 3,6 s. Un fichier qui ressort sans être déposé : en 0,3 s les bras retombent et les yeux reviennent au repos, puis Klay retourne au centre ; si le fichier revient, Klay repart de là où il est. Plus de boîte aux lettres ni de seconde figure. Banc : cellules « dépôt : bras ouverts » et « dépôt : avale » de `tools/klay-preview`.
 - **Déposer** : le fichier file dans Klay par une ligne au-dessus de ses yeux (aspiration de 0,30 s, 80 ms après le dépôt) ; Klay s'écrase (1,14 × 0,82 au plus profond, 70 ms après l'aspiration), ferme les yeux, baisse les bras, puis se réduit sur la barre : vue `uploading` (barre de 2,4 s, `tick` tous les 10 %, pendant la copie dans le dossier de travail de l'app), son `approve` au dépôt et à la fin, puis vue `choose`.
@@ -300,7 +301,7 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 
 ## 13. Klay sur le bureau
 
-Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il conserve tout son comportement (émotes, suivi des yeux, danse) et réagit aux alertes.
+Avec ⌃⌥D, Klay quitte l'island et vit comme une icône flottante sur le bureau. Il conserve tout son comportement (émotes, suivi des yeux, danse) et réagit aux alertes. Il rentre toujours à pied (Retour à pied, ci-dessous).
 
 ### Pose et panneau
 
@@ -310,8 +311,8 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 
 ### Installation
 
-- **Depuis le glisser** : quand l'utilisateur lâche Klay hors de la zone notch et hors de toute fenêtre, `IslandWindowController.finishDrag` cède le panneau fantôme au `DesktopKlayController`. Le panneau s'agrandit vers 120 × 120 (animation ressort ~0,25 s), son contenu remplacé par `DesktopBotView`. Son de bienvenue : `pop`. Atterrissage avec émote `happy`.
-- **Retour dans la zone notch** : lâcher dans le cadre du panneau island → Klay retourne à la notch sans s'installer sur le bureau.
+- **Par ⌃⌥D** (`flyOutOrHome()`) : un nouveau panneau part de l'encoche et vole vers la position sauvegardée (0,45 s). Rien tant qu'un Klay rentre à pied.
+- **Plus par le glisser** : lâché n'importe où, le Klay glissé hors de l'île rentre à pied (`IslandWindowController.finishDrag` cède le panneau flottant à `KlayWalker`) ; il ne s'installe plus sur le bureau.
 - **Au démarrage** (si `UserDefaults["klayOnDesktop"] == true`) : le greeting se joue normalement, puis à `greetComplete` un nouveau panneau part de la notch et vole vers la position sauvegardée (animation 0,45 s).
 
 ### Interactions
@@ -319,10 +320,11 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 | Geste | Effet |
 |---|---|
 | Clic simple | Slap (`engine.slap()`), différé de `NSEvent.doubleClickInterval` |
-| Double-clic | Annule le slap en attente ; vol vers la notch (`flyHome()`), island réapparaît |
+| Double-clic | Annule le slap en attente ; Klay rentre à pied dans l'île (`walkHome()`) et le mode bureau s'arrête |
+| ⌃⌥D | Klay rentre à pied dans l'île (`walkHome()`) et le mode bureau s'arrête |
 | Clic droit | Émote Amour |
 | Survol du corps | Clignement, yeux ×1,08, sursaut, se penche vers le pointeur (§7, Mouvement) |
-| Glisser → zone notch | Vol vers la notch (`flyHome()`) |
+| Glisser → zone notch | Klay rentre à pied dans l'île (`walkHome()`) |
 | Glisser → fenêtre (GitHub) | Attache le contexte, Klay revient à sa position initiale, island ouvre `.prompt` |
 | Glisser → ailleurs | Repositionne le panneau (borné au `visibleFrame`) |
 
@@ -334,16 +336,28 @@ Klay peut quitter l'island et vivre comme une icône flottante sur le bureau. Il
 
 ### Absences de la notch
 
-Quand `AppState.klayOnDesktop == true`, `BotPlacement` masque le bonhomme de la notch (opacité 0, même règle que `isDraggingBot`).
+Quand `AppState.klayOnDesktop == true`, ou tant qu'un Klay rentre à pied (`AppState.klayWalkingHome`), `BotPlacement` masque le bonhomme de la notch (opacité 0, même règle que `isDraggingBot`).
 
 ### Alertes
 
 Détection par `Publishers.CombineLatest($pendingApproval, $pendingQuestion)` : seules les transitions nil↔non-nil déclenchent l'action. La notification `.hookExpand` n'est pas utilisée (elle part aussi pour `.finished`, `.error`, le glisser de fichier, etc.).
 
 1. `pendingApproval` ou `pendingQuestion` passe à non-`nil` → émote `surprised` sur le Klay du bureau.
-2. Après 0,45 s, `retractForAlert()` : le panneau vole vers la notch et se ferme ; `klayOnDesktop` passe à `false` (le bonhomme de la notch réapparaît pour l'alerte) ; `UserDefaults["klayOnDesktop"]` reste `true`.
+2. Après 0,45 s, `retractForAlert()` : Klay rentre à pied dans l'île (Retour à pied) ; `klayOnDesktop` passe à `false` au départ et le bonhomme de la notch apparaît à son arrivée, pour l'alerte ; `UserDefaults["klayOnDesktop"]` reste `true`.
 3. Quand `pendingApproval` **et** `pendingQuestion` sont tous deux `nil`, `launchFlyIfNeeded()` renvole Klay vers la position sauvegardée après 0,6 s.
-4. Si l'alerte se résout pendant l'animation de retrait, le panneau ne s'ouvre pas sur la notch : Klay repart directement vers le bureau.
+4. Si l'alerte se résout avant ou pendant sa marche de retour, Klay repart vers le bureau dès son arrivée.
+
+### Retour à pied (`KlayWalker`)
+
+Un seul marcheur ramène Klay dans l'île : à la fin de tout glisser du Klay de l'île (sur une fenêtre, sur le bureau, près de l'encoche), et depuis le bureau au double-clic, à ⌃⌥D, au lâcher sur la zone de l'encoche et quand une demande arrive (`retractForAlert`). Le plan et la démarche sont purs (`KlayWalk.swift`, miroir de `tools/klay-preview/src/walk.ts`) et testés par `scripts/test-klay-walk.sh`.
+
+- **Trajet** : une ligne droite depuis l'endroit où il est jusque juste sous sa place dans l'île : 0,3 × sa largeur sous le Klay de l'île réduite ou ouverte, sous le centre de l'encoche quand l'île est fermée (`KlayWalk.doorstep`, la place vient de `IslandWindowController.klayHome()`). Lâché sur une fenêtre, l'île est déjà ouverte sur le chat : il marche jusque sous sa place à gauche de la carte.
+- **Durée** : distance / 650 pt/s, bornée entre 0,7 s et 2,2 s. À 40 pt ou moins de la fin, pas de marche : il saute aussitôt. Sa vitesse monte en demi-cosinus sur le premier pas (0,4 s, ou la moitié de la marche si elle est plus courte) et redescend de même sur le dernier ; régulière entre les deux.
+- **Démarche** : 2,5 pas par seconde, la pose de §7 (Marche), le halo de l'état au repos (teal-light), sans badge, les yeux vers l'île.
+- **Arrivée** : un petit saut de 0,34 s, jusqu'à 18 pt au-dessus de la ligne, en rétrécissant jusqu'à la place et à la taille du Klay de l'île (relues au début du saut, l'île a pu s'ouvrir ou se fermer), avec un écrasement au départ du saut ; son `peek`. Le Klay de l'île apparaît alors à la même place et le panneau se ferme 1/30 s après, pour qu'aucune image ne reste sans Klay. Île fermée sur l'encoche (ou salut, ou zone de dépôt, qui dessinent leur propre Klay) : il rétrécit dans le centre de l'encoche et s'efface sur les derniers 40 % du saut.
+- **Taille** : celle de son panneau au départ, toile de 67 pt pour le Klay flottant du glisser, 120 pt pour le Klay du bureau. Le panneau passe au-dessus de l'île (niveau de la barre des menus + 4) et laisse passer les clics.
+- **Jamais deux Klay** : `AppState.klayWalkingHome` cache le Klay de l'île du premier pas à l'arrivée ; pendant ce temps l'île ne salue pas, vous ne pouvez pas glisser son Klay, et ⌃⌥D ne fait rien. Un retour au bureau demandé pendant la marche (fin d'alerte) attend son arrivée.
+- **CPU** : un minuteur à 60 Hz déplace le panneau et sa `TimelineView` dessine Klay, seulement pendant la marche ; rien ne tourne une fois Klay arrivé.
 
 ### `.finished`
 

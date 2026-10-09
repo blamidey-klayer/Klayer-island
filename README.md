@@ -37,7 +37,7 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 - **Chat** : Claude Haiku, par le Claude Code installé sur votre Mac et votre forfait Claude. Le modèle est fixe, le chat n'a aucun outil et l'app ne stocke ni clé ni jeton. Il s'ouvre sans contexte : seuls un fichier déposé puis « Poser une question », Klay glissé sur une fenêtre ou ⌃⌥W lui en donnent un. Il faut Claude Code installé et connecté avec votre compte claude.ai.
 - **Quotas** : limites 5 heures et hebdomadaires de Claude dans l'en-tête de l'île.
 - **Dépôt de fichier** sur l'île, puis question à Claude (image, PDF ou texte) ou email : Klay prépare un brouillon dans votre Gmail, par le connecteur Gmail de votre compte Claude. L'île n'envoie jamais rien : vous relisez le brouillon, vous y ajoutez la pièce jointe à la main et vous l'envoyez depuis Gmail.
-- **Klay sur le bureau** : glissez-le hors de l'île, il flotte sur le bureau et revient quand un agent a besoin de vous.
+- **Klay sur le bureau** : ⌃⌥D l'envoie flotter sur le bureau ; il rentre à pied quand un agent a besoin de vous, au double-clic ou à ⌃⌥D. Glissé hors de l'île sur une fenêtre, il y attache son contexte, puis rentre à pied lui aussi.
 - **GitHub** : PR, revues et CI dans la carte de son icône, dans la bande de la maison. Une CI en échec ou une revue demandée met un badge sur l'icône.
 - **Spotify** : carte de lecture (pochette, progression, volume) dans la bande de la maison. Klay danse quand Spotify joue.
 - **Raccourcis clavier** globaux, modifiables dans Réglages → Raccourcis.

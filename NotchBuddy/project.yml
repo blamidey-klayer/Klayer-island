@@ -59,8 +59,8 @@ targets:
         CFBundleName: Klayer Island
         CFBundleDisplayName: Klayer Island
         CFBundleIdentifier: ai.klayer.island
-        CFBundleVersion: "16"
-        CFBundleShortVersionString: "0.3.2"
+        CFBundleVersion: "17"
+        CFBundleShortVersionString: "0.3.3"
         CFBundlePackageType: APPL
         LSUIElement: YES
         NSHighResolutionCapable: YES

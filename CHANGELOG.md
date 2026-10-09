@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 (non publiée)
+
+Klay rentre à pied. Build 17. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.10.
+
+- **Klay rentre à pied.** Glissé hors de l'île, Klay ne reste plus sur le bureau : où que vous le lâchiez (sur une fenêtre, sur le bureau, près de l'encoche), il rentre à pied dans l'île depuis l'endroit du lâcher. Il marche en ligne droite jusque sous sa place dans l'île (sous l'encoche quand l'île est fermée), à 650 pt/s en moyenne, entre 0,7 s et 2,2 s, et part comme il s'arrête, en douceur ; à moins de 40 pt, il saute aussitôt. Sa démarche se lit même à la taille du Klay flottant : 2,5 pas par seconde, un pied levé à la fois qui avance pendant que l'autre pousse, le corps qui descend à chaque appui et remonte à mi-pas, la main opposée au pied levé qui vient devant, penché et les yeux vers l'île. Le glyphe n'est ni déformé ni recoloré. À l'arrivée, un petit saut le fait rétrécir à la place et à la taille du Klay de l'île, avec le son `peek`, puis le Klay de l'île apparaît : deux Klay ne se voient jamais. Lâché sur une fenêtre, il y attache toujours son contexte et l'île s'ouvre sur le chat ; le Klay de l'île reste caché jusqu'à son arrivée.
+- **Klay sur le bureau.** ⌃⌥D l'y envoie toujours, et le lancement l'y remet. Tous ses retours se font à pied, par le même marcheur : double-clic, ⌃⌥D, lâcher sur l'encoche, et la demande qui le rappelle dans l'île. Le marcheur ne tourne que pendant la marche : rien ne reste actif une fois Klay arrivé.
+- **Banc de rendu.** `tools/klay-preview` montre la marche : quatre instants d'une foulée, la marche en boucle et un trajet complet jusqu'à l'encoche. Le plan et la démarche sont testés sur Linux (`scripts/test-klay-walk.sh`, étape « Klay walk tests » de la CI).
+
 ## 0.3.2 (non publiée)
 
 Le nom des sessions. Build 16. Liste de contrôle à parcourir sur un Mac : [docs/TEST-MAC.md](docs/TEST-MAC.md), section 5.9.
