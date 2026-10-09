@@ -553,12 +553,12 @@ final class ClaudeProcess: @unchecked Sendable {
     }
 
     /// Writes one line on stdin. A write that fails (the process is gone) is dropped: the end
-    /// of the process is reported by `onExit`.
+    /// of the process is reported by `onExit`. The line becomes bytes on `writer` too: with an
+    /// image it is megabytes to copy, never on the main thread.
     func write(_ line: String) {
-        let data = Data(line.utf8)
         writer.async { [self] in
             guard !inputClosed else { return }
-            try? input.fileHandleForWriting.write(contentsOf: data)
+            try? input.fileHandleForWriting.write(contentsOf: Data(line.utf8))
         }
     }
 

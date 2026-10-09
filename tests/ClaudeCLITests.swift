@@ -738,6 +738,21 @@ enum ClaudeCLITests {
         ]
         for line in lines { streamed.read(feedLine(&parser, line)) }
         precondition(streamed.end == .answered("Salut"))
+
+        // Streamed text and a result text that differs: the text the bubble showed is the answer.
+        var differs = ChatAnswer()
+        differs.read([delta("Bon"), delta("jour"), .turnEnded(isError: false, message: "Un autre texte")])
+        precondition(differs.text == "Bonjour" && differs.end == .answered("Bonjour"), "the streamed text wins")
+        var whole = ChatAnswer()
+        whole.read([delta("Sa"), .assistantText("Salut Théo"), .turnEnded(isError: false, message: "Résumé du tour")])
+        precondition(whole.end == .answered("Salut Théo"), "the full text wins over the result text")
+        var parsed = ChatAnswer()
+        var resultParser = ClaudeStreamParser()
+        for line in [
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Oui\"}}}",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Non\"}",
+        ] { parsed.read(feedLine(&resultParser, line)) }
+        precondition(parsed.text == "Oui" && parsed.end == .answered("Oui"), "through the parser too")
     }
 
     static func chatAnswerTripsOnAnyTool() {
@@ -769,6 +784,16 @@ enum ClaudeCLITests {
         for event: ClaudeStreamEvent in [.initialized(tools: []), .initialized(tools: ["EndConversation"]),
                                          delta("a"), .assistantText("a"), .turnEnded(isError: true, message: nil)] {
             precondition(!ChatAnswer.breaksNoToolRule(event), "\(event) is not a tool")
+        }
+        // Only the exact name is exempt: a near name, another case, or EndConversation listed with
+        // another tool (in either order) trips the check before any text is kept.
+        for tools in [["EndConversationX"], ["endconversation"], ["ENDCONVERSATION"], [" EndConversation"],
+                      ["EndConversation", "Read"], ["Read", "EndConversation"],
+                      ["EndConversation", "mcp__claude_ai_Gmail__create_draft"]] {
+            precondition(ChatAnswer.breaksNoToolRule(.initialized(tools: tools)), "\(tools) breaks the no-tool rule")
+            var near = ChatAnswer()
+            near.read([.initialized(tools: tools), delta("bonjour"), .turnEnded(isError: false, message: "bonjour")])
+            precondition(near.end == .toolsOffered && near.text.isEmpty, "\(tools) stops the turn at once")
         }
     }
 
