@@ -91,7 +91,8 @@ final class GmailDraftJob {
             try process.start(
                 binary: binary,
                 arguments: ClaudeCLI.draftArguments(systemPrompt: prompt),
-                environment: ChatSession.environment(for: binary),
+                // MCP tool search off: the Gmail draft tool is loaded upfront.
+                environment: ClaudeCLI.draftEnvironment(from: ProcessInfo.processInfo.environment, binary: binary),
                 directory: folder,
                 // Weak: the process keeps its handlers after it ends; the job must not live as long.
                 onOutput: { [weak self] data in

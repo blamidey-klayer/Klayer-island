@@ -43,6 +43,8 @@ enum ClaudeCLITests {
             ("draft_answer_flags_more_than_one_draft", draftAnswerFlagsMoreThanOneDraft),
             ("cli_errors_in_french", cliErrorsInFrench),
             ("draft_form_is_kept_until_a_draft_is_ready", draftFormIsKeptUntilADraftIsReady),
+            ("draft_environment_turns_tool_search_off", draftEnvironmentTurnsToolSearchOff),
+            ("draft_answer_lets_tool_search_through", draftAnswerLetsToolSearchThrough),
         ]
         for (name, run) in cases {
             run()
@@ -173,7 +175,8 @@ enum ClaudeCLITests {
         precondition(value(after: "--tools", in: args) == "")
         precondition(value(after: "--permission-mode", in: args) == "dontAsk")
         precondition(value(after: "--model", in: args) == "claude-haiku-5-5")
-        precondition(value(after: "--max-turns", in: args) == "3")
+        precondition(value(after: "--max-turns", in: args) == "5",
+                     "room for a tool search or a wait, the draft, then the closing sentence")
         precondition(value(after: "--system-prompt", in: args) == "Rédige.")
         precondition(value(after: "--settings", in: args) == "{\"disableAllHooks\":true}")
         precondition(value(after: "--output-format", in: args) == "stream-json")
@@ -1276,5 +1279,100 @@ enum ClaudeCLITests {
         guard case .failed(let cut) = longUnknown.end, cut.count == 200, cut.hasSuffix("…") else {
             preconditionFailure("an unknown long error is still cut at 200 characters: \(String(describing: longUnknown.end))")
         }
+    }
+
+    // MARK: - Final review of lot 4: MCP tool search (I1)
+
+    static func draftEnvironmentTurnsToolSearchOff() {
+        // Claude Code defers MCP tools behind `ToolSearch` by default (docs, MCP page, « Configure
+        // tool search »); `ENABLE_TOOL_SEARCH=false` loads them all upfront. The draft sets it.
+        let binary = "/Users/test/.local/bin/claude"
+        var base: [String: String] = ["HOME": "/Users/test", "PATH": "/usr/bin", "ANTHROPIC_API_KEY": "secret"]
+        let draft = ClaudeCLI.draftEnvironment(from: base, binary: binary)
+        precondition(draft["ENABLE_TOOL_SEARCH"] == "false", "the draft loads the Gmail tool upfront")
+        precondition(draft["ANTHROPIC_API_KEY"] == nil && draft["KLAYER_ISLAND_INTERNAL"] == "1",
+                     "the shared scrub and tag still apply")
+        precondition(draft["PATH"] == ClaudeCLI.environment(from: base, binary: binary)["PATH"])
+        precondition(draft["ENABLE_CLAUDEAI_MCP_SERVERS"] == nil, "the draft needs the claude.ai connectors")
+        precondition(base["ENABLE_TOOL_SEARCH"] == nil, "the caller's dictionary is not mutated")
+
+        // Whatever the user's own environment says about tool search, the draft turns it off.
+        for value in ["true", "auto", "auto:5", ""] {
+            base["ENABLE_TOOL_SEARCH"] = value
+            precondition(ClaudeCLI.draftEnvironment(from: base, binary: binary)["ENABLE_TOOL_SEARCH"] == "false",
+                         "\(value) is replaced")
+        }
+        // The user's own connector switch is theirs: kept as it is (ledger ruling).
+        base["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
+        precondition(ClaudeCLI.draftEnvironment(from: base, binary: binary)["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false")
+        // `claude auth status` keeps the shared environment, with nothing added.
+        let shared = ClaudeCLI.environment(from: ["PATH": "/usr/bin"], binary: binary)
+        precondition(shared["ENABLE_TOOL_SEARCH"] == nil && shared["ENABLE_CLAUDEAI_MCP_SERVERS"] == nil)
+    }
+
+    static func draftAnswerLetsToolSearchThrough() {
+        precondition(GmailDraftAnswer.toolLoadingTools == ["ToolSearch", "WaitForMcpServers"])
+        let preview = GmailDraftPreview(to: ["a@b.fr"], subject: "Devis", body: "Bonjour")
+
+        // A tool search (or a wait for a connector) before the draft: the draft is ready.
+        for name in ["ToolSearch", "WaitForMcpServers"] {
+            var answer = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+            answer.read([.initialized(tools: [name]), .toolUse(name: name, inputJSON: "{\"query\":\"gmail draft\"}")])
+            precondition(answer.end == nil, "\(name) loads or waits for tools: the run goes on")
+            precondition(!answer.gmailToolSeen, "\(name) is not the Gmail tool")
+            answer.read([.toolResult(text: ""), .toolUse(name: draftTool, inputJSON: draftInput),
+                         .toolResult(text: draftResult)])
+            precondition(answer.end == .ready(draftMade, preview), "\(name) then the draft: ready, got \(String(describing: answer.end))")
+        }
+
+        // Read through the parser: ToolSearch, its result made of tool references (no text), then the draft.
+        var parser = ClaudeStreamParser()
+        var streamed = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        let lines = [
+            "{\"type\":\"system\",\"subtype\":\"init\",\"tools\":[\"ToolSearch\"]}",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s1\",\"name\":\"ToolSearch\",\"input\":{\"query\":\"select:\(draftTool)\"}}]}}",
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s1\",\"content\":[{\"type\":\"tool_reference\",\"tool_name\":\"\(draftTool)\"}]}]}}",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"\(draftTool)\",\"input\":\(draftInput)}]}}",
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":[{\"type\":\"text\",\"text\":\(String(reflecting: draftResult))}]}]}}",
+        ]
+        for line in lines { streamed.read(feedLine(&parser, line)) }
+        precondition(streamed.end == .ready(draftMade, preview), "through the parser: ready")
+
+        // Exact names only: a near name is another tool, and stops the run at once.
+        for name in ["toolsearch", "Toolsearch", "TOOLSEARCH", "ToolSearchX", "XToolSearch", "ToolSearch ", " ToolSearch",
+                     "Tool_Search", "ToolSearch\n", "WaitForMcpServer", "WaitForMcpServersX", "waitformcpservers",
+                     "WaitForMCPServers", "mcp__claude_ai_Gmail__ToolSearch", "mcp__ToolSearch", "ToolSearch,WaitForMcpServers"] {
+            precondition(!GmailDraftAnswer.isDraftTool(name))
+            var answer = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+            answer.read([.initialized(tools: [draftTool]), .toolUse(name: name, inputJSON: "{}"),
+                         .toolResult(text: ""), .toolUse(name: draftTool, inputJSON: draftInput),
+                         .toolResult(text: draftResult)])
+            precondition(answer.end == .failed(GmailDraftAnswer.otherToolMessage), "\(name.debugDescription): stopped at once")
+        }
+
+        // A tool search that finds no Gmail tool, then a turn without a draft: Gmail is missing.
+        var none = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        none.read([.initialized(tools: ["ToolSearch"]), .toolUse(name: "ToolSearch", inputJSON: "{}"), .toolResult(text: ""),
+                   .turnEnded(isError: false, message: "Je n'ai pas d'outil Gmail.")])
+        precondition(none.end == .gmailMissing, "a tool search alone is not the Gmail tool")
+
+        // A wait and the draft in one message: their results in either order give the draft.
+        for draftFirst in [true, false] {
+            var both = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+            both.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolUse(name: "WaitForMcpServers", inputJSON: "{}")])
+            both.read(draftFirst ? [.toolResult(text: draftResult), .toolResult(text: "ready")]
+                                 : [.toolResult(text: "ready"), .toolResult(text: draftResult)])
+            precondition(both.end == .ready(draftMade, preview), "results in either order (draft first: \(draftFirst))")
+        }
+        // A draft call that failed next to a tool search, then a retry: still one draft at a time.
+        var retry = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        retry.read([.toolUse(name: draftTool, inputJSON: draftInput), .toolUse(name: "ToolSearch", inputJSON: "{}"),
+                    .toolResult(text: "Error: not loaded"), .toolResult(text: ""),
+                    .toolUse(name: draftTool, inputJSON: draftInput), .toolResult(text: draftResult)])
+        precondition(retry.end == .ready(draftMade, preview), "a retry after both results: ready, got \(String(describing: retry.end))")
+        // A draft whose call was never seen stays a mismatch, even next to a tool search.
+        var unseen = GmailDraftAnswer(requestedTo: ["a@b.fr"])
+        unseen.read([.toolUse(name: "ToolSearch", inputJSON: "{}"), .toolResult(text: draftResult)])
+        precondition(unseen.end == .failed(GmailDraftAnswer.mismatchMessage), "a tool search result is never a draft")
     }
 }

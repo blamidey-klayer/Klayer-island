@@ -69,6 +69,18 @@ enum ClaudeCLI {
         return env
     }
 
+    /// The draft's environment: the one above, with MCP tool search off. By default Claude Code
+    /// defers MCP tools: the model sees their names only and must call `ToolSearch` to load one
+    /// before calling it (docs, MCP page, « Configure tool search »). With `false` (« All MCP tools
+    /// loaded upfront, no deferral »), the Gmail draft tool is there from the first request. The
+    /// user's own connector switch (`ENABLE_CLAUDEAI_MCP_SERVERS`) passes as it is: the draft
+    /// needs the claude.ai connectors.
+    static func draftEnvironment(from base: [String: String], binary: String) -> [String: String] {
+        var env = environment(from: base, binary: binary)
+        env["ENABLE_TOOL_SEARCH"] = "false"
+        return env
+    }
+
     /// Inline settings that switch every hook off for the island's own processes.
     private static let noHooksSettings = "{\"disableAllHooks\":true}"
 
@@ -115,7 +127,8 @@ enum ClaudeCLI {
             "--setting-sources", "local",
             "--settings", noHooksSettings,
             "--no-session-persistence",
-            "--max-turns", "3",
+            // Room for a tool search or a wait for the connector, the draft, then one sentence.
+            "--max-turns", "5",
             "--system-prompt", systemPrompt,
             "--allowedTools", gmailDraftTool,
             "--disallowedTools",

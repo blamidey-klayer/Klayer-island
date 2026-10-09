@@ -149,7 +149,8 @@ extension GmailDraftPreview {
 /// - A tool result that `GmailDraft.parse` accepts, after a draft call that matched the request:
 ///   ready, with the preview of that call.
 /// - Any call to another tool (send, reply, forward, delete, another connector, a built-in tool):
-///   failed at once. The flags already deny them; this is the second lock.
+///   failed at once. The flags already deny them; this is the second lock. Only `ToolSearch` and
+///   `WaitForMcpServers`, under their exact names, go through (`toolLoadingTools`).
 /// - A draft call that does not match the request (other recipients, any cc, bcc, reply or
 ///   attachment), or a second draft call while one is still waiting for its result: failed at
 ///   once, telling the user to check Gmail, since the draft may already exist there.
@@ -164,6 +165,13 @@ struct GmailDraftAnswer: Equatable {
     static let mismatchMessage = "Le brouillon ne correspond pas à ta demande : vérifie-le dans Gmail avant tout envoi."
     static let severalDraftsMessage = "Plusieurs brouillons ont pu être créés : vérifie-les dans Gmail."
 
+    /// Claude Code's own tools that load or wait for MCP tools and act on nothing: `ToolSearch`
+    /// loads a deferred tool (and waits there for a connector still connecting), `WaitForMcpServers`
+    /// waits for one when tool search is off (docs, MCP page). Tool search is off for the draft
+    /// (`ClaudeCLI.draftEnvironment`), but a managed setting can keep it on. Let through by their
+    /// exact name only: any other name, even a near one, stops the run.
+    static let toolLoadingTools: Set<String> = ["ToolSearch", "WaitForMcpServers"]
+
     /// Set once; later events change nothing.
     private(set) var end: GmailDraftOutcome?
     /// A Gmail draft tool was listed by the process or called by the model.
@@ -175,6 +183,8 @@ struct GmailDraftAnswer: Equatable {
     private let requestedTo: Set<String>
     /// Draft calls still waiting for their result.
     private var pendingCalls = 0
+    /// `toolLoadingTools` calls still waiting for their result. Their results never hold a draft.
+    private var pendingLoadingCalls = 0
 
     init(requestedTo: [String]) {
         self.requestedTo = Self.addressSet(requestedTo)
@@ -214,6 +224,9 @@ struct GmailDraftAnswer: Equatable {
             switch event {
             case .initialized(let tools):
                 if ClaudeStream.gmailDraftTool(in: tools) != nil { gmailToolSeen = true }
+            case .toolUse(let name, _) where Self.toolLoadingTools.contains(name):
+                // Loads or waits for tools: neither the Gmail tool nor an action.
+                pendingLoadingCalls += 1
             case .toolUse(let name, let inputJSON):
                 guard Self.isDraftTool(name) else {
                     end = .failed(Self.otherToolMessage)
@@ -231,12 +244,19 @@ struct GmailDraftAnswer: Equatable {
                 pendingCalls += 1
                 preview = GmailDraftPreview.parse(inputJSON: inputJSON)
             case .toolResult(let text):
-                // A result that is not a draft (an error) frees its call: a retry is allowed.
-                let checkedCall = pendingCalls > 0
-                pendingCalls = max(0, pendingCalls - 1)
                 if let draft = GmailDraft.parse(toolResult: text) {
                     // A draft whose call was not seen was not checked: never a success.
+                    let checkedCall = pendingCalls > 0
+                    pendingCalls = max(0, pendingCalls - 1)
                     end = checkedCall ? .ready(draft, preview) : .failed(Self.mismatchMessage)
+                } else if pendingLoadingCalls > 0 {
+                    // Not a draft: the result of a tool search or a wait goes first. All the
+                    // results of one message come before the next call, so the counts are even
+                    // again by then, whichever result came first.
+                    pendingLoadingCalls -= 1
+                } else {
+                    // A result that is not a draft (an error) frees its call: a retry is allowed.
+                    pendingCalls = max(0, pendingCalls - 1)
                 }
             case .turnEnded(let isError, let message):
                 if !gmailToolSeen && !isError {
