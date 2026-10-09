@@ -69,7 +69,7 @@ Bouton Granola (île `compact` uniquement, jamais en `hidden` ni en `expanded`) 
 Structure commune : en-tête de 34 pt (onglets à gauche : Vue d'ensemble, Demander, Déposer ; à droite : « N en cours » + bouton son). Contenu inséré de 36 en haut, 10 à gauche, droite, bas. Cartes : rayon 20, fond `#141518`, bord blanc 3,5 %. Dans les vues autres que `overview`, les mini-bonhommes passent en **colonne** à droite (Ø 16, x = largeur − 31, y = 50 + i × 24) et la carte laisse 42 pt à droite.
 
 Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, centre 50 % / 130 %), couleur de l'état prise dans le même tableau que Klay (`StateColor`, §7) :
-`approval` à 42 %, `question` à 38 %, `error` à 55 %, `finished` à 50 % (aussi la carte de résultat), `dizzy` à 55 % (vue `confused`), `searching` à 50 % (aussi la carte de demande), neutre blanc à 8 %.
+`approval` à 42 %, `question` à 38 %, `error` à 55 %, `finished` à 50 %, `dizzy` à 55 % (vue `confused`), `searching` à 50 % (aussi la carte du chat), neutre blanc à 8 %.
 
 | Vue | Hauteur | Bonhomme (x, Ø) | Contenu | Capture |
 |---|---|---|---|---|
@@ -82,13 +82,11 @@ Voile de couleur des cartes : dégradé radial depuis le bas (120 % × 90 %, cen
 | `confused` | 160 | 76, 66 | « Trop de claques d'un coup. » | 08 |
 | `upload` | 176 | 140, 62 | zone pointillée, Klay les bras ouverts et « Dépose ton fichier » | 09 |
 | `uploading` | 176 | sur la barre, Ø 20 | « Envoi de fichier » + %, barre verte, le bonhomme est le curseur de la barre | 10 |
-| `choose` | 176 | 60, 52 | « fichier est prêt. », Poser une question dessus, Envoyer par mail | 11 |
-| `mail` | 240 | 56, 46 | champs À, Objet (+ Message optionnel), Envoyer, Annuler | 12 |
-| `prompt` | 160 | 52, 44 | pastille de contexte + champ + micro + envoyer | 13 |
-| `searching` | 160 | 52, 44 | contexte + texte scintillant « Claude lit la page et cherche sur le web… » | 14 |
-| `result` | 160 | 52, 44 | titre, 3 lignes de résultat, boutons | 15 |
-| `note` | 160 | 60, 50 | message court (mail envoyé, copié…), se ferme seul après 2 s | aucune |
-| `settings` | 160 | 54, 46 | son et volume, délai **Close after** (10, 15 ou 30 s), état des hooks Claude Code et de la clé API (lu quand la vue s'affiche), « Réglages… » | aucune |
+| `choose` | 176 | 60, 52 | « fichier est prêt. », Poser une question dessus, Préparer un email | 11 |
+| `mail` | 240 | 56, 46 | brouillon Gmail (§15.2) : champs À, Objet (facultatif) et « Ce que tu veux dire », Préparer le brouillon, Annuler ; puis « Préparation du brouillon… », puis « Brouillon prêt dans Gmail » ou un échec avec Réessayer | 12 |
+| `prompt` | 160 | 52, 44 | chat rapide (§15.1) : pastille de contexte, bulles de la conversation, champ + micro + envoyer ; à la place du champ, la marche à suivre quand Claude Code manque ou n'est pas connecté | 13 |
+| `note` | 160 | 60, 50 | message court : une erreur du chat, ou « Handled in … » et « Still waiting in … » (3 s, règle 12) | aucune |
+| `settings` | 160 | 54, 46 | son et volume, délai **Close after** (10, 15 ou 30 s), état des hooks Claude Code et du chat (Claude Code installé et connecté avec un compte claude.ai ; lu quand la vue s'affiche), « Réglages… » | aucune |
 
 Centre vertical du bonhomme : le centre de la carte de 84 pt sous l'en-tête, soit hauteur / 2 + 21 (101 pour une île de 160, 131 pour la maison), sauf `upload` (104), `uploading` (118) et `choose` (101), fixes.
 
@@ -214,10 +212,10 @@ Correspondance avec les vrais événements : voir `INTEGRATIONS.md`. `searching`
 |---|---|---|---|---|
 | Amour | cœurs `#FF4D6D` | joues à fond, cœurs qui montent | `love` | souris immobile 1,9 s sur le bonhomme |
 | Surpris | petits points | saut + yeux agrandis | `pop` | quand vous l'attrapez (glisser) |
-| Fier | étoiles `#F7B32B` | étoiles, tête en arrière | `proud` | résultat de recherche affiché |
-| Clin d'œil | un œil fermé | tête penchée | `wink` | mail envoyé, fenêtre attrapée |
+| Fier | étoiles `#F7B32B` | étoiles, tête en arrière | `proud` | aucun pour l'instant (la vue de résultat a disparu avec le chat par Claude Code) |
+| Clin d'œil | un œil fermé | tête penchée | `wink` | aucun pour l'instant (l'île n'envoie plus de mail) |
 | Bâille | fatigués puis fermés | étirement vertical, « z » | `yawn` | juste avant de passer en `sleeping` |
-| Content | arcs | joues | aucun | après une décision, un fichier avalé |
+| Content | arcs | joues | aucun | après une décision, un fichier avalé, une réponse du chat finie, un brouillon prêt |
 | Agacé | fentes inclinées | halo violet `#A855F7` | `annoyed` | une claque |
 
 ## 8. Interactions avec le bonhomme
@@ -246,7 +244,7 @@ Fichiers `assets/sounds/*.wav` (48 kHz stéréo), rendus depuis le moteur du pro
 | terminé | `finish` |
 | décision validée, upload fini | `approve` |
 | fichier avalé / progression | `gulp` / `tick` |
-| envoi (prompt, mail) / attache fenêtre | `send` / `attach` |
+| envoi / attache fenêtre | `send` / `attach` : fichiers gardés parmi les 29, aucun déclencheur dans l'app pour l'instant (l'île n'envoie plus de mail) |
 | émotes | `love`, `pop`, `proud`, `wink`, `yawn`, `sleep` |
 
 Pas de son pour les mises à jour silencieuses (lignes des conversations en cours, mini-bonhommes qui changent d'état sauf alerte).
@@ -256,7 +254,6 @@ Pas de son pour les mises à jour silencieuses (lignes des conversations en cour
 Petit item dans la barre de menus (icône : silhouette du Klay, monochrome). Menu : Ouvrir Klayer Island, Réglages…, Quitter.
 
 Fenêtre Réglages (SwiftUI, simple), sections dans l'ordre d'affichage :
-- **Anthropic API** : clé (Trousseau), modèle (défaut `claude-sonnet-4-6` ; liste depuis l'API, voir INTEGRATIONS §5).
 - **Claude Code Hooks** : état des hooks, boutons Installer et Désinstaller. Chacun montre d'abord les entrées du bloc `hooks` qui changent (« - » retirée, « + » ajoutée) et n'écrit qu'après « Confirmer et écrire », avec une sauvegarde datée juste avant. Seules les entrées de Klayer Island sont touchées (INTEGRATIONS §1).
 - **Plan usage** : toggle **Show in the notch** + bouton **Install relay** / **Uninstall relay**. Voir INTEGRATIONS §1bis. **Jauge de forfait Claude** : petit pill dans l'en-tête de l'île (vue home uniquement). Activé via `showPlanInNotch` (UserDefaults) + `HookServer.statusLineInstalled()`. Couleur = `ClaudePlanGauge.color(for: dominantPct)`. Clic → `showingPlanDetail` bascule et `ClaudePlanCardView` s'affiche à la place de la carte en cours. `showingPlanDetail` se remet à false au changement de focusId, de vue ou de mode. Grand Klay prend la couleur de l'usage quand `showingPlanDetail == true`.
 - **Integrations** : jeton personnel GitHub (Trousseau).
@@ -282,8 +279,8 @@ Chaque jalon se termine par build + capture + comparaison aux références + com
 - **M4 Sons** : branchement §9, réglages son.
 - **M5 Claude Code** : hooks, approbations, questions, saut au terminal (INTEGRATIONS §1).
 - **M6 GitHub** : polling, alertes CI, cartes (INTEGRATIONS §1quater).
-- **M7 Fichiers** : glisser-déposer, prompt sur fichier, mail via Mail (INTEGRATIONS §3 et §6).
-- **M8 Fenêtres + recherche** : attache, capture, URL, API Claude avec recherche web, vue résultat (INTEGRATIONS §4 et §5).
+- **M7 Fichiers** : glisser-déposer, question sur un fichier, brouillon Gmail (INTEGRATIONS §3 et §6).
+- **M8 Fenêtres + chat** : attache, titre de la fenêtre, URL, chat par le Claude Code du Mac (INTEGRATIONS §4 et §5).
 - **M9 Finition** : réglages complets, lancement au démarrage, écran sans notch, mesure CPU/RAM, passe finale de comparaison visuelle.
 
 ## 12. Critères d'acceptation
@@ -403,3 +400,45 @@ Réglages → Raccourcis (`ShortcutsSettingsView`) :
 - Les conflits système (Carbon a refusé l'enregistrement) sont signalés en orange.
 - Bouton **Tout réinitialiser** remet les valeurs par défaut sur toutes les actions.
 - Les raccourcis locaux sont affichés en lecture seule.
+
+
+## 15. Chat rapide et brouillon Gmail (lot 4)
+
+Le chat et l'email passent par le Claude Code installé sur le Mac, avec le forfait claude.ai de l'utilisateur. L'île ne stocke ni clé ni jeton pour cela. Détail technique (processus, arguments, environnement) : `INTEGRATIONS.md` §5 et §6. Conception : `docs/superpowers/specs/2026-10-08-klayer-island-refonte-design.md` §7 et §8. Vérification sur Mac : `TEST-MAC.md`, section 4 et spike S3.
+
+**Cadre d'usage.** La lecture des conditions d'Anthropic (spec de conception §7) attend la validation d'un fondateur : l'app ne se diffuse pas à l'équipe avant.
+
+### 15.1 Chat rapide (vue `prompt`)
+
+- **Modèle.** `claude-haiku-5-5`, fixe, sans sélecteur. Pas de recherche web.
+- **Aucun outil.** Le chat n'ouvre ni fichier, ni shell, ni page web, ni connecteur. Le seul fichier qu'il lit est celui que l'utilisateur a déposé, dont le contenu est dans le message. Les options de lancement retirent tous les outils ; l'île arrête quand même le processus si un outil apparaît (« Le chat a reçu des outils : arrêt par sécurité. »).
+- **Prérequis.** Claude Code installé et connecté avec un compte claude.ai (`claude auth status` affiche `claude.ai`). Sinon, à la place du champ, une phrase grise : « Claude Code n'est pas installé sur ce Mac. » avec « Installer Claude Code » (page d'installation), ou « Connecte Claude Code : ouvre un terminal, lance claude puis /login. ». Le chat reprend dès la réouverture, sans relancer l'île. Le chat ne demande rien à configurer : il n'y a plus de section Chat dans les Réglages.
+- **Ce que le message porte.** La question ; avant elle, la fenêtre attachée en texte (app, titre, adresse de l'onglet : jamais une capture) et le fichier déposé :
+  - image png, jpg, gif ou webp de 5 Mo au plus ;
+  - PDF de 50 Mo au plus, lu en texte et coupé à 200 000 caractères avec une mention ;
+  - texte ou code de 200 Ko au plus (txt, md, csv, json, swift, py, js, ts, html, css, xml, yaml, yml) ;
+  - tout autre fichier : note « Ce type de fichier n'est pas pris en charge. », le fichier quitte le chat et les questions suivantes partent sans lui. Même sort, avec leur propre phrase, pour un fichier trop gros ou illisible.
+- **Réponse.** La bulle se remplit au fil du flux, Klay réfléchit (points de frappe) puis revient au repos avec l'émote Content. Une réponse à la fois : ce qui est tapé pendant une réponse reste dans le champ. ⌘↩ envoie.
+- **Conversation.** Un processus `claude` par conversation, arrêté par « Nouvelle conversation » (⌘K, la bulle en cours s'arrête et rien n'arrive ensuite), après 10 minutes sans message, à la fermeture de l'app ou s'il plante. Le message suivant en démarre un autre, qui reçoit les derniers échanges (20 000 caractères au plus) et le contexte : la conversation continue sans trou. L'historique reste en mémoire de l'app.
+- **Erreurs.** Une note, Klay en erreur. Les erreurs connues de Claude Code (connexion, limite d'usage, trop de demandes, serveurs surchargés, nombre d'étapes) sont dites en français ; le reste passe tel quel.
+- **Invisible des hooks.** Le processus du chat ne crée ni pastille, ni ligne de session, ni carte d'autorisation.
+
+### 15.2 Email : un brouillon Gmail (vue `mail`)
+
+- **Principe.** « Préparer un email » (sur le fichier déposé) ne passe plus par Mail.app. Klay crée un brouillon dans le Gmail de l'utilisateur, par le connecteur Gmail de son compte Claude. **L'île n'envoie jamais rien** : l'utilisateur relit le brouillon dans Gmail, y ajoute la pièce jointe et l'envoie lui-même.
+- **Formulaire.** « À » (une ou plusieurs adresses simples, séparées par des virgules ; une ligne rouge nomme celles qui sont invalides), « Objet » (facultatif), « Ce que tu veux dire » (obligatoire). « Préparer le brouillon » est atténué tant que le formulaire ne tient pas. « avec <fichier> » rappelle le fichier déposé. Même carte et mêmes composants que l'ancienne vue d'envoi : seul son contenu change.
+- **Préparation.** « Préparation du brouillon… » avec « Annuler », Klay réfléchit. 90 s au plus. Un seul brouillon à la fois. L'île peut se replier pendant la préparation : le résultat attend à sa réouverture.
+- **Résultat.**
+  - Brouillon prêt (voile vert) : « Brouillon prêt dans Gmail », l'objet et les 3 premières lignes, « Ouvrir dans Gmail » (adresse `https://mail.google.com` seulement), « Montrer le fichier » (le fichier dans le Finder) et la phrase « Glisse le fichier dans le brouillon pour le joindre. ». Klay fait l'émote Content. Le formulaire est vide pour le prochain.
+  - Gmail absent : « Gmail n'est pas connecté à ton compte Claude. Ajoute le connecteur Gmail sur claude.ai, puis réessaie. » avec « Réessayer ».
+  - Échec (voile rouge) : le message (4 lignes au plus) avec « Réessayer », qui rend le formulaire tel que l'utilisateur l'a laissé.
+- **Pièce jointe.** Claude ne joint jamais le fichier et ne le voit pas : seul son nom est dans la demande. L'utilisateur le glisse dans le brouillon.
+- **Garde-fous.** Le brouillon n'a qu'un outil : la création de brouillon Gmail. L'envoi, la réponse, le transfert, la modification et la suppression sont refusés par leur nom, et le mode `dontAsk` (refuser ce qui demanderait une autorisation) doit refuser les autres outils. Si le processus appelle un autre outil, ou crée un brouillon qui diffère de la demande (autres destinataires, copie, pièce jointe), ou plusieurs brouillons, l'île l'arrête et le dit (`INTEGRATIONS.md` §6). Une consigne recommande aussi de ne jamais envoyer ; seules les options et l'arrêt par l'île garantissent.
+- **Claude Code absent ou non connecté.** La carte reprend les phrases du chat, avec « Installer Claude Code » et « Annuler ».
+- **Permission macOS.** Plus d'automatisation de Mail.
+
+### 15.3 Ce que le lot 4 retire
+
+- La clé API Anthropic (Trousseau, `anthropic-api-key`), le sélecteur de modèle (`claudeModel`) et la section Réglages « Anthropic API » ; le fournisseur de chat et son code (`ChatProvider`), la recherche web, les vues `searching` et `result`.
+- L'envoi par Mail.app (AppleScript) et la note « Email sent to … ».
+- Au premier lancement de cette build, l'app supprime une fois la clé Anthropic du Trousseau et le réglage `claudeModel` (deuxième étape de `RemovedFeatureCleanup`, `removedFeatureCleanupVersion` à 2). Le jeton GitHub reste.

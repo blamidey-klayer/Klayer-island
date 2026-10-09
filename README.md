@@ -31,9 +31,9 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 - **Derniers choix** : sous les conversations, en gris, les 5 dernières autorisations et questions auxquelles vous avez répondu depuis l'île, avec l'heure et la réponse. L'historique reste sur votre Mac.
 - **Autoriser et répondre depuis l'île** : les demandes d'autorisation de Claude Code (Allow, Deny, Always), les questions `AskUserQuestion` à choix simple ou multiple. Une demande en attente passe devant la maison.
 - **Fin de session** : l'île s'ouvre sur la session qui vient de finir, avec sa dernière phrase et un bouton qui ramène à son terminal ou à l'app Claude.
-- **Chat** : Claude (API Anthropic). La clé reste dans le trousseau du système.
+- **Chat** : Claude Haiku, par le Claude Code installé sur votre Mac et votre forfait Claude. Le modèle est fixe, le chat n'a aucun outil et l'app ne stocke ni clé ni jeton. Il faut Claude Code installé et connecté avec votre compte claude.ai.
 - **Quotas** : limites 5 heures et hebdomadaires de Claude dans l'en-tête de l'île.
-- **Dépôt de fichier** sur l'île, puis question à Claude ou envoi par email (Mail.app).
+- **Dépôt de fichier** sur l'île, puis question à Claude (image, PDF ou texte) ou email : Klay prépare un brouillon dans votre Gmail, par le connecteur Gmail de votre compte Claude. L'île n'envoie jamais rien : vous relisez le brouillon, vous y ajoutez la pièce jointe à la main et vous l'envoyez depuis Gmail.
 - **Klay sur le bureau** : glissez-le hors de l'île, il flotte sur le bureau et revient quand un agent a besoin de vous.
 - **GitHub** : PR, revues et CI dans l'île. Sa pastille a son mini Klay coloré.
 - **Spotify** : pastille de lecture (pochette, progression, volume). Klay danse quand Spotify joue.
@@ -41,7 +41,7 @@ Cliquez-le : il se fâche. Trois clics rapides : il a le tournis. Clic droit : u
 - **10 langues**, dont le français.
 - **Aucune télémétrie, aucun compte.** L'app ne parle qu'aux services que vous branchez.
 
-Retirés par rapport à Coucou : widgets, synchronisation entre appareils, versions hors Mac, garde-robe et tenues de Mochi, mode démo, récap hebdomadaire, pastilles d'éditeurs (VS Code, Cursor), boutons terminal et éditeur, cartes de diff et compteurs +N −M.
+Retirés par rapport à Coucou : clé API Anthropic, sélecteur de modèle et recherche web du chat, envoi d'email par Mail.app, widgets, synchronisation entre appareils, versions hors Mac, garde-robe et tenues de Mochi, mode démo, récap hebdomadaire, pastilles d'éditeurs (VS Code, Cursor), boutons terminal et éditeur, cartes de diff et compteurs +N −M.
 
 ## Installer
 
@@ -66,11 +66,14 @@ Icône Klayer Island dans la barre des menus → **Réglages…**
 |---|---|---|
 | Hooks Claude Code | sessions en direct et autorisations | **Install hooks** : l'app montre les entrées du bloc `hooks` de `~/.claude/settings.json` qui changent, puis écrit après votre confirmation, avec une sauvegarde datée. Elle ne touche qu'à ses propres entrées. **Uninstall** suit la même étape |
 | App de bureau Claude | une pastille pour les sessions de l'onglet Code | rien à installer : le relais des hooks Claude Code la reconnaît ; détail dans [docs/AGENTS.md](docs/AGENTS.md) |
-| Clé API Anthropic | chat et questions sur un fichier | Réglages → Anthropic API, rangée dans le trousseau |
+| Claude Code connecté | chat et brouillon d'email | rien à saisir dans l'app. `claude auth status` doit afficher `claude.ai` ; sinon ouvrez un terminal, lancez `claude` puis `/login`. Sans Claude Code, l'île propose de l'installer |
+| Connecteur Gmail | brouillon d'email | à ajouter à votre compte sur claude.ai. Sans lui, la carte email le dit |
 | Quotas Claude | jauge dans l'en-tête | Réglages → Agents → Plan usage → **Install relay** |
 | GitHub | PR, revues et CI | Réglages → Integrations : jeton personnel rangé dans le trousseau, optionnel |
 
 Si l'app ne tourne pas, le hook rend la main immédiatement : **Claude Code n'est jamais bloqué.**
+
+**Avant de partager l'app à l'équipe** : la lecture des conditions d'Anthropic sur l'usage de Claude Code (spec de conception §7, dans `docs/superpowers/specs/`) attend la validation d'un fondateur.
 
 ## Développer
 
