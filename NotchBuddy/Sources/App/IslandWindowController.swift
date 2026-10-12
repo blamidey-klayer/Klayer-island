@@ -766,10 +766,11 @@ final class IslandWindowController: NSWindowController {
         }
         // ⌘1–⌘9: the home's entry by number (1 the list, then the rail's cards). On the question card
         // on screen they belong to the card (0.3.6): ⌘1…⌘4 pick an option there (QuestionView), so
-        // the event goes on to it, and the island never jumps to the home under the question.
+        // the event goes on to it, and the island never jumps to the home under the question. ⌘5…⌘9 have
+        // no option there and keep their normal behaviour.
         let digitCodes: [UInt16: Int] = [18:1,19:2,20:3,21:4,23:5,22:6,26:7,28:8,25:9]
         if cmd, let n = digitCodes[event.keyCode] {
-            if state.mode == .expanded && state.view == .question && state.pendingQuestion != nil {
+            if n <= 4 && state.mode == .expanded && state.view == .question && state.pendingQuestion != nil {
                 return false
             }
             switchToPill(number: n); return true

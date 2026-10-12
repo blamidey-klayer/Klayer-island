@@ -21,7 +21,7 @@ final class MacDictation: @unchecked Sendable {
 
     /// What the chat shows when the Mac has no microphone input (a closed lid with a display that
     /// has none): dictation does not start.
-    static let noInputMessage = "Aucun micro disponible : la dictée ne peut pas démarrer."
+    static let noInputMessage = String(localized: "Aucun micro disponible : la dictée ne peut pas démarrer.")
 
     /// The text field's content: what was typed, then the words heard so far.
     var text: String { prefix + transcript }

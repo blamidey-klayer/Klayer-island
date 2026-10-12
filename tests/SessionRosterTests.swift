@@ -14,6 +14,7 @@ enum SessionRosterTests {
             ("end_removes_the_row", endRemovesTheRow),
             ("prune_keeps_waiting_rows", pruneKeepsWaitingRows),
             ("a_row_a_notification_put_on_approval_goes_after_30_min", aRowANotificationPutOnApprovalGoesAfter30Min),
+            ("a_row_a_request_exit_keeps_waiting_goes_after_30_min", aRowARequestExitKeepsWaitingGoesAfter30Min),
             ("visible_limit", visibleLimit),
             ("row_line_is_one_line_cut_with_an_ellipsis", rowLineIsOneLineCutWithAnEllipsis),
             ("finish_opens_a_hidden_or_compact_island", finishOpensAHiddenOrCompactIsland),
@@ -241,6 +242,24 @@ enum SessionRosterTests {
                      lastAction: "Exécute make", at: at(minutes: 1))
         again.prune(now: at(minutes: 60), calendar: utc)
         precondition(ids(again) == ["s"], "its card's row: kept")
+    }
+
+    // 0.3.6, M-1: a request that leaves the island (timeout, displaced, handed back, stepped aside)
+    // keeps its row on approval: HookServer marks it like a notification's row, so a session that
+    // never moves on leaves after 30 min without an event, counted from the exit.
+    static func aRowARequestExitKeepsWaitingGoesAfter30Min() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "S", phase: .approval,
+                      lastAction: "Exécute npm test", at: at(minutes: 0))
+        precondition(roster.rows.first?.askedByNotification == false)
+        // The exit, 2 min later: same phase, same line, marked.
+        roster.update(sessionId: "s", pillId: "integration_claude", folder: "S", phase: .approval,
+                      lastAction: nil, byNotification: true, at: at(minutes: 2))
+        precondition(roster.rows.first?.lastAction == "Exécute npm test", "the line is kept")
+        roster.prune(now: at(minutes: 31), calendar: utc)
+        precondition(ids(roster) == ["s"], "29 min after the exit: stays")
+        roster.prune(now: at(minutes: 32), calendar: utc)
+        precondition(ids(roster).isEmpty, "30 min after the exit: gone, got \(ids(roster))")
     }
 
     static func visibleLimit() {

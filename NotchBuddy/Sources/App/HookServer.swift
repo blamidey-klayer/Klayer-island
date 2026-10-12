@@ -95,7 +95,15 @@ final class HookServer: @unchecked Sendable {
     @MainActor
     private func requestExited(_ kind: CodeNotification.Kind, sessionId: String?, pillId: String, exit: RequestExit) {
         guard let sessionId else { return }
-        if !exit.rowKeepsWaiting { resumeSession(sessionId) }
+        if !exit.rowKeepsWaiting {
+            resumeSession(sessionId)
+        } else if let row = AppState.shared.sessions.first(where: { $0.id == sessionId }),
+                  row.phase == .approval || row.phase == .question {
+            // The row stays on approval or question, but no card backs it any more: it goes after
+            // 30 min without an event, like a row a notification put there (0.3.6, M-1).
+            AppState.shared.updateSession(sessionId: sessionId, pillId: row.pillId, folder: row.folder,
+                                          phase: row.phase, lastAction: nil, byNotification: true)
+        }
         guard exit.holdsAlert(claudeAppSession: pillId == HookRouting.desktopPillId) else { return }
         let state = AppState.shared
         let folder = state.sessions.first { $0.id == sessionId }?.folder ?? "Session"
@@ -1684,14 +1692,15 @@ final class HookServer: @unchecked Sendable {
         let dir = Self.supportDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700 as NSNumber], ofItemAtPath: dir.path)
-        // nb-hook: shell wrapper (always exits 0, calls nb-hook.py via python3)
         let wrapperURL = URL(fileURLWithPath: Self.hookScriptPath)
-        try? nbHookShellWrapper.write(to: wrapperURL, atomically: true, encoding: .utf8)
-        _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: wrapperURL.path)
-        // nb-hook.py: Python relay
+        // nb-hook.py first: the wrapper only execs it when it is there, so a failed write leaves
+        // the old wrapper or none, never one that points at a missing relay.
         let pyURL = wrapperURL.deletingLastPathComponent().appendingPathComponent("nb-hook.py")
         try? nbHookPython.write(to: pyURL, atomically: true, encoding: .utf8)
         _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: pyURL.path)
+        // nb-hook: shell wrapper (always exits 0 when the relay is missing, else execs nb-hook.py)
+        try? nbHookShellWrapper.write(to: wrapperURL, atomically: true, encoding: .utf8)
+        _ = try? FileManager.default.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: wrapperURL.path)
     }
 
     // MARK: - Outdated hook detection
@@ -1890,7 +1899,8 @@ private let nbHookShellWrapper = """
 # Klayer Island hook relay: never blocks Claude Code. python3 replaces this shell, so ending the
 # hook's process ends the relay and closes its connection to the island.
 HOOK_DIR="$(dirname "$0")"
-if [ -x /usr/bin/python3 ] && xcode-select -p >/dev/null 2>&1; then
+# Only when nb-hook.py is readable: python3 on a missing file exits 2, and exit 2 blocks Claude Code.
+if [ -r "$HOOK_DIR/nb-hook.py" ] && [ -x /usr/bin/python3 ] && xcode-select -p >/dev/null 2>&1; then
     exec /usr/bin/python3 "$HOOK_DIR/nb-hook.py" "$@" 2>/dev/null
 fi
 exit 0

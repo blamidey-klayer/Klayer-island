@@ -351,6 +351,17 @@ def main():
     code, out, elapsed = run_wrapper(wrapper, json.dumps(event).encode(), env)
     check("the_script_exits_0_at_once_without_the_island", code == 0 and out == b"" and elapsed < 2.0,
           "exit %r, printed %r, %.2f s" % (code, out, elapsed))
+
+    # 0.3.6, I-1: the nb-hook.py missing (a failed install write, a cleaner): python3 on a missing file
+    # exits 2, which blocks Claude Code. The script steps aside: exit 0 at once, nothing printed.
+    bare_dir = os.path.abspath("bare-hook")
+    os.makedirs(bare_dir, exist_ok=True)
+    bare = os.path.join(bare_dir, "nb-hook")
+    open(bare, "w", encoding="utf-8").write(wrapper_source())
+    os.chmod(bare, 0o755)
+    code, out, elapsed = run_wrapper(bare, json.dumps(event).encode(), env)
+    check("the_script_exits_0_at_once_when_nb_hook_py_is_missing", code == 0 and out == b"" and elapsed < 2.0,
+          "exit %r, printed %r, %.2f s" % (code, out, elapsed))
     print("Hook relay: %d checks passed" % passed, flush=True)
 
 
