@@ -176,9 +176,10 @@ final class DesktopKlayController {
             return
         }
 
+        // No screen for a moment (a display reconfiguration): no flight now, he stays in the island.
+        guard let screen = IslandWindowController.islandScreen() else { return }
         phase = .flyingOut
         let s = DesktopKlayController.panelSize
-        let screen = IslandWindowController.islandScreen()
         let startOrigin = NSPoint(x: screen.frame.midX - s/2, y: screen.frame.maxY - s)
         let target = loadSavedPosition()
 
@@ -603,11 +604,12 @@ final class DesktopKlayController {
     }
 
     private func clampToVisibleFrame(_ origin: NSPoint) -> NSPoint {
-        let screen = NSScreen.screens.min(by: {
+        // No screen for a moment (a display reconfiguration): the point as it is, never a trap.
+        guard let screen = NSScreen.screens.min(by: {
             let da = hypot(origin.x - $0.visibleFrame.midX, origin.y - $0.visibleFrame.midY)
             let db = hypot(origin.x - $1.visibleFrame.midX, origin.y - $1.visibleFrame.midY)
             return da < db
-        }) ?? NSScreen.main!
+        }) ?? NSScreen.main else { return origin }
         let pt = DesktopKlayLogic.clampOrigin(
             CGPoint(x: origin.x, y: origin.y),
             panelSize:    DesktopKlayController.panelSize,
@@ -629,7 +631,8 @@ final class DesktopKlayController {
     private func defaultPosition() -> NSPoint {
         let s      = DesktopKlayController.panelSize
         let margin = DesktopKlayLogic.clampMargin
-        let vf     = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        // No screen at all for a moment (a display reconfiguration): the desktop's origin, no trap.
+        guard let vf = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return .zero }
         return NSPoint(x: vf.maxX - s - margin, y: vf.minY + margin)
     }
 

@@ -5,9 +5,20 @@ import SwiftUI
 struct ClaudePlanCardView: View {
     let usage: PlanUsage?   // nil = installed, no data yet
 
-    @State private var now = Date()
+    /// The countdowns' clock: every 30 s from a fixed date, only while the card is on screen.
+    /// 0.3.6 (macOS 27): the schedule no longer starts at `.now`, which made a new schedule at each
+    /// evaluation of the card, and the timeline writes no state: the card reads the timeline's date.
+    /// Before, the timeline wrote the card's own `now`, which evaluated the card again, which made a
+    /// new schedule: a loop the window's layout pass could count until AppKit stopped the app.
+    private static let ticksFrom = Date(timeIntervalSinceReferenceDate: 0)
 
     var body: some View {
+        TimelineView(.periodic(from: Self.ticksFrom, by: 30)) { ctx in
+            card(now: ctx.date)
+        }
+    }
+
+    private func card(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(spacing: 6) {
@@ -18,7 +29,7 @@ struct ClaudePlanCardView: View {
                 Text(String(localized: "plan.card.title"))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(Color(hex: "#F5F6F8"))
-                Text(subtitleText)
+                Text(subtitleText(now: now))
                     .font(.system(size: 11))
                     .foregroundColor(Color(hex: "#8E939C"))
                     .lineLimit(1)
@@ -39,15 +50,9 @@ struct ClaudePlanCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.top, 4)
-        // Update countdown every 30s, only while visible
-        .background(
-            TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                Color.clear.onChange(of: ctx.date) { _, d in now = d }
-            }
-        )
     }
 
-    private var subtitleText: String {
+    private func subtitleText(now: Date) -> String {
         guard let usage else { return String(localized: "plan.waiting") }
         let diff = now.timeIntervalSince(usage.updatedAt)
         if diff < 60 { return String(localized: "plan.just-now") }

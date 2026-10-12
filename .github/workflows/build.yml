@@ -88,6 +88,9 @@ jobs:
       - name: Test drop sequence
         run: bash scripts/test-upload-sequence.sh
 
+      - name: Test drop inbox
+        run: bash scripts/test-drop-inbox.sh
+
       - name: Test window capture sites
         run: bash scripts/test-window-capture-sites.sh
 
@@ -117,6 +120,9 @@ jobs:
 
       - name: Pill colour tests
         run: bash scripts/test-pill-colors.sh
+
+      - name: Project colour tests
+        run: bash scripts/test-project-colors.sh
 
       - name: Claude settings file tests
         run: bash scripts/test-claude-settings.sh

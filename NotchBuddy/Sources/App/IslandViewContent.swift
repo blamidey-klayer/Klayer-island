@@ -111,14 +111,23 @@ struct OverviewView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .onAppear { refreshHome() }
+        // The home refreshes when it is the view shown, one turn of the run loop later (0.3.6): every
+        // view is built at each opening, and the file read and the roster's publish then ran inside
+        // the island's first update, whatever the view.
+        .onAppear {
+            if state.view == .overview { DispatchQueue.main.async { refreshHome() } }
+        }
         .onChange(of: state.focusId) { _, new in
             showingIntegrationDetail = false
             withAnimation(.easeIn(duration: 0.16)) { state.showingPlanDetail = false }
             if new == "integration_github" { GithubPoller.shared.refreshIfStale() }
         }
         .onChange(of: state.view) { _, v in
-            if v == .overview { refreshHome() } else { state.showingPlanDetail = false }
+            if v == .overview {
+                DispatchQueue.main.async { refreshHome() }
+            } else {
+                state.showingPlanDetail = false
+            }
         }
         .onChange(of: state.mode) { _, m in
             if m != .expanded { state.showingPlanDetail = false }
@@ -133,13 +142,18 @@ struct OverviewView: View {
     /// inside it, the card never grows. A permission or a question waiting has its own view.
     /// Hotfix 0.3.5: a plain scroll view, as in 0.3.2. Nothing here reads the scroll view's geometry
     /// or writes state from it, nothing sets its offset, no margins, no snapping, no scroll transition:
-    /// 0.3.3 and 0.3.4 crashed on macOS 27 in the scroll view's layout. The wheel of Task 27
-    /// (`ListWheel`: the rows near the centre whole, those towards the edges smaller, fainter, slightly
-    /// to the right, margins letting the first and the last row reach the centre) waits behind
-    /// `HomeLayout.wheelEnabled`, off; `listWheel` and `listWheelMargins` add nothing while it is.
+    /// 0.3.3 crashed on macOS 27 in the scroll view's layout (0.3.4 was never checked there). The
+    /// wheel of Task 27 (`ListWheel`: the rows near the centre whole, those towards the edges smaller,
+    /// fainter, slightly to the right, margins letting the first and the last row reach the centre)
+    /// waits behind `HomeLayout.wheelEnabled`, off; `listWheel` and `listWheelMargins` add nothing
+    /// while it is.
+    /// 0.3.6: the scroll view keeps its resting height (`ListWheel.homeListHeight`) whatever its
+    /// parent does, so no spring of the island resizes it; while the card is smaller (opening,
+    /// closing, the 98 pt frame of a hidden view) the `.clipped()` below cuts it instead. The rows
+    /// are top-aligned and fixed in height: at rest and during a spring, the same pixels.
     private var homeContent: some View {
         let sessions = SessionRoster.listed(state.sessions)
-        return ScrollView(.vertical, showsIndicators: false) {
+        return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 3) {
                 ConversationsView(sessions: sessions, hooksMissing: hooksMissing)
                 if !state.recentChoices.isEmpty {
@@ -155,13 +169,17 @@ struct OverviewView: View {
         // Wheel only (off): without a session, the empty line and the choices stay at the top.
         .listWheelMargins(sessions.isEmpty ? 0 : ListWheel.homeMargin)
         .scrollBounceBehavior(.basedOnSize)
-        // The list's height, `ListWheel.homeListHeight`: change both together.
-        .padding(.top, 9)
-        .padding(.bottom, 8)
+        .scrollIndicators(.never)
+        .frame(height: ListWheel.homeListHeight, alignment: .top)
+        // With the list's height, the home's 168 pt card (`ListWheel.homeCardHeight`)
+        .padding(.top, ListWheel.homeListTop)
+        .padding(.bottom, ListWheel.homeListBottom)
         // The rows start at the list's left edge (`HomeLayout.listStartX`), 12 pt from the card's right
         .padding(.leading, HomeLayout.klay - 4)
         .padding(.trailing, 12 - 4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Exactly the card's size, never the list's: a minimum and a maximum make the frame take the
+        // height it is offered, so the fixed list never makes the card taller.
+        .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         // The card shrinks to the 98 pt frame of an inactive view while it fades out
         .clipped()
     }
@@ -414,6 +432,19 @@ struct QuestionView: View {
             ? state.pendingQuestionRequestId : nil
     }
 
+    /// Who asks (0.3.6): the session of the question (its roster row, whatever the shared pill is
+    /// called now) on the colour of its pill, as on the permission card. With several sessions,
+    /// two alike questions are told apart by the session's name.
+    private var who: AgentTask {
+        let pillId = HookServer.shared.pendingQuestionPillId
+        let pill = state.tasks.first { $0.id == pillId }
+        let title = SessionRoster.title(of: HookServer.shared.pendingQuestionSessionId, in: state.sessions,
+                                        fallback: pill?.name ?? "Session")
+        let color = pill?.color ?? PillCatalog.definition(for: pillId)?.color ?? "#C0C4CC"
+        return AgentTask(id: pillId, name: title, color: color, state: .question,
+                         steps: [], source: .agent)
+    }
+
     var body: some View {
         ZStack {
             CardBackground(wash: .question)
@@ -434,12 +465,15 @@ struct QuestionView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Header row: agent name + question counter + "Reply in terminal" link
                     HStack(spacing: 4) {
-                        AgentWho(task: nil, label: "Claude Code is asking")
+                        // « <session> te pose une question »: a long name is cut on one line with
+                        // « … », the counter and the link stay whole.
+                        AgentWho(task: who, label: "te pose une question")
                         Spacer(minLength: 4)
                         if q.questions.count > 1 {
                             Text("\(qi + 1)/\(q.questions.count)")
                                 .font(.system(size: 10))
                                 .foregroundColor(Color(hex: "#6B7079"))
+                                .layoutPriority(1)
                         }
                         Button(replyLabel) { HookServer.shared.sendQuestionAsk() }
                             .buttonStyle(.plain)
@@ -448,6 +482,7 @@ struct QuestionView: View {
                             .underline()
                             .disabled(!armed)
                             .opacity(armed ? 1 : 0.4)
+                            .layoutPriority(1)
                     }
                     // Optional short header label above question text
                     if !item.header.isEmpty {
@@ -460,7 +495,9 @@ struct QuestionView: View {
                         .foregroundColor(Color(hex: "#F5F6F8"))
                         .fixedSize(horizontal: false, vertical: true)
                     // Options (wrapping) or "Other…" compact inline row, then Send/Next: disabled and
-                    // dimmed until the request on screen is armed
+                    // dimmed until the request on screen is armed. Each option's shortcut is ⌘ and its
+                    // number, ⌘1 to ⌘4, never a bare digit (0.3.6: a digit typed for the chat must not
+                    // answer); like a click, it acts only once the card is armed.
                     Group {
                         if curOther {
                             HStack(spacing: 6) {
@@ -524,7 +561,8 @@ struct QuestionView: View {
                                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color(hex: "#22D3EE").opacity(0.55) : Color.white.opacity(0.1), lineWidth: 1))
                                     }
                                     .buttonStyle(.plain)
-                                    .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                    .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: .command)
+                                    .help(Text(verbatim: "⌘\(idx + 1)"))
                                 }
                                 SecondaryButton("Other…") {
                                     if qi < showOther.count { showOther[qi] = true }
@@ -547,12 +585,14 @@ struct QuestionView: View {
                                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(isSelected ? Color(hex: "#22D3EE").opacity(0.55) : Color.white.opacity(0.1), lineWidth: 1))
                                         }
                                         .buttonStyle(.plain)
-                                        .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                        .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: .command)
+                                        .help(Text(verbatim: "⌘\(idx + 1)"))
                                     } else {
                                         SecondaryButton(verbatim: opt.label) {
                                             selectAndProceed(q: q, qi: qi, label: opt.label, isLast: isLast)
                                         }
-                                        .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: [])
+                                        .keyboardShortcut(KeyEquivalent(Character(String(idx + 1))), modifiers: .command)
+                                        .help(Text(verbatim: "⌘\(idx + 1)"))
                                     }
                                 }
                                 // "Other…" implicit free-text option
@@ -614,8 +654,10 @@ struct QuestionView: View {
         showOther  = draft.showOther
     }
 
+    // The options act only once the card is armed, whatever reached them (a click, ⌘1…⌘4): the
+    // disabled options already refuse both, and these guards make it hold in code too.
     private func toggleSelection(qi: Int, label: String) {
-        guard qi < selections.count else { return }
+        guard armed, qi < selections.count else { return }
         if let i = selections[qi].firstIndex(of: label) {
             selections[qi].remove(at: i)
         } else {
@@ -625,7 +667,7 @@ struct QuestionView: View {
 
     // Single-select: pick a label and immediately advance/send
     private func selectAndProceed(q: AskQuestion, qi: Int, label: String, isLast: Bool) {
-        guard qi < selections.count else { return }
+        guard armed, qi < selections.count else { return }
         selections[qi] = [label]
         if isLast { sendAnswers(q: q) } else { withAnimation { questionIndex = qi + 1 } }
     }
@@ -1219,9 +1261,15 @@ struct PromptView: View {
                     ContextChip(context: ctx).padding(.top, 4)
                 }
 
-                if !state.chatHistory.isEmpty {
+                // 0.3.6 (macOS 27): the conversation's scroll view exists only while the chat is the
+                // view shown. Every view stays in the tree behind the others (IslandContentView), so
+                // a hidden chat's scroll view, pinned to its last message, was resized by every spring
+                // of the island and had its offset retargeted inside the window's layout pass, the
+                // path of the 0.3.3 crash. Each scroll to the last message runs one turn of the run
+                // loop later, never inside that pass.
+                if !state.chatHistory.isEmpty && state.view == .prompt {
                     ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: false) {
+                        ScrollView(.vertical) {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(state.chatHistory) { msg in
                                     ChatBubble(message: msg).id(msg.id)
@@ -1233,21 +1281,28 @@ struct PromptView: View {
                             }
                             .padding(.vertical, 2)
                         }
+                        // Never a scroll bar, even a legacy one (a mouse, « Toujours » in System
+                        // Settings): one that came and went would rewrap the bubbles inside layout.
+                        .scrollIndicators(.never)
                         .onChange(of: state.chatHistory) { _, _ in
                             if let last = state.chatHistory.last(where: { !$0.content.isEmpty }) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
+                                DispatchQueue.main.async { proxy.scrollTo(last.id, anchor: .bottom) }
                             }
                         }
                         .onChange(of: state.stateOverride) { _, v in
                             if v == .thinking {
-                                withAnimation { proxy.scrollTo("typing", anchor: .bottom) }
+                                DispatchQueue.main.async {
+                                    withAnimation { proxy.scrollTo("typing", anchor: .bottom) }
+                                }
                             } else if let last = state.chatHistory.last(where: { !$0.content.isEmpty }) {
-                                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                                DispatchQueue.main.async {
+                                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                                }
                             }
                         }
                         .onAppear {
                             if let last = state.chatHistory.last {
-                                proxy.scrollTo(last.id, anchor: .bottom)
+                                DispatchQueue.main.async { proxy.scrollTo(last.id, anchor: .bottom) }
                             }
                         }
                     }
@@ -1279,7 +1334,14 @@ struct PromptView: View {
 
                         // Dictate instead of typing (on-device speech recognition when available)
                         Button {
-                            Task { await dictation.toggle(startingFrom: text) }
+                            Task {
+                                // No microphone: one line in the conversation, as the chat's other
+                                // errors (a notice, never sent to Claude).
+                                if let line = await dictation.toggle(startingFrom: text) {
+                                    state.chatHistory.append(ChatMessage(role: .assistant, content: line,
+                                                                         isNotice: true))
+                                }
+                            }
                         } label: {
                             Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
                                 .font(.system(size: 11, weight: .semibold))
@@ -1313,13 +1375,19 @@ struct PromptView: View {
             .padding(.bottom, 14)
         }
         .padding(.bottom, 10)
+        // Every view stays in the tree: the field takes the keyboard, and the check runs, only when
+        // the chat is the view shown (0.3.6: a hidden chat no longer takes the focus at each opening).
         .onAppear {
-            focused = true
-            if state.view == .prompt { checkChat() }
+            if state.view == .prompt {
+                focused = true
+                checkChat()
+            }
         }
-        // Every view stays in the tree: the check runs when the chat comes on screen.
         .onChange(of: state.view) { _, view in
-            if view == .prompt { checkChat() }
+            if view == .prompt {
+                focused = true
+                checkChat()
+            }
         }
         .onChange(of: chat.isAnswering) { _, answering in
             if !answering && state.view == .prompt { focused = true }
@@ -1883,7 +1951,7 @@ struct GitHubDetailView: View {
                         .padding(.top, 8)
                         .padding(.leading, 108)
                 } else {
-                    ScrollView(.vertical, showsIndicators: false) {
+                    ScrollView(.vertical) {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(items.enumerated()), id: \.element.id) { idx, pr in
                                 GitHubPRRowView(pr: pr, showCI: section == .myPRs,
@@ -1895,6 +1963,9 @@ struct GitHubDetailView: View {
                             }
                         }
                     }
+                    // Never a scroll bar, even a legacy one (a mouse, « Toujours »), as in the island's
+                    // other lists (0.3.6)
+                    .scrollIndicators(.never)
                     .frame(maxHeight: 60)  // 3 rows × 20 pt; rest scrolls
                     .mask(
                         Group {

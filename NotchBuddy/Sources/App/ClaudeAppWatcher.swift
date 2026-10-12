@@ -616,6 +616,9 @@ private final class ClaudeAppReader: @unchecked Sendable {
         }
         // The main window's title, for the alert's line only.
         if let window = element(app, "AXMainWindow") ?? windows.first {
+            // The same 0.5 s limit as every other element read here (0.3.6): a hung Claude app no
+            // longer holds the reader, and quit waiting on it, for the system's default timeout.
+            _ = AXUIElementSetMessagingTimeout(window, ClaudeAppWatchRules.messagingTimeout)
             snapshot.windowTitle = string(window, "AXTitle").value
         }
 

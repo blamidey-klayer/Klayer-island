@@ -558,6 +558,10 @@ struct GreetingCanvasView: View {
         greetFired = true
         doneWork?.cancel(); doneWork = nil
         // Note: greeting music continues for ~0.3 s after greetComplete — intentional queue overlap
-        NotificationCenter.default.post(name: .greetComplete, object: nil)
+        // Posted one turn of the run loop later (0.3.6): its observers fly the desktop Klay out (a new
+        // window ordered front, a published change the island reads), never inside the island's update.
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .greetComplete, object: nil)
+        }
     }
 }

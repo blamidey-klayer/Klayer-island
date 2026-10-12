@@ -1153,6 +1153,10 @@ final class HookServer: @unchecked Sendable {
     @MainActor
     var pendingQuestionPillId: String { questionPillId }
 
+    /// The session that owns the pending question, so QuestionView names it (0.3.6, audit C I2).
+    @MainActor
+    var pendingQuestionSessionId: String? { questionSessionId }
+
     /// Where a permission or a question from Claude shows in the island: the pill that owns it
     /// and the terminal hosting the session. Nil when the island does not answer it and the
     /// caller replies "ask": an agent Klayer Island does not follow, or a terminal session while
@@ -1656,9 +1660,11 @@ final class HookServer: @unchecked Sendable {
             clCheck.arguments = ["-p"]
             clCheck.standardOutput = FileHandle.nullDevice
             clCheck.standardError = FileHandle.nullDevice
-            try? clCheck.run()
-            clCheck.waitUntilExit()
-            if clCheck.terminationStatus != 0 {
+            // Waited on only once launched: waitUntilExit and terminationStatus raise on a process
+            // that never ran (0.3.6). Not launched counts as not installed.
+            let launched = (try? clCheck.run()) != nil
+            if launched { clCheck.waitUntilExit() }
+            if !launched || clCheck.terminationStatus != 0 {
                 throw NSError(domain: "Klayer Island", code: 1,
                               userInfo: [NSLocalizedDescriptionKey:
                                   "Command Line Tools are required but not installed. Run: xcode-select --install"])

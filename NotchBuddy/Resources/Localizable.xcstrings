@@ -10510,6 +10510,33 @@
           }
         }
       }
+    },
+    "te pose une question": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "te pose une question"
+          }
+        }
+      }
+    },
+    "shortcut.island.question-option": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the option with this number (question card)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir l'option de ce numéro (carte de question)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -37,6 +37,13 @@ enum USC {
     static let T_BAR_IN:     Double = 3.00
     static let T_PROG_START: Double = 3.25
     static let DT: Double = 1.0 / 240.0
+    /// The most simulated time one frame steps through (24 steps). A frame that comes after a longer
+    /// pause (a display asleep with the drop canvas on screen) skips the rest of it: the springs go
+    /// on from where they were, instead of stepping through every 1/240 s of the pause (0.3.6).
+    static let MAX_CATCH_UP: Double = 0.1
+    /// Where the simulation resumes for a frame at `target`: where it stopped, or `MAX_CATCH_UP`
+    /// before the frame when it stopped longer ago.
+    static func catchUpStart(simT: Double, target: Double) -> Double { max(simT, target - MAX_CATCH_UP) }
     // Entry offset: gives 0.40 s of following before drop
     static let ENTRY_T_REF: Double = T_DROP - 0.40  // = 1.55
 
@@ -260,6 +267,7 @@ final class UploadSequenceEngine {
     // MARK: - Simulation
 
     private func simulateTo(_ tTarget: Double) {
+        sim.t = USC.catchUpStart(simT: sim.t, target: tTarget)
         while sim.t < tTarget - 1e-10 {
             let dt = min(USC.DT, tTarget - sim.t)
             stepOnce(dt: dt)

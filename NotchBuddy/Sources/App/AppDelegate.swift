@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // API chat). Never what the app still uses.
         RemovedFeatureCleanup.runIfNeeded(defaults: .standard, supportDir: HookServer.supportDir,
                                           deleteSecret: Keychain.delete(key:))
+        // Dropped files copied more than 24 h ago leave the inbox (0.3.6), off the main thread.
+        FileDropHandler.cleanInboxAtLaunch()
         // Warm up Keychain cache on main thread BEFORE any poller or view touches it
         _ = KeychainStore.shared
         NSApp.setActivationPolicy(.accessory)
@@ -97,7 +99,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Centres the window horizontally and keeps its title bar clear of the island panel
     /// (320 pt tall at the top of the island screen), shrinking it to fit if needed.
     private func placeBelowIsland(_ win: NSWindow) {
-        let screen = IslandWindowController.islandScreen()
+        // No screen for a moment (a display reconfiguration): the window stays where AppKit put it.
+        guard let screen = IslandWindowController.islandScreen() else { return }
         let visible = screen.visibleFrame
         let islandBottom = screen.frame.maxY - 320 - 12   // island panel height + margin
         let top = min(visible.maxY, islandBottom)

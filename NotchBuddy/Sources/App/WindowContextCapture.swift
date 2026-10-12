@@ -13,6 +13,9 @@ enum WindowContextCapture {
 
         let pid = app.processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
+        // This runs on the main thread: a busy or hung app answers within 0.5 s or not at all
+        // (0.3.6), instead of the system's default timeout, during which the island froze.
+        _ = AXUIElementSetMessagingTimeout(axApp, messagingTimeout)
 
         // --- Window title ---
         var title = ""
@@ -21,6 +24,7 @@ enum WindowContextCapture {
            let windowRef {
             // swiftlint:disable force_cast
             let axWindow = windowRef as! AXUIElement
+            _ = AXUIElementSetMessagingTimeout(axWindow, messagingTimeout)
             var titleRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleRef) == .success,
                let t = titleRef as? String {
@@ -36,18 +40,28 @@ enum WindowContextCapture {
 
     // MARK: - Private
 
+    /// Seconds an Accessibility read of the captured app may take.
+    private static let messagingTimeout: Float = 0.5
+
+    /// Each browser's question, asked with a 2 s limit (0.3.6): a busy or hung browser no longer
+    /// holds the main thread for the Apple Event's default 2 min. The first time, macOS's
+    /// Automation consent prompt still waits for the user's answer.
     private static let browserScripts: [String: String] = [
         "com.apple.Safari":
-            "tell application \"Safari\" to return URL of current tab of front window",
+            withTimeout("tell application \"Safari\" to return URL of current tab of front window"),
         "com.google.Chrome":
-            "tell application \"Google Chrome\" to return URL of active tab of front window",
+            withTimeout("tell application \"Google Chrome\" to return URL of active tab of front window"),
         "company.thebrowser.Browser":
-            "tell application \"Arc\" to return URL of active tab of front window",
+            withTimeout("tell application \"Arc\" to return URL of active tab of front window"),
         "org.mozilla.firefox":
-            "tell application \"Firefox\" to return URL of active tab of front window",
+            withTimeout("tell application \"Firefox\" to return URL of active tab of front window"),
         "com.microsoft.edgemac":
-            "tell application \"Microsoft Edge\" to return URL of active tab of front window",
+            withTimeout("tell application \"Microsoft Edge\" to return URL of active tab of front window"),
     ]
+
+    private static func withTimeout(_ line: String) -> String {
+        "with timeout of 2 seconds\n\(line)\nend timeout"
+    }
 
     private static func browserURL(for app: NSRunningApplication) -> String? {
         guard let bundleId = app.bundleIdentifier,

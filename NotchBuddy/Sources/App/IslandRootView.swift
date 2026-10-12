@@ -394,10 +394,14 @@ struct CountdownBar: View {
     @ObservedObject var state: AppState
     let islandW: CGFloat
 
+    /// The ticks run every 0.1 s from a fixed date (0.3.6): a schedule from `.now` was a new schedule
+    /// at each evaluation of the bar, that is at each change of AppState, and restarted the timeline.
+    private static let ticksFrom = Date(timeIntervalSinceReferenceDate: 0)
+
     var body: some View {
         GeometryReader { _ in
             if let deadline = state.mode == .expanded ? state.foldDeadline : nil {
-                TimelineView(.periodic(from: .now, by: 0.1)) { context in
+                TimelineView(.periodic(from: Self.ticksFrom, by: 0.1)) { context in
                     Rectangle()
                         .fill(Color.white.opacity(0.35))
                         .frame(width: Self.width(remaining: deadline.timeIntervalSince(context.date),

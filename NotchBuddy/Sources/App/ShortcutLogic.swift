@@ -101,14 +101,21 @@ enum ShortcutLogic {
 
     // MARK: - Load / save (UserDefaults)
 
-    /// Current spec for `action`, falling back to the default if not stored.
+    /// Current spec for `action`, falling back to the default if not stored, or stored out of range.
     static func hotKey(for action: ShortcutAction) -> ShortcutSpec {
         let ud  = UserDefaults.standard
         let def = defaults[action]!
-        let kc  = ud.object(forKey: action.udKeyCode) as? Int ?? Int(def.keyCode)
-        let fl  = ud.object(forKey: action.udFlags)   as? Int ?? Int(def.nsFlags)
-        return ShortcutSpec(keyCode: UInt16(kc), nsFlags: UInt(fl))
+        let kc  = (ud.object(forKey: action.udKeyCode) as? Int).flatMap(storedKeyCode) ?? def.keyCode
+        let fl  = (ud.object(forKey: action.udFlags)   as? Int).flatMap(storedFlags)   ?? def.nsFlags
+        return ShortcutSpec(keyCode: kc, nsFlags: fl)
     }
+
+    /// A stored key code as the hot keys take it; nil when out of range (a hand-edited preference,
+    /// a negative number), so the default applies instead of a trap at launch (0.3.6).
+    static func storedKeyCode(_ value: Int) -> UInt16? { UInt16(exactly: value) }
+
+    /// Stored modifier flags as the hot keys take them; nil when out of range (a negative number).
+    static func storedFlags(_ value: Int) -> UInt? { UInt(exactly: value) }
 
     static func save(_ spec: ShortcutSpec, for action: ShortcutAction) {
         UserDefaults.standard.set(Int(spec.keyCode), forKey: action.udKeyCode)
@@ -217,6 +224,7 @@ enum ShortcutLogic {
     static let islandShortcuts: [(key: String, description: String)] = [
         ("⌘→ / ⌘←",    String(localized: "shortcut.island.next-prev")),
         ("⌘1 – ⌘9",    String(localized: "shortcut.island.by-number")),
+        ("⌘1 – ⌘4",    String(localized: "shortcut.island.question-option")),
         ("⌘↓ / ⌘↑",    String(localized: "shortcut.island.nav-items")),
         ("⌘O",          String(localized: "shortcut.island.open")),
         ("⌘↩",          String(localized: "shortcut.island.send")),

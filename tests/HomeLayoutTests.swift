@@ -27,6 +27,7 @@ enum HomeLayoutTests {
             ("the_first_and_last_rows_can_reach_the_centre", theFirstAndLastRowsCanReachTheCentre),
             ("the_home_margins_come_from_the_layout", theHomeMarginsComeFromTheLayout),
             ("the_wheel_is_off_until_checked_on_macos_27", theWheelIsOffUntilCheckedOnMacOS27),
+            ("the_home_list_keeps_its_resting_height", theHomeListKeepsItsRestingHeight),
         ]
         for (name, run) in cases {
             run()
@@ -285,7 +286,7 @@ enum HomeLayoutTests {
         // IslandContentView: 8 pt top, 34 pt header, 10 pt bottom; OverviewView's list: 9 pt top, 8 pt bottom.
         let card = island - 8 - 34 - 10
         precondition(card == 168, "the home's card is 168 pt, got \(card)")
-        precondition(ListWheel.homeListHeight == card - 9 - 8,
+        precondition(ListWheel.homeListHeight == card - ListWheel.homeListTop - ListWheel.homeListBottom,
                      "the list's height follows the home's layout, got \(ListWheel.homeListHeight)")
         precondition(ListWheel.homeMargin == 62.5, "the first row rests at the centre, got \(ListWheel.homeMargin)")
         precondition(ListWheel.homeMargin + ListWheel.rowHeight / 2 == ListWheel.homeListHeight / 2,
@@ -293,12 +294,31 @@ enum HomeLayoutTests {
     }
 
     // MARK: - Hotfix 0.3.5: the wheel is off
-    // 0.3.4 still crashed on macOS 27: the home list is a plain scroll view again, as in 0.3.2. The
-    // wheel's look above stays tested for when it comes back; turning it on is a decision taken after
-    // a check on macOS 27, and changes this case with the constant.
+    // 0.3.4 was never checked on macOS 27 (the crash reports were all of 0.3.3): the home list is a
+    // plain scroll view again, as in 0.3.2. The wheel's look above stays tested for when it comes
+    // back; turning it on is a decision taken after a check on macOS 27, and changes this case with
+    // the constant.
 
     static func theWheelIsOffUntilCheckedOnMacOS27() {
         precondition(!HomeLayout.wheelEnabled, "the wheel stays off until it is checked on macOS 27")
+    }
+
+    // MARK: - 0.3.6: the list keeps its resting height
+    // OverviewView frames the list's scroll view at `homeListHeight` and lets the card clip it, so no
+    // spring of the island resizes the scroll view (macOS 27). At rest, the list with its room above
+    // and below must fill the home's card exactly, as the flexible list did: same pixels.
+
+    static func theHomeListKeepsItsRestingHeight() {
+        let island = IslandConst.viewLayouts[.overview]!.height
+        let card = island - 8 - 34 - 10
+        precondition(ListWheel.homeCardHeight == card, "the card constant is the home's layout, got \(ListWheel.homeCardHeight)")
+        precondition(ListWheel.homeListTop == 9 && ListWheel.homeListBottom == 8,
+                     "the list's room above and below is the 0.3.5 padding")
+        precondition(ListWheel.homeListTop + ListWheel.homeListHeight + ListWheel.homeListBottom == card,
+                     "the fixed list fills the card at rest, no more, no less")
+        precondition(ListWheel.homeListHeight == 151, "151 pt, as the flexible list was at rest")
+        // A whole number of points: the scroll view's frame never sits off the pixel grid.
+        precondition(ListWheel.homeListHeight.rounded() == ListWheel.homeListHeight, "whole points")
     }
 }
 

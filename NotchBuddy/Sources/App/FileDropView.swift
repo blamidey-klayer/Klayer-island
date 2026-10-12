@@ -43,6 +43,15 @@ final class FileDropNSView: NSView {
 // MARK: - File drop handler
 
 enum FileDropHandler {
+    /// Where dropped files are copied (DropInbox).
+    static var inboxDirectory: URL { HookServer.supportDir.appendingPathComponent("inbox") }
+
+    /// At launch: the copies older than 24 h go, off the main thread (DropInbox).
+    static func cleanInboxAtLaunch() {
+        let inbox = inboxDirectory
+        Task.detached(priority: .utility) { DropInbox.removeExpired(in: inbox) }
+    }
+
     @MainActor
     static func handle(urls: [URL], state: AppState) async {
         guard let url = urls.first else { return }
@@ -58,13 +67,23 @@ enum FileDropHandler {
         let dur = 2.4
         UploadSequenceEngine.shared.performDrop(uploadDuration: dur)
 
-        // Copy to inbox in background — update state when done
-        let inbox = HookServer.supportDir.appendingPathComponent("inbox")
-        Task.detached {
+        // Copy to inbox in background, then update the state. First the copies older than 24 h go
+        // (DropInbox), except the one the chat holds; a file over 200 MB, or a folder, is not copied:
+        // the original stays in use (0.3.6).
+        let inbox = inboxDirectory
+        var keep: Set<String> = []
+        if case .file(_, let held?)? = state.promptContext,
+           held.deletingLastPathComponent().standardizedFileURL.path == inbox.standardizedFileURL.path {
+            keep.insert(held.lastPathComponent)
+        }
+        Task.detached { [keep] in
+            DropInbox.removeExpired(in: inbox, keep: keep)
+            guard DropInbox.shouldCopy(url) else { return }
             try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
             let dest = inbox.appendingPathComponent(name)
             try? FileManager.default.removeItem(at: dest)
             if (try? FileManager.default.copyItem(at: url, to: dest)) != nil {
+                DropInbox.markCopied(dest)
                 await MainActor.run {
                     state.droppedFile = DroppedFile(url: dest, name: name)
                     // « Poser une question » came before the copy: the chat takes the copy too.

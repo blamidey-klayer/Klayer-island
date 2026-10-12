@@ -339,8 +339,9 @@ final class AppState: ObservableObject {
         }
         if let v = ud.object(forKey: "greetThreshold")    as? Double { greetThresholdSeconds = v }
         if let v = ud.object(forKey: "hotkeyEnabled") as? Bool  { hotkeyEnabled = v }
-        if let v = ud.object(forKey: "hotkeyFlags")   as? Int   { hotkeyFlags = UInt(v) }
-        if let v = ud.object(forKey: "hotkeyCode")    as? Int   { hotkeyCode = UInt16(v) }
+        // Out of range (a hand-edited preference): the default stays, no trap at launch (0.3.6).
+        if let v = ud.object(forKey: "hotkeyFlags")   as? Int, let f = ShortcutLogic.storedFlags(v) { hotkeyFlags = f }
+        if let v = ud.object(forKey: "hotkeyCode")    as? Int, let c = ShortcutLogic.storedKeyCode(v) { hotkeyCode = c }
         if let v = ud.string(forKey: "islandDisplay") { islandDisplay = IslandDisplayChoice(storageValue: v) }
         if let d = ud.data(forKey: "activeIntegrations"),
            let a = try? JSONDecoder().decode([String].self, from: d) { activeIntegrations = Set(a) }

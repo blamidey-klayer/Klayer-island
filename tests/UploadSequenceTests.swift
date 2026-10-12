@@ -22,6 +22,7 @@ enum UploadSequenceTests {
             ("he_swallows_the_file_squashed_eyes_shut", { heSwallowsTheFileSquashedEyesShut() }),
             ("arms_back_at_rest_after_the_gulp", { armsBackAtRestAfterTheGulp() }),
             ("then_the_bar_and_the_choice", { thenTheBarAndTheChoice() }),
+            ("a_long_pause_costs_one_short_frame", { aLongPauseCostsOneShortFrame() }),
         ]
         for (name, run) in cases {
             run()
@@ -31,6 +32,19 @@ enum UploadSequenceTests {
     }
 
     static let upload = IslandConst.viewLayouts[.upload]!
+
+    /// The frame at `date` after the frames the display asks before it, 60 a second from `from`. The
+    /// canvas's timeline asks one per frame of the screen, and since 0.3.6 one frame steps the springs
+    /// through 0.1 s at most (`USC.MAX_CATCH_UP`): a test that follows Klay's moves asks its frames
+    /// the same way.
+    static func frame(_ e: UploadSequenceEngine, at date: Date, from: Date) -> USFrame {
+        var t = from
+        while date.timeIntervalSince(t) > 1.0 / 60 {
+            _ = e.frame(at: t)
+            t = t.addingTimeInterval(1.0 / 60)
+        }
+        return e.frame(at: date)
+    }
 
     /// A fresh engine with a file that entered the island at (x, y), and the moment it entered.
     static func entered(x: CGFloat = 320, y: CGFloat = 70) -> (UploadSequenceEngine, Date) {
@@ -100,24 +114,24 @@ enum UploadSequenceTests {
 
     static func theTextStaysWhileHeFollowsTheFile() {
         let (e, start) = entered(x: 560, y: 80)
-        let f = e.frame(at: start.addingTimeInterval(1.5))
+        let f = frame(e, at: start.addingTimeInterval(1.5), from: start)
         precondition(f.x > USC.REST_X + 100, "he goes to catch the file: \(f.x)")
         precondition(f.textAlpha == 1 && f.zoneAlpha == 1, "« Dépose ton fichier » stays")
     }
 
     static func aFileThatLeavesLetsHimRestAgain() {
         let (e, start) = entered(x: 560, y: 60)
-        let over = e.frame(at: start.addingTimeInterval(0.8))
+        let over = frame(e, at: start.addingTimeInterval(0.8), from: start)
         precondition(over.arms > 0.95 && over.eye == .wide && over.zoneOver, "arms open for the file")
         e.exitZone(at: start.addingTimeInterval(0.8))
-        let leaving = e.frame(at: start.addingTimeInterval(0.9))
+        let leaving = frame(e, at: start.addingTimeInterval(0.9), from: start.addingTimeInterval(0.8))
         precondition(leaving.arms > 0.05 && leaving.arms < 0.95, "his arms come down, not at once: \(leaving.arms)")
-        let left = e.frame(at: start.addingTimeInterval(1.2))
+        let left = frame(e, at: start.addingTimeInterval(1.2), from: start.addingTimeInterval(0.9))
         precondition(left.arms < 0.01, "arms at rest: \(left.arms)")
         precondition(left.eye == .pill && abs(left.yaw) < 1e-9 && abs(left.pitch) < 1e-9,
                      "eyes back to rest, looking ahead, not at the stale pointer")
         precondition(!left.zoneOver, "no green zone without a file")
-        let rested = e.frame(at: start.addingTimeInterval(3.5))
+        let rested = frame(e, at: start.addingTimeInterval(3.5), from: start.addingTimeInterval(1.2))
         precondition(abs(rested.x - USC.REST_X) < 2 && abs(rested.y - USC.REST_Y) < 2,
                      "back at his resting place: \(rested.x)")
         precondition(rested.textAlpha == 1, "the text stays")
@@ -125,8 +139,9 @@ enum UploadSequenceTests {
 
     static func aFileThatComesBackFindsHimWhereHeStands() {
         let (e, start) = entered(x: 560, y: 60)
+        _ = frame(e, at: start.addingTimeInterval(1.0), from: start)
         e.exitZone(at: start.addingTimeInterval(1.0))
-        let before = e.frame(at: start.addingTimeInterval(1.05))
+        let before = frame(e, at: start.addingTimeInterval(1.05), from: start.addingTimeInterval(1.0))
         precondition(before.x > USC.REST_X + 100, "he had gone to catch it: \(before.x)")
         e.enterZone(x: 100, y: 60)
         let after = e.frame(at: Date())
@@ -171,6 +186,29 @@ enum UploadSequenceTests {
         let choose = e.frame(at: drop.addingTimeInterval(e.growEnd - USC.T_DROP + 0.5))
         precondition(choose.chooseAlpha == 1 && choose.d == USC.CHOOSE_D, "Klay back at the choice")
         precondition(choose.arms == 0 && choose.eye == .pill, "as himself, arms at rest")
+    }
+}
+
+extension UploadSequenceTests {
+    // MARK: - A long pause (0.3.6)
+    // A canvas left on screen across a long display sleep used to step its springs through the whole
+    // pause at 240 steps a second on its next frame: 1.35 s of main thread for a day. One frame now
+    // steps through 0.1 s at most.
+
+    static func aLongPauseCostsOneShortFrame() {
+        precondition(USC.catchUpStart(simT: 1.0, target: 1.0 + 1.0 / 60) == 1.0, "a frame at the display's rate: all of it")
+        precondition(USC.catchUpStart(simT: 1.0, target: 1.1) == 1.0, "0.1 s: all of it")
+        precondition(USC.catchUpStart(simT: 1.0, target: 86_401) == 86_401 - USC.MAX_CATCH_UP, "a day: its last 0.1 s")
+        precondition(USC.catchUpStart(simT: 5.0, target: 4.0) == 5.0, "never back in time")
+
+        let (e, start) = entered(x: 560, y: 60)
+        let follow = frame(e, at: start.addingTimeInterval(0.5), from: start)
+        let clock = Date()
+        let late = e.frame(at: start.addingTimeInterval(86_400))
+        let spent = Date().timeIntervalSince(clock)
+        precondition(spent < 0.25, "the frame after a day's pause is short: \(spent) s")
+        precondition(late.x.isFinite && late.y.isFinite, "Klay is somewhere: \(late.x), \(late.y)")
+        precondition(abs(late.x - follow.x) < 60, "he goes on from where he was, no jump: \(follow.x) → \(late.x)")
     }
 }
 

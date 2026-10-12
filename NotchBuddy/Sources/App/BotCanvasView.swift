@@ -102,7 +102,8 @@ struct BotCanvasView: View {
     /// Bot centre in DesktopSpace, like state.mousePosition. The island is centred at the
     /// top of its screen, which can be any display, anywhere in the arrangement.
     private func islandBotPoint(islandW: CGFloat, botCx: CGFloat, botCy: CGFloat) -> CGPoint {
-        let screen = IslandWindowController.islandScreen().frame
+        // No screen for a moment (a display reconfiguration): looks straight ahead, never a trap.
+        let screen = IslandWindowController.islandScreen()?.frame ?? .zero
         return DesktopSpace.topDown(CGPoint(x: screen.midX - islandW / 2 + botCx,
                                             y: screen.maxY - botCy),
                                     desktopTop: IslandWindowController.desktopTop)

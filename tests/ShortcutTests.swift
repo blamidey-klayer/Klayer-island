@@ -14,6 +14,7 @@ enum ShortcutTests {
         testEnabledByDefault()
         testKeyCodeToString()
         testCardNavigation()
+        testStoredValuesOutOfRange()
         print("ShortcutLogic: all cases passed")
     }
 
@@ -155,6 +156,38 @@ enum ShortcutTests {
 
         // Cleanup
         ud.removePersistentDomain(forName: suiteName)
+    }
+
+    // MARK: - testStoredValuesOutOfRange (0.3.6)
+    // A stored key code or flag set out of range (a hand-edited preference) used to trap at launch
+    // in UInt16(_:) or UInt(_:). The default applies instead.
+
+    static func testStoredValuesOutOfRange() {
+        precondition(ShortcutLogic.storedKeyCode(45) == 45, "a key code in range is kept")
+        precondition(ShortcutLogic.storedKeyCode(0) == 0, "key code 0 (A) is a key")
+        precondition(ShortcutLogic.storedKeyCode(65_535) == 65_535, "the largest key code fits")
+        precondition(ShortcutLogic.storedKeyCode(-1) == nil, "a negative key code is refused")
+        precondition(ShortcutLogic.storedKeyCode(65_536) == nil, "a key code past UInt16 is refused")
+        precondition(ShortcutLogic.storedKeyCode(Int.max) == nil, "Int.max is refused")
+        precondition(ShortcutLogic.storedFlags(Int(ShortcutSpec.ctrlOpt)) == ShortcutSpec.ctrlOpt,
+                     "flags in range are kept")
+        precondition(ShortcutLogic.storedFlags(-1) == nil, "negative flags are refused")
+        precondition(ShortcutLogic.storedFlags(Int.min) == nil, "Int.min is refused")
+
+        // Through the stored preferences, as at launch: out of range gives the default, no trap.
+        let action = ShortcutAction.muteToggle
+        let ud = UserDefaults.standard
+        ud.set(-1, forKey: action.udKeyCode)
+        ud.set(-5, forKey: action.udFlags)
+        let loaded = ShortcutLogic.hotKey(for: action)
+        precondition(loaded == ShortcutLogic.defaults[action]!, "out of range: the default, got \(loaded)")
+        ud.set(70_000, forKey: action.udKeyCode)
+        ud.set(Int(ShortcutSpec.cmdShift), forKey: action.udFlags)
+        let mixed = ShortcutLogic.hotKey(for: action)
+        precondition(mixed.keyCode == ShortcutLogic.defaults[action]!.keyCode && mixed.nsFlags == ShortcutSpec.cmdShift,
+                     "each value falls back on its own: \(mixed)")
+        ud.removeObject(forKey: action.udKeyCode)
+        ud.removeObject(forKey: action.udFlags)
     }
 
     // MARK: - testLegacyKeysForToggleIsland

@@ -158,11 +158,27 @@ enum IslandConst {
     static let fallbackColors = ["#22C55E", "#EAB308", "#60A5FA", "#E879F9"]
 
     /// Returns the fixed project color for a display name, or a stable fallback.
+    /// 0.3.6: stable from one launch to the next. `hashValue` is seeded per process, so an unknown
+    /// agent changed colour at each launch (and `abs` trapped on `Int.min`); the partial match went
+    /// through the dictionary in its per-process order too.
     static func colorForProject(_ name: String) -> String {
         let key = name.lowercased().trimmingCharacters(in: .whitespaces)
         if let c = projectColors[key] { return c }
-        // partial match (e.g. "korus-api" → "korus")
-        for (k, c) in projectColors where key.hasPrefix(k) || key.contains(k) { return c }
-        return fallbackColors[abs(name.hashValue) % fallbackColors.count]
+        // partial match (e.g. "korus-api" → "korus"), the keys always in the same order
+        for (k, c) in projectColors.sorted(by: { $0.key < $1.key }) where key.hasPrefix(k) || key.contains(k) {
+            return c
+        }
+        return fallbackColors[Int(stableHash(key) % UInt64(fallbackColors.count))]
+    }
+
+    /// FNV-1a, 64 bits, over the UTF-8 bytes: the same number for the same text on every launch
+    /// and every Mac, unlike `hashValue`.
+    static func stableHash(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return hash
     }
 }

@@ -58,13 +58,17 @@ final class IslandWindowController: NSWindowController {
     convenience init() {
         let screen = Self.targetScreen(for: AppState.shared.islandDisplay)
         Self.currentScreen = screen
-        let geometry = Self.screenGeometry(for: screen)
+        let panelW: CGFloat = 720
+        let panelH: CGFloat = 560
+        // No screen at launch (unlikely): a menu-bar island on an empty frame, moved to the first
+        // screen that comes (didChangeScreenParametersNotification).
+        let geometry = screen.map { Self.screenGeometry(for: $0) }
+            ?? IslandScreenGeometry(screenWidth: panelW, safeAreaTop: 0, auxiliaryLeftWidth: nil,
+                                    auxiliaryRightWidth: nil, menuBarHeight: NSStatusBar.system.thickness)
         let nW = geometry.width
         let nH = geometry.height
 
-        let panelW: CGFloat = 720
-        let panelH: CGFloat = 560
-        let sf = screen.frame
+        let sf = screen?.frame ?? NSRect(x: 0, y: 0, width: panelW, height: panelH)
         let panel = IslandPanel(
             contentRect: NSRect(x: sf.midX - panelW/2, y: sf.maxY - panelH,
                                 width: panelW, height: panelH),
@@ -79,10 +83,10 @@ final class IslandWindowController: NSWindowController {
         self.notchW = nW
         self.notchH = nH
         self.hasNotch = geometry.hasNotch
-        setupPanel(screen: screen)
+        setupPanel()
     }
 
-    private func setupPanel(screen: NSScreen) {
+    private func setupPanel() {
         guard let panel = window as? IslandPanel else { return }
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -219,7 +223,10 @@ final class IslandWindowController: NSWindowController {
 
     private func moveToTargetScreen(choice: IslandDisplayChoice) {
         guard !inAttachDrag, attachDragStart == nil else { return }
-        relocate(to: Self.targetScreen(for: choice))
+        // No screen for a moment (the only display unplugged in clamshell mode, a display waking):
+        // the island stays where it is; the notification comes again when a screen is back.
+        guard !NSScreen.screens.isEmpty, let screen = Self.targetScreen(for: choice) else { return }
+        relocate(to: screen)
     }
 
     /// Recomputes the resting geometry for `screen` and moves the panel to its top centre.
@@ -240,8 +247,9 @@ final class IslandWindowController: NSWindowController {
 
         let sf = screen.frame
         let size = panel.frame.size
+        // No forced display: the window draws in the display cycle's own pass (0.3.6).
         panel.setFrame(NSRect(x: sf.midX - size.width/2, y: sf.maxY - size.height,
-                              width: size.width, height: size.height), display: true)
+                              width: size.width, height: size.height), display: false)
         // The notch zone moved (other screen, other notch or bar): the next tick measures the
         // pointer afresh, and a pointer near the new notch counts as a new approach.
         if panel.frame != oldZone.frame || notchW != oldZone.width || notchH != oldZone.height {
@@ -755,9 +763,14 @@ final class IslandWindowController: NSWindowController {
             state.isPinned.toggle()
             return true
         }
-        // ⌘1–⌘9: the home's entry by number (1 the list, then the rail's cards)
+        // ⌘1–⌘9: the home's entry by number (1 the list, then the rail's cards). On the question card
+        // on screen they belong to the card (0.3.6): ⌘1…⌘4 pick an option there (QuestionView), so
+        // the event goes on to it, and the island never jumps to the home under the question.
         let digitCodes: [UInt16: Int] = [18:1,19:2,20:3,21:4,23:5,22:6,26:7,28:8,25:9]
         if cmd, let n = digitCodes[event.keyCode] {
+            if state.mode == .expanded && state.view == .question && state.pendingQuestion != nil {
+                return false
+            }
             switchToPill(number: n); return true
         }
         // ⎋ Escape: focused views (.onExitCommand) have first crack; otherwise it closes the
@@ -1055,6 +1068,10 @@ final class IslandWindowController: NSWindowController {
             rootView: GhostBotView(canvasSize: canvasSize)
         )
         hosting.frame = NSRect(x: 0, y: 0, width: s, height: s)
+        hosting.autoresizingMask = [.width, .height]
+        // Framed by hand at a size that is not a whole number of points (40 / 0.6): no size
+        // constraints from SwiftUI pinning the window to it, as for the walker and the desktop Klay.
+        hosting.sizingOptions = []
         panel.contentView = hosting
         panel.alphaValue = 0
         panel.orderFront(nil)
@@ -1102,7 +1119,7 @@ final class IslandWindowController: NSWindowController {
 
         /// The top centre of the island's screen, for a walker without an island controller.
         @MainActor static var fallback: KlayHome {
-            let f = IslandWindowController.islandScreen().frame
+            let f = IslandWindowController.islandScreen()?.frame ?? .zero
             let nh = IslandConst.notchHeight
             return KlayHome(center: CGPoint(x: f.midX, y: f.maxY - nh / 2), width: 0, shown: false,
                             notchBottom: f.maxY - nh)
@@ -1151,8 +1168,9 @@ final class IslandWindowController: NSWindowController {
         }
 
         if pid == highlightWindowPid, let existing = highlightPanel {
-            // Same window: just track position (windows rarely move, instant is fine)
-            existing.setFrame(appKitBounds, display: false)
+            // Same window: just track position (windows rarely move, instant is fine), and only when
+            // it moved: this runs on every tick of the 60 Hz poll during a drag.
+            if existing.frame != appKitBounds { existing.setFrame(appKitBounds, display: false) }
         } else {
             // New window: close old immediately, fade-in new
             highlightPanel?.close()
@@ -1180,6 +1198,8 @@ final class IslandWindowController: NSWindowController {
             )
             hosting.frame = CGRect(origin: .zero, size: appKitBounds.size)
             hosting.autoresizingMask = [.width, .height]
+            // Framed by hand on the window it outlines: no size constraints from SwiftUI.
+            hosting.sizingOptions = []
             panel.contentView = hosting
             panel.alphaValue = 0
             panel.orderFront(nil)
@@ -1221,9 +1241,9 @@ final class IslandWindowController: NSWindowController {
     // MARK: - Window context at screen point (for drag-attach)
 
     func windowContextAtPoint(_ screenPoint: NSPoint) -> PromptContext? {
-        let screen = window?.screen ?? NSScreen.main
+        guard let screen = window?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return nil }
         // CGWindowList uses top-left origin; NSEvent.mouseLocation uses bottom-left
-        let screenMaxY = screen?.frame.maxY ?? NSScreen.main!.frame.maxY
+        let screenMaxY = screen.frame.maxY
         let cgPoint = CGPoint(x: screenPoint.x, y: screenMaxY - screenPoint.y)
 
         guard let windowList = CGWindowListCopyWindowInfo(
@@ -1340,21 +1360,26 @@ final class IslandWindowController: NSWindowController {
     /// Screen the island currently sits on (Settings window, desktop Klay flights).
     private(set) static var currentScreen: NSScreen?
 
-    static func islandScreen() -> NSScreen {
+    /// Nil only while the Mac has no screen at all (a display reconfiguration): callers then skip
+    /// what needed one.
+    static func islandScreen() -> NSScreen? {
         if let s = currentScreen, NSScreen.screens.contains(s) { return s }
-        return notchScreen() ?? NSScreen.main!
+        return notchScreen() ?? NSScreen.main ?? NSScreen.screens.first
     }
 
-    /// Screen matching the user's choice; falls back to the notch screen, then the main one.
-    static func targetScreen(for choice: IslandDisplayChoice) -> NSScreen {
+    /// Screen matching the user's choice; falls back to the notch screen, then the main one, then
+    /// any; nil when there is no screen.
+    static func targetScreen(for choice: IslandDisplayChoice) -> NSScreen? {
         let screens = NSScreen.screens
         let mouse = NSEvent.mouseLocation
         let candidates = screens.map {
             IslandDisplayCandidate(uuid: displayUUID($0), hasNotch: $0.safeAreaInsets.top > 0,
                                    containsMouse: $0.frame.contains(mouse))
         }
-        if let i = IslandDisplayResolver.index(for: choice, in: candidates) { return screens[i] }
-        return notchScreen() ?? NSScreen.main ?? screens[0]
+        if let i = IslandDisplayResolver.index(for: choice, in: candidates), screens.indices.contains(i) {
+            return screens[i]
+        }
+        return notchScreen() ?? NSScreen.main ?? screens.first
     }
 
     /// Stable display UUID (the NSScreenNumber can change after a reboot or a replug).

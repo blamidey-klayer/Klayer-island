@@ -169,7 +169,9 @@ final class KlayWalker {
     }
 
     private func place(_ panel: NSPanel, center c: CGPoint, width w: CGFloat) {
-        panel.setFrame(NSRect(x: c.x - w / 2, y: c.y - w / 2, width: w, height: w), display: true)
+        // No forced display (0.3.6): the panel draws in the display cycle's own pass, not a second
+        // time inside each frame of the walk.
+        panel.setFrame(NSRect(x: c.x - w / 2, y: c.y - w / 2, width: w, height: w), display: false)
     }
 
     /// He is home: the `peek` sound (unless `sound` is false), the display link stops, the
