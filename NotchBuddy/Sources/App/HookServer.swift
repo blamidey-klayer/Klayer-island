@@ -41,14 +41,21 @@ final class HookServer: @unchecked Sendable {
     /// When each pill raised its binoculars (a search PreToolUse): PostToolUse leaves them up at
     /// least `SessionPhase.searchDwell`, by comparing dates (no timer).
     private var searchingSince: [String: Date] = [:]
-    /// When the last hook event of a Claude app session (`klayer_agent: claude-desktop`) arrived. The
-    /// Chat and Cowork watch stays quiet within 15 s of it: a Code tab session shows its stop and
-    /// permission buttons in the Claude app too, and its hooks already tell the island
-    /// (ClaudeAppWatchRules.suppressedByCodeHook).
-    @MainActor private(set) var lastDesktopHookAt: Date? = nil
-    /// The sessions whose last end of turn opened the finished or error view: an idle prompt after a
-    /// finish that was only badged opens the note (CodeNotification.shouldOpen, final fix wave I1).
-    @MainActor private var shownFinishes = ShownFinishes()
+    /// When the last end of turn (Stop, StopFailure) and the last permission (a PermissionRequest, or a
+    /// `permission_prompt` notification) of a Claude app session (`klayer_agent: claude-desktop`)
+    /// arrived. The Chat and Cowork watch keeps the same kind of event quiet within 15 s of it: a Code
+    /// tab session shows its stop and permission buttons in the Claude app too, and its hooks already
+    /// tell the island (ClaudeAppWatchRules.quiet). Any other hook keeps nothing quiet (0.3.6, I5).
+    @MainActor private(set) var lastDesktopHookAt = CodeHookTimes()
+
+    /// How long a permission card waits for an answer before it goes back to its app (« Still waiting
+    /// in … »): 115 s, under the relay's 118 s and the hook's 120 s. The end-to-end test build waits
+    /// 20 s, so its scenario of the timeout runs in the CI's time.
+    #if KLAYER_E2E
+    static let approvalTimeout: TimeInterval = 20
+    #else
+    static let approvalTimeout: TimeInterval = 115
+    #endif
 
     private init() {}
 
@@ -62,9 +69,9 @@ final class HookServer: @unchecked Sendable {
 
     /// Cancels the approval fd source (which closes the fd via its cancel handler), clears the
     /// approval, then shows the note for 3 s (`requestLeft`): the request still waiting replaces
-    /// it, else the island folds.
+    /// it, else the island folds. `exit`: how it left, for its session's row and held alert.
     @MainActor
-    private func dismissApprovalCard(note: String) {
+    private func dismissApprovalCard(note: String, exit: RequestExit) {
         let onScreen = requestOnScreen
         // cancelApprovalFDSource() triggers the cancel handler which closes the fd.
         // Never close the fd here directly: Apple requires it to happen in the cancel handler.
@@ -75,8 +82,40 @@ final class HookServer: @unchecked Sendable {
         let pillId = state.pendingApproval?.pillId ?? "integration_claude"
         let sessionId = state.pendingApproval?.sessionId
         state.pendingApproval = nil
-        resumeSession(sessionId)
+        requestExited(.permission, sessionId: sessionId, pillId: pillId, exit: exit)
         requestLeft(.approval, pillId: pillId, onScreen: onScreen, note: note)
+    }
+
+    /// A permission (`kind` .permission) or a question (.waiting) of session `sessionId` left the
+    /// island (`exit`, RequestExit). Answered, or handled in its app: its row goes back to working.
+    /// Otherwise it still waits in its app: the row stays on approval or question until the session's
+    /// next tool event (0.3.6, C3 and I1), and for a session of the Claude app that the user did not
+    /// send there himself (a timeout, a newer request), its alert is held (« Une autorisation t'attend
+    /// dans l'app Claude : … »), shown once the island frees, gone when the session moves on.
+    @MainActor
+    private func requestExited(_ kind: CodeNotification.Kind, sessionId: String?, pillId: String, exit: RequestExit) {
+        guard let sessionId else { return }
+        if !exit.rowKeepsWaiting { resumeSession(sessionId) }
+        guard exit.holdsAlert(claudeAppSession: pillId == HookRouting.desktopPillId) else { return }
+        let state = AppState.shared
+        let folder = state.sessions.first { $0.id == sessionId }?.folder ?? "Session"
+        let text = Self.alertText(kind, session: state.sessionTitle(of: sessionId, folder: folder))
+        state.holdClaudeAppAlert(title: text.title, message: text.message, sound: text.sound, sessionId: sessionId)
+        nbLog("Request of the Claude app (\(sessionId.prefix(8))) \(exit == .timedOut ? "timed out" : "replaced"): "
+              + "still waits in the app, alert held")
+    }
+
+    /// What the island says when the Claude app waits for the user (`kind`), for session `session`
+    /// (its name, else its folder): the note's title and line, and its sound.
+    private static func alertText(_ kind: CodeNotification.Kind, session: String)
+        -> (title: String, message: String, sound: String) {
+        let title = String(localized: "Claude attend ta réponse")
+        switch kind {
+        case .permission:
+            return (title, String(localized: "Une autorisation t'attend dans l'app Claude : \(session)"), "approval")
+        case .waiting, .idle:
+            return (title, String(localized: "Claude a besoin de toi dans l'app Claude : \(session)"), "question")
+        }
     }
 
     // MARK: - After a request leaves (spec §1: no request stays unseen)
@@ -93,10 +132,12 @@ final class HookServer: @unchecked Sendable {
 
     /// A permission or a question left (answered, handed back, handled elsewhere, timed out), its
     /// pending state already cleared. Its pill and the focus are given back, then the island shows
-    /// what `PendingRequest.after` decides: the other request first, else the home; never a change
-    /// under the pointer when the other card is the one on screen.
+    /// what `PendingRequest.after` decides: the other request first, else the home (or the newest item
+    /// the busy island held); never a change under the pointer when the other card is the one on
+    /// screen. `present` false: the view stays (the card stepped aside and the island folds).
     @MainActor
-    private func requestLeft(_ kind: PendingRequest, pillId: String, onScreen: PendingRequest?, note: String) {
+    private func requestLeft(_ kind: PendingRequest, pillId: String, onScreen: PendingRequest?, note: String,
+                             present: Bool = true) {
         let state = AppState.shared
         let approval = state.pendingApproval != nil
         let question = state.pendingQuestion != nil
@@ -124,15 +165,16 @@ final class HookServer: @unchecked Sendable {
             // to the list (lot 6 spec §2: after a request, the home shows the conversations).
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.restoreFocus(afterRequest: prev) }
         }
+        guard present else { return }
         switch after {
         case .keepView:        break
         case .note:            showNote(note)
         case .show(let next):  showHeldRequest(next)
         case .home:
             let home: IslandView = state.tasks.isEmpty ? .empty : .overview
-            // A Claude app alert held while the card was up shows in place of the home, the way an
-            // alert opens the island (ClaudeAppAlertHold).
-            if !state.showHeldClaudeAppAlert(inPlaceOf: home, announce: true) { state.view = home }
+            // What the busy island held while the card was up (an alert, the end of a session) shows
+            // in place of the home, the way an alert opens the island (ClaudeAppAlertHold).
+            if state.showHeldItem(inPlaceOf: home, announce: true) == nil { state.view = home }
         }
     }
 
@@ -164,13 +206,21 @@ final class HookServer: @unchecked Sendable {
     }
 
     /// The card on screen stepped aside: the app of its session came to the front (Task 27,
-    /// CardStepAside), and the window controller folds the island. No decision is sent: the requests
-    /// stay pending, their pills badged (the Claude app's on the house tab), and hovering the island
-    /// shows the card again (`showHeldRequest` clears the badge). Answering in the app closes the card
-    /// as before (its hook connection closes).
+    /// CardStepAside), and the window controller folds the island. No decision is sent. A permission
+    /// stays pending, its pill badged (the Claude app's on the house tab), and hovering the island shows
+    /// the card again (`showHeldRequest` clears the badge); answering in the app closes the card as
+    /// before (its hook connection closes), and the first answer wins. A question on screen goes back
+    /// to its app at once (0.3.6, I1): its `--ask` hook holds the tool until the island answers, so the
+    /// app could not show it. It gets « ask », as with « Répondre dans … », and its row stays on
+    /// question until the session's next tool event.
     @MainActor
     func requestsSteppedAside() {
         let state = AppState.shared
+        if requestOnScreen == .question {
+            sendAskToQuestion()
+            dismissQuestionCard(note: "", exit: .steppedAside, present: false)
+            nbLog("The question card stepped aside: handed back to its session's app")
+        }
         if let approval = state.pendingApproval { setPillBadge(id: approval.pillId, badge: .approval) }
         if state.pendingQuestion != nil { setPillBadge(id: questionPillId, badge: .approval) }
         nbLog("The card stepped aside: its session's app came to the front")
@@ -180,8 +230,8 @@ final class HookServer: @unchecked Sendable {
     private var noteToken = 0
 
     /// Shows « Handled in … » or « Still waiting in … » for 3 s, then `PendingRequest.noteEnd`:
-    /// the request still waiting replaces the note (the island stays open), else the island folds.
-    /// Nothing happens if the note is no longer on screen.
+    /// the request still waiting replaces the note (the island stays open), else what the busy island
+    /// held shows (0.3.6, C4), else the island folds. Nothing happens if the note is no longer on screen.
     @MainActor
     private func showNote(_ note: String) {
         let state = AppState.shared
@@ -201,7 +251,12 @@ final class HookServer: @unchecked Sendable {
             switch end {
             case .nothing:         break
             case .show(let next):  self.showHeldRequest(next)
-            case .fold:            NotificationCenter.default.post(name: .islandCollapse, object: nil)
+            case .fold:
+                // An alert or a finish held while the card was up shows before the island folds.
+                let home: IslandView = state.tasks.isEmpty ? .empty : .overview
+                if state.showHeldItem(inPlaceOf: home, announce: true) == nil {
+                    NotificationCenter.default.post(name: .islandCollapse, object: nil)
+                }
             }
         }
     }
@@ -215,19 +270,21 @@ final class HookServer: @unchecked Sendable {
     }
 
     /// Clears the question (its source closes the fd), then the island shows what `requestLeft`
-    /// decides: the permission still waiting first, else the home.
+    /// decides: the permission still waiting first, else the home. `exit`: how it left, for its
+    /// session's row and held alert. `present` false: the view stays (the card stepped aside).
     @MainActor
-    private func dismissQuestionCard(note: String) {
+    private func dismissQuestionCard(note: String, exit: RequestExit, present: Bool = true) {
         let onScreen = requestOnScreen
         cancelQuestionFDSource()
         pendingQuestionFD = -1
         requestTokens.release(.question)
         let state = AppState.shared
         let pillId = questionPillId
-        resumeSession(questionSessionId)
+        let sessionId = questionSessionId
         questionSessionId = nil
         state.pendingQuestion = nil
-        requestLeft(.question, pillId: pillId, onScreen: onScreen, note: note)
+        requestExited(.waiting, sessionId: sessionId, pillId: pillId, exit: exit)
+        requestLeft(.question, pillId: pillId, onScreen: onScreen, note: note, present: present)
     }
 
     /// Called by QuestionView. Sends answers JSON and cleans up.
@@ -247,13 +304,22 @@ final class HookServer: @unchecked Sendable {
         } else {
             source?.cancel()
         }
-        dismissQuestionCard(note: "")
+        dismissQuestionCard(note: "", exit: .answered)
     }
 
     /// Called by QuestionView "Reply in terminal" button (« Répondre dans Claude » for a question
-    /// from the Claude desktop app). Answers "ask": the session asks the user itself.
+    /// from the Claude desktop app). Answers "ask": the session asks the user itself. Its row stays on
+    /// question until the session's next tool event: the question now waits in its app.
     @MainActor
     func sendQuestionAsk() {
+        sendAskToQuestion()
+        dismissQuestionCard(note: "", exit: .handedBack)
+    }
+
+    /// Answers "ask" to the pending question's hook, then its source closes the fd: the session asks
+    /// in its own window. The question's state is left to `dismissQuestionCard`.
+    @MainActor
+    private func sendAskToQuestion() {
         let fd = pendingQuestionFD
         pendingQuestionFD = -1
         let source = questionFDSource
@@ -266,7 +332,6 @@ final class HookServer: @unchecked Sendable {
         } else {
             source?.cancel()
         }
-        dismissQuestionCard(note: "")
     }
 
     // MARK: - Choice history
@@ -350,9 +415,22 @@ final class HookServer: @unchecked Sendable {
         chmod(path, 0o600)
         guard Darwin.listen(fd, 32) == 0 else { close(fd); return }
 
+        // The server never stops (0.3.6, B1): a failed accept() is retried, at once for an
+        // interruption or a connection aborted before it was accepted, after 100 ms otherwise (no
+        // descriptor left…). Left, the socket kept accepting connections nobody read, and each
+        // permission hook waited its full 118 s. One nb.log line per kind of error.
+        var loggedAcceptErrors = Set<Int32>()
         while true {
             let clientFD = Darwin.accept(fd, nil, nil)
-            guard clientFD >= 0 else { break }
+            guard clientFD >= 0 else {
+                let error = errno
+                if loggedAcceptErrors.insert(error).inserted {
+                    appendAppLog("nb.log", "accept() failed (errno \(error)): the hook server goes on")
+                }
+                let delay = HookRouting.acceptRetryDelay(errno: error)
+                if delay > 0 { usleep(useconds_t(delay * 1_000_000)) }
+                continue
+            }
             // Reject connections from other users (same-UID check)
             var euid: uid_t = 0
             var egid: gid_t = 0
@@ -470,7 +548,8 @@ final class HookServer: @unchecked Sendable {
             return
         }
         let validAgent = validateAgent(rawAgent)
-        if validAgent != nil { lastDesktopHookAt = Date() }
+        // The Chat and Cowork watch keeps quiet only after a Code tab hook of the same kind (I5).
+        if validAgent != nil, name == "Stop" || name == "StopFailure" { lastDesktopHookAt.stop = Date() }
 
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
@@ -510,14 +589,35 @@ final class HookServer: @unchecked Sendable {
             // reads from it, never its text (TEST-MAC 5.5).
             nbLog("Notification \(Self.loggedType(payload["notification_type"])) [\(rawAgent)] "
                   + "(\(sessionId.prefix(8))): \(asked.map { "asks \($0)" } ?? "asks nothing new")")
+            if asked == .permission { lastDesktopHookAt.permission = Date() }
         }
         // The latest end of turn of a session counts as not shown until its finished or error view
         // opens below; a session that left needs no record.
-        if name == "Stop" || name == "StopFailure" { shownFinishes.ended(sessionId, shown: false) }
-        if name == "SessionEnd" { shownFinishes.forget(sessionId) }
-        // Any other event of a Claude app session means it moved on (a tool ran, a prompt, an end):
-        // what its held alert asked was answered in the Claude app (ClaudeAppAlertHold.sessionMovedOn).
-        if validAgent != nil, name != "Notification" { state.claudeAppSessionMovedOn(sessionId) }
+        if name == "Stop" || name == "StopFailure" { state.shownFinishes.ended(sessionId, shown: false) }
+        if name == "SessionEnd" {
+            state.shownFinishes.forget(sessionId)
+            nbLog("SessionEnd [\(agentId)] (\(sessionId.prefix(8)))")
+        }
+        // Any other event of a session means it moved on (a tool ran, a prompt, an end of turn): what its
+        // held item said was answered in its app, or seen (ClaudeAppAlertHold.sessionMovedOn). Any app.
+        // Closing the session (SessionEnd) only makes its held request moot: its held end stays.
+        if name == "SessionEnd" {
+            state.sessionEnded(sessionId)
+        } else if name != "Notification" {
+            state.sessionMovedOn(sessionId)
+        }
+        // C1: the Claude app pill all its sessions share may have gone (5.2 s after a Stop, or on a
+        // SessionEnd of any of them): an end of turn, or a notification that asks something, puts it
+        // back first, so its view opens and Klay takes its pose like the first time.
+        if isExternalAgent, let desktopAgent = validAgent,
+           HookRouting.recreatesPill(event: name, agent: rawAgent,
+                                     asks: asked != nil || Self.isRateLimit(payload["message"] as? String ?? "")),
+           !state.tasks.contains(where: { $0.id == agentId }) {
+            upsertExternalAgent(id: agentId, name: desktopAgent)
+            if name == "Stop" || name == "StopFailure" {
+                nbLog("\(name) [\(agentId)] (\(sessionId.prefix(8))): the Claude app pill was gone, put back")
+            }
+        }
 
         // While a permission request is pending, dismiss when the resolving event arrives,
         // then continue normal processing. Only skip normal processing when unresolved.
@@ -531,13 +631,13 @@ final class HookServer: @unchecked Sendable {
                 if sessionId == pending.sessionId,
                    (payload["tool_name"] as? String ?? "") == pending.tool,
                    Self.approvalInputKey(payload["tool_input"] as? [String: Any] ?? [:]) == pending.inputKey {
-                    dismissApprovalCard(note: handledNote)
+                    dismissApprovalCard(note: handledNote, exit: .handledElsewhere)
                     resolved = true
                 }
             case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd":
                 // Turn ended: the permission is moot.
                 if sessionId == pending.sessionId {
-                    dismissApprovalCard(note: handledNote)
+                    dismissApprovalCard(note: handledNote, exit: .handledElsewhere)
                     resolved = true
                 }
             default: break
@@ -547,6 +647,10 @@ final class HookServer: @unchecked Sendable {
                 if sessionId != pending.sessionId {
                     trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, folder: projectName,
                                  host: sessionHost, asked: asked)
+                    // Its end of turn plays its sound, badges the pill and is held for when the card
+                    // leaves (0.3.6, C2: it was silent), as under a question card.
+                    endOfTurnUnderCard(name, payload: payload, sessionId: sessionId, pillId: agentId,
+                                       folder: projectName, host: sessionHost)
                     // What it asks plays its sound and is held for when the card leaves; never over the card.
                     if let asked { alertClaudeApp(asked, projectName: projectName, sessionId: sessionId) }
                 }
@@ -558,17 +662,15 @@ final class HookServer: @unchecked Sendable {
         // A question card of this pill waits for its answer. No event of ANOTHER session of the same
         // pill acts on it under the card (HookRouting.eventReachesPill), as under a permission card: it
         // is not put on working, finished or error, not renamed, and no view opens over the card. That
-        // session's row is updated, and an end of turn badges the pill. (The session that owns the
-        // question goes on below: its Stop only badges the pill while the card waits.)
+        // session's row is updated, and an end of turn plays its sound, badges the pill and is held.
+        // (The session that owns the question goes on below: its Stop is held while the card waits.)
         if !HookRouting.eventReachesPill(agentId, sessionId: sessionId,
                                          questionPill: state.pendingQuestion != nil ? questionPillId : nil,
                                          questionSession: questionSessionId) {
             trackSession(event: name, payload: payload, sessionId: sessionId, pillId: agentId, folder: projectName,
                          host: sessionHost, asked: asked)
-            if name == "Stop" || name == "StopFailure" {
-                SoundEngine.shared.play(name == "Stop" ? "finish" : "error")
-                setPillBadge(id: agentId, badge: name == "Stop" ? .finished : .error)
-            }
+            endOfTurnUnderCard(name, payload: payload, sessionId: sessionId, pillId: agentId,
+                               folder: projectName, host: sessionHost)
             // What a notification asks plays its sound and is held for when the card leaves (M7).
             if let asked { alertClaudeApp(asked, projectName: projectName, sessionId: sessionId) }
             return
@@ -666,55 +768,21 @@ final class HookServer: @unchecked Sendable {
             }
             SoundEngine.shared.play("finish")
             // Claude finished a session: the island opens on its end (spec §4), unless a card waits or
-            // the user is using the island (then the pill is only badged). Everything is read here, after
-            // an approval card the Stop resolved was dismissed and gave the focus back.
-            let presentation = FinishPresentation.decide(
-                expanded: state.mode == .expanded, view: state.view.rawValue, pinned: state.isPinned,
-                requestPending: state.pendingApproval != nil || state.pendingQuestion != nil)
-            if presentation == .open, state.tasks.contains(where: { $0.id == agentId }) {
-                // The finished view tells which session ended, whatever the pill and its focus become.
-                var finished = state.sessions.first { $0.id == sessionId }
-                    ?? SessionRow(id: sessionId, pillId: agentId,
-                                  title: state.sessionTitle(of: sessionId, folder: projectName), phase: .finished,
-                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost, folder: projectName)
-                if !finalText.isEmpty { finished.lastAction = finalText }
-                state.finishedSession = finished
-                if state.focusId != agentId {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
-                }
-                expandIfNeeded(to: .finished)
-                recordShownFinish(sessionId)
-            } else {
-                setPillBadge(id: agentId, badge: .finished)
-            }
+            // the user is using the island (then the end is held for when it frees, ClaudeAppAlertHold).
+            // Everything is read here, after an approval card the Stop resolved was dismissed and gave
+            // the focus back. Whether its pill is loaded or not (0.3.6, C1): the view reads the session.
+            presentEndOfTurn(failed: false, payload: payload, sessionId: sessionId, pillId: agentId,
+                             folder: projectName, host: sessionHost)
             scheduleFinishCleanup(pillId: agentId, isExternalAgent: isExternalAgent)
 
         case "StopFailure":
             state.updateTask(id: agentId, state: .error)
             SoundEngine.shared.play("error")
             // Same rule as the end of a session: the error opens the island unless a card waits or the
-            // user is using it (then the pill is only badged). Read now, after an approval card this
-            // event resolved was dismissed and gave the focus back to another pill.
-            let presentation = FinishPresentation.decide(
-                expanded: state.mode == .expanded, view: state.view.rawValue, pinned: state.isPinned,
-                requestPending: state.pendingApproval != nil || state.pendingQuestion != nil)
-            if presentation == .open, state.tasks.contains(where: { $0.id == agentId }) {
-                // The error view tells which session failed and why, like the finished view: its
-                // project, the error text of the hook (none: the view says so), the app it runs in.
-                var failed = state.sessions.first { $0.id == sessionId }
-                    ?? SessionRow(id: sessionId, pillId: agentId,
-                                  title: state.sessionTitle(of: sessionId, folder: projectName), phase: .error,
-                                  lastAction: "", updatedAt: Date(), hostBundleId: sessionHost, folder: projectName)
-                failed.lastAction = SessionRoster.failureText(of: payload) ?? ""
-                state.failedSession = failed
-                if state.focusId != agentId {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(agentId) }
-                }
-                expandIfNeeded(to: .error)
-                recordShownFinish(sessionId)
-            } else {
-                setPillBadge(id: agentId, badge: .error)
-            }
+            // user is using it (then it is held). Read now, after an approval card this event resolved
+            // was dismissed and gave the focus back to another pill.
+            presentEndOfTurn(failed: true, payload: payload, sessionId: sessionId, pillId: agentId,
+                             folder: projectName, host: sessionHost)
 
         case "SessionEnd":
             activeSessionId = nil
@@ -734,6 +802,75 @@ final class HookServer: @unchecked Sendable {
         default:
             break
         }
+    }
+
+    /// The row the finished view (or error view, `failed`) of session `sessionId` tells about: its row
+    /// in the list, with the whole last sentence (the row keeps one line of it) or the hook's error
+    /// text; a row made from the event when the list has none.
+    @MainActor
+    private func endRow(failed: Bool, payload: [String: Any], sessionId: String, pillId: String,
+                        folder: String, host: String?) -> SessionRow {
+        let state = AppState.shared
+        var row = state.sessions.first { $0.id == sessionId }
+            ?? SessionRow(id: sessionId, pillId: pillId, title: state.sessionTitle(of: sessionId, folder: folder),
+                          phase: failed ? .error : .finished, lastAction: "", updatedAt: Date(),
+                          hostBundleId: host, folder: folder)
+        if failed {
+            row.lastAction = SessionRoster.failureText(of: payload) ?? ""
+        } else {
+            let finalText = Self.finalText(of: payload)
+            if !finalText.isEmpty { row.lastAction = finalText }
+        }
+        return row
+    }
+
+    /// The end of a session's turn (Stop, or StopFailure `failed`), its sound already played: its
+    /// finished or error view opens when `FinishPresentation` allows it, whether its pill is loaded or
+    /// not (0.3.6, C1: the view reads the session), in place of what the app showed (a note that asked
+    /// something, or a finish not seen yet, goes back into the hold: C5, I6). Otherwise the pill is
+    /// badged and the end is held for when the island frees (I8), whatever the app of the session.
+    /// One nb.log line, the session's id prefix only (I10).
+    @MainActor
+    private func presentEndOfTurn(failed: Bool, payload: [String: Any], sessionId: String, pillId: String,
+                                  folder: String, host: String?) {
+        let state = AppState.shared
+        let event = failed ? "StopFailure" : "Stop"
+        let row = endRow(failed: failed, payload: payload, sessionId: sessionId, pillId: pillId,
+                         folder: folder, host: host)
+        let presentation = FinishPresentation.decide(
+            expanded: state.mode == .expanded, view: state.view.rawValue, pinned: state.isPinned,
+            requestPending: state.pendingApproval != nil || state.pendingQuestion != nil)
+        guard presentation == .open else {
+            setPillBadge(id: pillId, badge: failed ? .error : .finished)
+            state.holdFinish(row, failed: failed)
+            nbLog("\(event) [\(pillId)] (\(sessionId.prefix(8))): held, the island is busy")
+            return
+        }
+        state.displaceScreenItem(by: sessionId)
+        // The view tells which session ended, whatever the pill and its focus become.
+        if failed { state.failedSession = row } else { state.finishedSession = row }
+        if state.focusId != pillId {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.setFocus(pillId) }
+        }
+        expandIfNeeded(to: failed ? .error : .finished)
+        recordShownFinish(sessionId)
+        state.noteScreenItem(.finish(row, failed: failed, at: Date()))
+        nbLog("\(event) [\(pillId)] (\(sessionId.prefix(8))): shown")
+    }
+
+    /// The end of turn of a session whose pill holds another session's card (0.3.6, C2): its sound
+    /// plays, the pill is badged, and its end is held for when the card leaves. Nothing for any other
+    /// event.
+    @MainActor
+    private func endOfTurnUnderCard(_ name: String, payload: [String: Any], sessionId: String, pillId: String,
+                                    folder: String, host: String?) {
+        guard name == "Stop" || name == "StopFailure" else { return }
+        let failed = name == "StopFailure"
+        SoundEngine.shared.play(failed ? "error" : "finish")
+        setPillBadge(id: pillId, badge: failed ? .error : .finished)
+        AppState.shared.holdFinish(endRow(failed: failed, payload: payload, sessionId: sessionId, pillId: pillId,
+                                          folder: folder, host: host), failed: failed)
+        nbLog("\(name) [\(pillId)] (\(sessionId.prefix(8))): held under a card")
     }
 
     /// After a tool call the pill goes back to working, except that the binoculars of a search
@@ -864,11 +1001,10 @@ final class HookServer: @unchecked Sendable {
             }
             return
         }
-        if validateAgent(rawAgent) != nil {
-            lastDesktopHookAt = Date()
-            // A new request of the session: its own card asks it now, its held alert goes.
-            AppState.shared.claudeAppSessionMovedOn(sessionId)
-        }
+        // The Chat and Cowork watch keeps a permission quiet within 15 s of a Code tab one (I5).
+        if validateAgent(rawAgent) != nil { lastDesktopHookAt.permission = Date() }
+        // A new request of the session: its own card asks it now, its held item goes.
+        state.sessionMovedOn(sessionId)
         let pillId = route.pillId
         let terminalHost = route.terminalHost
 
@@ -903,8 +1039,11 @@ final class HookServer: @unchecked Sendable {
             let old = pendingApprovalFD
             let oldSource = approvalFDSource
             approvalFDSource = nil
-            // Its card is gone: that session goes back to working in the roster (it asks in its own window).
-            resumeSession(state.pendingApproval?.sessionId)
+            // Its card is gone, but it still waits in its own window: its row stays on approval, and
+            // for a session of the Claude app an alert is held (0.3.6, C3).
+            if let displaced = state.pendingApproval {
+                requestExited(.permission, sessionId: displaced.sessionId, pillId: displaced.pillId, exit: .displaced)
+            }
             Task.detached { [weak self] in
                 // "ask" → nb-hook outputs nothing → Claude Code re-asks
                 self?.sendLine(fd: old, text: #"{"permissionDecision":"ask"}"#)
@@ -935,7 +1074,9 @@ final class HookServer: @unchecked Sendable {
 
         if takesScreen {
             // Approval forces the island open: the user must be able to respond.
-            // Save current focus so we can restore it when the card is dismissed.
+            // Save current focus so we can restore it when the card is dismissed. A note that asked
+            // something, or a finish not seen yet, on screen goes back into the hold.
+            state.displaceScreenItem(by: sessionId)
             if focusBeforeApproval == nil { focusBeforeApproval = state.focusId }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
             expandIfNeeded(to: .approval)
@@ -949,7 +1090,7 @@ final class HookServer: @unchecked Sendable {
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, self.requestTokens.isCurrent(token, .approval) else { return }
-            self.dismissApprovalCard(note: "Handled in \(self.requestHostName(forPill: pillId)).")
+            self.dismissApprovalCard(note: "Handled in \(self.requestHostName(forPill: pillId)).", exit: .handledElsewhere)
         }
         source.setCancelHandler { close(fd) }
         source.resume()
@@ -958,9 +1099,10 @@ final class HookServer: @unchecked Sendable {
         // Safety timeout: show a note and cancel without sending a decision.
         // nb-hook reads EOF from the cancel handler's close and exits; Claude Code re-asks.
         // Keyed by the request's token: a later request on the same fd number is not dismissed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 115) { [weak self] in
+        // The request still waits in its app: its row stays on approval (C3).
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.approvalTimeout) { [weak self] in
             guard let self, self.requestTokens.isCurrent(token, .approval) else { return }
-            self.dismissApprovalCard(note: "Still waiting in \(self.requestHostName(forPill: pillId)).")
+            self.dismissApprovalCard(note: "Still waiting in \(self.requestHostName(forPill: pillId)).", exit: .timedOut)
         }
     }
 
@@ -1006,7 +1148,8 @@ final class HookServer: @unchecked Sendable {
         }
         let answeredSessionId = state.pendingApproval?.sessionId
         state.pendingApproval = nil
-        resumeSession(answeredSessionId)
+        requestExited(.permission, sessionId: answeredSessionId, pillId: pillId,
+                      exit: decision == "ask" ? .handedBack : .answered)
         // The question still waiting shows next, else the home.
         requestLeft(.approval, pillId: pillId, onScreen: onScreen, note: "")
     }
@@ -1033,11 +1176,8 @@ final class HookServer: @unchecked Sendable {
             }
             return
         }
-        if validateAgent(rawAgent) != nil {
-            lastDesktopHookAt = Date()
-            // A new request of the session: its own card asks it now, its held alert goes.
-            AppState.shared.claudeAppSessionMovedOn(sessionId)
-        }
+        // A new request of the session: its own card asks it now, its held item goes.
+        state.sessionMovedOn(sessionId)
         let pillId = route.pillId
         let terminalHost = route.terminalHost
 
@@ -1052,8 +1192,9 @@ final class HookServer: @unchecked Sendable {
             let old = pendingQuestionFD
             let oldSrc = questionFDSource
             questionFDSource = nil
-            // Its card is gone: that session goes back to working in the roster (it asks in its own window).
-            resumeSession(questionSessionId)
+            // Its card is gone, but it still waits in its own window: its row stays on question, and
+            // for a session of the Claude app an alert is held (0.3.6, C3).
+            requestExited(.waiting, sessionId: questionSessionId, pillId: questionPillId, exit: .displaced)
             Task.detached { [weak self] in
                 self?.sendLine(fd: old, text: #"{"permissionDecision":"ask"}"#)
                 DispatchQueue.main.async { oldSrc?.cancel() }
@@ -1083,6 +1224,8 @@ final class HookServer: @unchecked Sendable {
         SoundEngine.shared.play("approval")
 
         if takesScreen {
+            // A note that asked something, or a finish not seen yet, on screen goes back into the hold.
+            state.displaceScreenItem(by: sessionId)
             if focusBeforeQuestion == nil { focusBeforeQuestion = state.focusId }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { state.focusId = pillId }
             expandIfNeeded(to: .question)
@@ -1094,7 +1237,7 @@ final class HookServer: @unchecked Sendable {
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, self.requestTokens.isCurrent(token, .question) else { return }
-            self.dismissQuestionCard(note: "")
+            self.dismissQuestionCard(note: "", exit: .handledElsewhere)
         }
         source.setCancelHandler { close(fd) }
         source.resume()
@@ -1103,16 +1246,10 @@ final class HookServer: @unchecked Sendable {
         // Keyed by the request's token: a later question on the same fd number is not dismissed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
             guard let self, self.requestTokens.isCurrent(token, .question) else { return }
-            // Send "ask" so nb-hook exits cleanly; Claude Code re-asks in terminal.
-            let askFD = self.pendingQuestionFD
-            self.pendingQuestionFD = -1
-            let src = self.questionFDSource
-            self.questionFDSource = nil
-            Task.detached { [weak self] in
-                self?.sendLine(fd: askFD, text: #"{"permissionDecision":"ask"}"#)
-                DispatchQueue.main.async { src?.cancel() }
-            }
-            self.dismissQuestionCard(note: "")
+            // Send "ask" so nb-hook exits cleanly; Claude Code asks itself. The question still waits
+            // in its app: its row stays on question (C3).
+            self.sendAskToQuestion()
+            self.dismissQuestionCard(note: "", exit: .timedOut)
         }
     }
 
@@ -1206,7 +1343,8 @@ final class HookServer: @unchecked Sendable {
     // MARK: - Badge helpers
 
     /// A badge on a pill, for what the island could not show at once. The Claude app pill is drawn
-    /// nowhere: its badge goes to the house tab of the header, even once the pill is gone (AppState).
+    /// nowhere: its finish or error badge goes to the house tab of the header, even once the pill is
+    /// gone (AppState); a request's badge does not, the house tab reads the pending requests live.
     @MainActor
     private func setPillBadge(id: String, badge: PillBadge) {
         let state = AppState.shared
@@ -1215,11 +1353,11 @@ final class HookServer: @unchecked Sendable {
         state.tasks[idx].pillBadge = badge
     }
 
-    /// The house tab mirrors the Claude app pill's badge: it loses the unseen mark with it.
+    /// The pill's own badge goes (its request shows, or left). The house tab keeps the marks of the
+    /// other sessions (0.3.6, I7): only the home's list on screen and the Claude app in front clear them.
     @MainActor
     private func clearPillBadge(id: String) {
         let state = AppState.shared
-        if id == HookRouting.desktopPillId { state.claudeAppPillBadgeCleared() }
         guard let idx = state.tasks.firstIndex(where: { $0.id == id }) else { return }
         state.tasks[idx].pillBadge = nil
     }
@@ -1285,6 +1423,7 @@ final class HookServer: @unchecked Sendable {
         let phase: SessionPhase
         var action: String? = nil
         var prompt: String? = nil
+        var byNotification = false
         switch name {
         case "SessionStart":
             phase = .idle
@@ -1308,9 +1447,11 @@ final class HookServer: @unchecked Sendable {
                       let next = CodeNotification.rowPhase(for: asked, current: rowPhase(of: sessionId)) {
                 // The Claude app asks something and no card of that session shows it: the home's
                 // list does (the icon's colour; « Attend ton accord : <the tool> », « Attend ta
-                // réponse » when Claude waits).
+                // réponse » when Claude waits). Put there by a notification, the row goes like an
+                // idle one, 30 min without an event (M5).
                 phase = next
                 if next == .question { action = "Attend ta réponse" }
+                byNotification = true
             } else {
                 return
             }
@@ -1325,11 +1466,13 @@ final class HookServer: @unchecked Sendable {
         case "Stop":
             phase = .finished
             // The row stops before raw JSON (ActionText.end); the finished view keeps the whole text.
-            action = SessionRoster.line(ActionText.end(Self.finalText(of: payload)))
+            // No sentence, or nothing but JSON: « A terminé », never the tool action before it (M3).
+            action = SessionRoster.line(ActionText.finished(Self.finalText(of: payload)))
         case "StopFailure":
             phase = .error
-            // « API Error: 529 » without its JSON body and request id; the error view keeps them.
-            action = SessionRoster.failureText(of: payload).flatMap { SessionRoster.line(ActionText.end($0)) }
+            // « API Error: 529 » without its JSON body and request id; the error view keeps them. No
+            // text: empty, so the row says « Erreur », never the tool action before it (M3).
+            action = SessionRoster.line(ActionText.failed(SessionRoster.failureText(of: payload))) ?? ""
         case "SessionEnd":
             AppState.shared.endSession(sessionId)
             return
@@ -1339,7 +1482,7 @@ final class HookServer: @unchecked Sendable {
         AppState.shared.updateSession(sessionId: sessionId, pillId: pillId, folder: folder,
                                       phase: phase, lastAction: action, hostBundleId: host,
                                       entrypoint: SessionRoster.entrypoint(from: payload["klayer_entrypoint"]),
-                                      prompt: prompt)
+                                      prompt: prompt, byNotification: byNotification)
     }
 
     /// The card of a session was answered or closed: its row leaves "approval" or "question" and goes
@@ -1387,7 +1530,7 @@ final class HookServer: @unchecked Sendable {
               CodeNotification.shouldOpen(kind: kind, sessionHasCard: sessionHoldsCard(sessionId),
                                           agent: payload["klayer_agent"] as? String ?? "",
                                           currentPhase: rowPhase(of: sessionId),
-                                          finishShown: shownFinishes.wasShown(sessionId))
+                                          finishShown: AppState.shared.shownFinishes.wasShown(sessionId))
         else { return nil }
         return kind
     }
@@ -1395,29 +1538,29 @@ final class HookServer: @unchecked Sendable {
     /// The note of a Claude app notification that asks something (`kind`), through the one entry of
     /// Claude app alerts: shown, or, the island busy, its sound and the alert held for when it frees.
     /// A permission has the approval sound, Claude waiting (idle, or an MCP form) the question one.
-    /// The line names the session by its name, else its folder (`projectName`).
+    /// The line names the session by its name, else its folder (`projectName`). An idle prompt of a
+    /// session whose end the busy island holds adds nothing: that end shows once the island frees.
     @MainActor
     private func alertClaudeApp(_ kind: CodeNotification.Kind, projectName: String, sessionId: String) {
-        let title = String(localized: "Claude attend ta réponse")
-        let session = AppState.shared.sessionTitle(of: sessionId, folder: projectName)
-        let detail: String
-        switch kind {
-        case .permission: detail = String(localized: "Une autorisation t'attend dans l'app Claude : \(session)")
-        case .waiting, .idle:
-            detail = String(localized: "Claude a besoin de toi dans l'app Claude : \(session)")
+        let state = AppState.shared
+        if kind == .idle, state.claudeAppAlertHold.holdsFinish(of: sessionId) {
+            nbLog("Notification idle from the Claude app (\(sessionId.prefix(8))): its end is held already")
+            return
         }
-        let shown = AppState.shared.showClaudeAppAlert(title: title, message: detail,
-                                                       sound: kind == .permission ? "approval" : "question",
-                                                       sessionId: sessionId)
+        let text = Self.alertText(kind, session: state.sessionTitle(of: sessionId, folder: projectName))
+        let shown = state.showClaudeAppAlert(title: text.title, message: text.message, sound: text.sound,
+                                             sessionId: sessionId)
         nbLog("Notification \(kind) from the Claude app (\(sessionId.prefix(8))): "
               + (shown ? "shown" : "held, the island is busy"))
     }
 
-    /// The finished or error view of session `sessionId` opened: its idle prompt asks nothing new.
+    /// The finished or error view of session `sessionId` opened: its idle prompt asks nothing new,
+    /// unless a newer view replaces it before it was seen (AppState.displaceScreenItem).
     @MainActor
     private func recordShownFinish(_ sessionId: String) {
-        shownFinishes.ended(sessionId, shown: true)
-        shownFinishes.keep(only: Set(AppState.shared.sessions.map(\.id)))
+        let state = AppState.shared
+        state.shownFinishes.ended(sessionId, shown: true)
+        state.shownFinishes.keep(only: Set(state.sessions.map(\.id)))
     }
 
     /// A `notification_type` as the log writes it: letters, digits and underscores, 40 at most;
@@ -1734,25 +1877,21 @@ extension Notification.Name {
 }
 
 // MARK: - nb-hook shell wrapper
-// Invoked by Claude Code via /bin/sh or directly via shebang.
-// Always exits 0: never blocks Claude Code.
+// Invoked by Claude Code via /bin/sh or directly via shebang. Never blocks Claude Code.
 // Checks xcode-select before running python3 to avoid triggering the
 // "install developer tools" dialog on machines without Xcode CLI tools.
+// python3 replaces the shell (exec, 0.3.6, I9): the process Claude Code started is the relay itself,
+// so ending it (the permission was answered in the Claude app) closes the island's connection at once
+// and the card folds. Before, python3 ran as a child of the shell, outlived it, and the card stayed up
+// to 115 s. nb-hook.py always exits 0 and prints only one line of valid JSON, or nothing.
 
 private let nbHookShellWrapper = """
 #!/bin/sh
-# Klayer Island hook relay: always exits 0, never blocks Claude Code
+# Klayer Island hook relay: never blocks Claude Code. python3 replaces this shell, so ending the
+# hook's process ends the relay and closes its connection to the island.
 HOOK_DIR="$(dirname "$0")"
-out=""
-if xcode-select -p >/dev/null 2>&1; then
-    out=$(/usr/bin/python3 "$HOOK_DIR/nb-hook.py" "$@" 2>/dev/null)
-    rc=$?
-    if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
-        out=""
-    fi
-fi
-if [ -n "$out" ]; then
-    printf '%s\\n' "$out"
+if [ -x /usr/bin/python3 ] && xcode-select -p >/dev/null 2>&1; then
+    exec /usr/bin/python3 "$HOOK_DIR/nb-hook.py" "$@" 2>/dev/null
 fi
 exit 0
 """

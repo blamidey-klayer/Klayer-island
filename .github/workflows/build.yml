@@ -79,6 +79,9 @@ jobs:
       - name: Test hook relay
         run: bash scripts/test-hook-relay.sh
 
+      - name: Test app log
+        run: bash scripts/test-app-log.sh
+
       - name: Test Claude app watch
         run: bash scripts/test-claude-app-watch.sh
 

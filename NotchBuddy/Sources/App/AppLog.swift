@@ -14,11 +14,14 @@ func escapedForLog(_ s: String) -> String {
 /// - Log directory is created at mode 0700.
 /// - Log file is set to mode 0600 on first creation and after each rotation.
 /// - File is rotated (truncated) when it reaches 1 MB.
+/// - A write that fails (a full disk) is dropped silently: the throwing FileHandle API, never the
+///   legacy one that raised an Objective-C exception on a write error (0.3.6, B4).
 func appendAppLog(_ fileName: String, _ message: String,
                   timestampFormat: String = "yyyy-MM-dd HH:mm:ss") {
     let fm = FileManager.default
-    let logsDir = fm.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Logs/NotchBuddy")
+    let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first
+        ?? fm.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+    let logsDir = library.appendingPathComponent("Logs/NotchBuddy")
     try? fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
     try? fm.setAttributes([.posixPermissions: 0o700 as NSNumber], ofItemAtPath: logsDir.path)
     let logFile = logsDir.appendingPathComponent(fileName)
@@ -36,8 +39,8 @@ func appendAppLog(_ fileName: String, _ message: String,
             return
         }
         if let handle = try? FileHandle(forWritingTo: logFile) {
-            handle.seekToEndOfFile()
-            handle.write(data)
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
             try? handle.close()
         }
         // Ensure permissions even on existing files (idempotent)

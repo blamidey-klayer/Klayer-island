@@ -34,6 +34,9 @@ enum ActionTextTests {
             ("a_prompt_is_its_first_line", aPromptIsItsFirstLine),
             ("a_json_or_blank_prompt_is_nothing", aJSONOrBlankPromptIsNothing),
             ("a_question_is_asked_to_you", aQuestionIsAskedToYou),
+            ("terminal_tools_say_what_they_do_in_the_terminal", terminalToolsSayWhatTheyDoInTheTerminal),
+            ("a_command_skips_env_export_and_source", aCommandSkipsEnvExportAndSource),
+            ("an_empty_or_json_only_last_sentence_says_it_finished", anEmptyOrJSONOnlyLastSentenceSaysItFinished),
             ("no_em_dash_anywhere", noEmDashAnywhere),
         ]
         for (name, run) in cases {
@@ -294,10 +297,73 @@ enum ActionTextTests {
         expect(ActionText.question("  "), "Te pose une question", "no text")
     }
 
+    // MARK: - 0.3.6 (audit C, M1 to M3)
+
+    // M1: his permission rows read « Attend ton accord : utilise run in (Terminal) ». A terminal tool
+    // says what it does there, with the command when it has one.
+    static func terminalToolsSayWhatTheyDoInTheTerminal() {
+        expect(describe("mcp__terminal__run_in_terminal", ["command": "npm test", "explanation": "Run the tests"]),
+               "Exécute dans le terminal : npm test", "run_in_terminal with its command, never the explanation")
+        let long = "npm run build -- --filter=contrats-fournisseurs --report=ecarts-de-facturation " + String(repeating: "x", count: 150)
+        let text = describe("mcp__terminal__run_in_terminal", ["command": long, "isBackground": false])
+        precondition(text.hasPrefix("Exécute dans le terminal : npm run build") && text.hasSuffix("…"),
+                     "a long command is cut on a word: « \(text) »")
+        precondition(text.count <= "Exécute dans le terminal : ".count + ActionText.commandLimit + 1, "short: « \(text) »")
+        expect(describe("mcp__terminal__run_in_terminal"), "Exécute dans le terminal", "no command")
+        expect(describe("mcp__terminal__run_in_terminal", ["command": "cd /Users/me/site && env CI=1 npm test"]),
+               "Exécute dans le terminal : npm test", "the command as a Bash row says it")
+        expect(describe("mcp__terminal__get_terminal_output", ["id": "3"]), "Lit la sortie du terminal", "its output")
+        expect(describe("mcp__terminal__create_terminal"), "Ouvre un terminal", "a new terminal")
+        expect(describe("mcp__terminal__kill_terminal"), "Ferme un terminal", "closed")
+        expect(describe("mcp__terminal__send_to_terminal", ["text": "y"]), "Écrit dans le terminal", "typed in it")
+        expect(describe("mcp__terminal__list_terminals"), "Liste les terminaux", "the list")
+        expect(describe("mcp__terminal__focus_terminal"), "Utilise le terminal", "anything else")
+        expect(describe("mcp__iterm__write_to_terminal", ["command": "ls"]), "Écrit dans le terminal", "another server's terminal tool")
+        // A command run by another MCP server: « Exécute » with the command, then the server.
+        expect(describe("mcp__shell__execute_command", ["command": "ls -la"]), "Exécute ls -la (Shell)", "a shell server")
+        expect(describe("mcp__desktop-commander__run_command", ["cmd": "make test"]), "Exécute make test (Desktop Commander)",
+               "cmd too")
+    }
+
+    // M2: the prefixes that only prepare the command: env and its variables, export, source, a
+    // quoted variable.
+    static func aCommandSkipsEnvExportAndSource() {
+        expect(describe("Bash", ["command": "env FOO=1 BAR=2 npm test"]), "Exécute npm test", "env and its variables")
+        expect(describe("Bash", ["command": "export PATH=/opt/bin:$PATH; npm test"]), "Exécute npm test", "export ;")
+        expect(describe("Bash", ["command": "export A=1 && export B=2 && make"]), "Exécute make", "export &&")
+        expect(describe("Bash", ["command": #"GIT_AUTHOR_NAME="Baptiste L" git commit -m x"#]), "Exécute git commit -m x",
+               "a quoted variable")
+        expect(describe("Bash", ["command": "NAME='a b' OTHER=2 ./run.sh --fast"]), "Exécute run.sh --fast", "single quotes")
+        expect(describe("Bash", ["command": "source .venv/bin/activate && pytest"]), "Exécute pytest", "source")
+        expect(describe("Bash", ["command": ". ./env.sh; ./deploy.sh"]), "Exécute deploy.sh", "the dot")
+        expect(describe("Bash", ["command": "cd site && export CI=1 && env DEBUG=1 npm run lint"]),
+               "Exécute npm run lint", "all of them in a chain")
+        expect(describe("Bash", ["command": "export FOO=1"]), "Exécute export FOO=1", "a lone export stays")
+        expect(describe("Bash", ["command": #"git commit -m "fix: the bug""#]), #"Exécute git commit -m "fix: the bug""#,
+               "quotes in the arguments are kept")
+        expect(describe("Bash", ["command": #"git commit -m "fix: the login bug""#]),
+               #"Exécute git commit -m "fix: the login…"#, "cut on a word inside the quotes")
+    }
+
+    // M3: a Stop with no last sentence, or nothing but JSON, says it finished instead of keeping the
+    // previous tool action on the ended row; a failure with no text says nothing (the row says
+    // « Erreur »).
+    static func anEmptyOrJSONOnlyLastSentenceSaysItFinished() {
+        expect(ActionText.finished(""), "A terminé", "no last sentence")
+        expect(ActionText.finished("   \n "), "A terminé", "a blank one")
+        expect(ActionText.finished(#"{"type":"result","ok":true}"#), "A terminé", "nothing but JSON")
+        expect(ActionText.finished("Le résumé est prêt."), "Le résumé est prêt.", "a sentence")
+        expect(ActionText.finished(#"API Error: 529 {"type":"error"}"#), "API Error: 529", "its words before JSON")
+        expect(ActionText.failed(nil), "", "a failure without text")
+        expect(ActionText.failed(#"{"error":"x"}"#), "", "nothing but JSON")
+        expect(ActionText.failed(#"API Error: 529 {"type":"error"}"#), "API Error: 529", "its words")
+    }
+
     static func noEmDashAnywhere() {
         let samples = [describe("Read", ["file_path": "a.txt"]), describe("Bash", ["command": "ls"]),
                        describe("mcp__linear__list_issues"), describe("WebSearch", ["query": "q"]),
-                       ActionText.question("q"), describe("TodoWrite"), describe("Task")]
+                       ActionText.question("q"), describe("TodoWrite"), describe("Task"),
+                       describe("mcp__terminal__run_in_terminal", ["command": "ls"]), ActionText.finished("")]
         for text in samples {
             precondition(!text.contains("\u{2014}"), "no em dash in « \(text) »")
         }

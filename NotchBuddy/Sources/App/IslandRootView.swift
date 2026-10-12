@@ -473,14 +473,14 @@ struct IslandHeader: View {
             // Left: tab capsules
             HStack(spacing: 5) {
                 // The house brings the conversations back when a GitHub or Spotify card replaced them.
-                // It carries the badge of a Claude app alert held while the island was busy, or of the
-                // Claude app pill not seen yet, and a click shows that held alert in place of the home
-                // (ClaudeAppAlertHold).
+                // It carries the badge of what the busy island held (with their number from 2 on), or
+                // of the Claude app pill not seen yet, and a click shows the newest held item in place
+                // of the home (ClaudeAppAlertHold).
                 TabButton(icon: "house.fill", view: .overview, state: state, preAction: {
                     state.showHomeList()
                 }, destination: {
-                    state.showHeldClaudeAppAlert(inPlaceOf: .overview, announce: false) ? .note : .overview
-                }, badge: state.houseTabBadge)
+                    state.showHeldItem(inPlaceOf: .overview, announce: false) ?? .overview
+                }, badge: state.houseTabBadge, badgeCount: state.houseTabCount)
                 // The chat opens without capturing the previous app's window (lot 6 spec §3).
                 TabButton(icon: "bubble.left.fill", view: .prompt, state: state)
                 TabButton(icon: "plus", view: .upload, state: state)
@@ -541,6 +541,8 @@ struct TabButton: View {
     var destination: (() -> IslandView)? = nil
     /// The badge drawn on the tab, as on the rail's icons (the house: ClaudeAppAlertHold).
     var badge: PillBadge? = nil
+    /// How many items the badge stands for: written in it from 2 on (the house's held items).
+    var badgeCount: Int = 0
     @State private var isHovered = false
 
     private var isOn: Bool {
@@ -568,7 +570,7 @@ struct TabButton: View {
                 // The same badge, size and place as on the rail's icons (HomeRailButton)
                 .overlay(alignment: .topTrailing) {
                     if let badge {
-                        PillBadgeView(badge: badge, taskColor: "#8E939C")
+                        PillBadgeView(badge: badge, taskColor: "#8E939C", count: badgeCount)
                             .scaleEffect(0.75)
                             .offset(x: 3, y: -3)
                     }

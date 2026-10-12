@@ -32,6 +32,7 @@ enum ClaudeAppWatchTests {
             ("a_permission_seen_in_front_never_alerts", aPermissionSeenInFrontNeverAlerts),
             ("a_stop_that_gives_way_to_a_permission_is_no_finished_answer", aStopThatGivesWayToAPermissionIsNoFinishedAnswer),
             ("an_event_kept_quiet_by_a_code_hook_is_consumed", anEventKeptQuietByACodeHookIsConsumed),
+            ("only_the_same_kind_of_code_hook_keeps_the_watch_quiet", onlyTheSameKindOfCodeHookKeepsTheWatchQuiet),
             ("polling_only_in_front_or_during_an_answer", pollingOnlyInFrontOrDuringAnAnswer),
             ("a_reset_forgets_everything", aResetForgetsEverything),
             // Two reads confirm an end (fix round 1, Important 2)
@@ -308,29 +309,66 @@ enum ClaudeAppWatchTests {
     static func anEventKeptQuietByACodeHookIsConsumed() {
         var s = ClaudeAppWatchState()
         precondition(s.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0),
-                               lastCodeHookAt: at(-1)).isEmpty)
+                               lastCodeHookAt: CodeHookTimes(stop: at(-1), permission: at(-1))).isEmpty)
         precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(20),
-                               lastCodeHookAt: at(6)).isEmpty, "a Code tab permission, its hook 14 s ago")
+                               lastCodeHookAt: CodeHookTimes(permission: at(6))).isEmpty,
+                     "a Code tab permission, its hook 14 s ago")
         precondition(s.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(40),
-                               lastCodeHookAt: at(6)).isEmpty, "consumed: no alert later for the same prompt")
+                               lastCodeHookAt: CodeHookTimes(permission: at(6))).isEmpty,
+                     "consumed: no alert later for the same prompt")
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(58),
-                               lastCodeHookAt: at(45)).isEmpty)
+                               lastCodeHookAt: CodeHookTimes(stop: at(45))).isEmpty)
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(60),
-                               lastCodeHookAt: at(45)).isEmpty, "a Code tab Stop, its hook 15 s before the confirming read")
+                               lastCodeHookAt: CodeHookTimes(stop: at(45))).isEmpty,
+                     "a Code tab Stop, its hook 15 s before the confirming read")
         precondition(!s.needsPolling)
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(90),
-                               lastCodeHookAt: at(45)).isEmpty, "consumed: nothing later")
+                               lastCodeHookAt: CodeHookTimes(stop: at(45))).isEmpty, "consumed: nothing later")
 
         // The same reads without a recent hook alert (16 s is too old).
         var t = ClaudeAppWatchState()
         precondition(t.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0),
-                               lastCodeHookAt: at(-16)).isEmpty)
+                               lastCodeHookAt: CodeHookTimes(stop: at(-16), permission: at(-16))).isEmpty)
         precondition(t.observe(stopVisible: true, permissionVisible: true, appFrontmost: false, now: at(22),
-                               lastCodeHookAt: at(6)) == [.permissionRequested])
+                               lastCodeHookAt: CodeHookTimes(permission: at(6))) == [.permissionRequested])
         precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(59),
-                               lastCodeHookAt: at(45)).isEmpty)
+                               lastCodeHookAt: CodeHookTimes(stop: at(45))).isEmpty)
         precondition(t.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(61),
-                               lastCodeHookAt: at(45)) == [.answerFinished])
+                               lastCodeHookAt: CodeHookTimes(stop: at(45))) == [.answerFinished])
+    }
+
+    // 0.3.6, I5: with Code tab sessions running in parallel, a hook arrives every few seconds. Only a
+    // Code tab Stop (or StopFailure) quiets the finishes, and only a Code tab permission (its request
+    // or its permission notification) quiets the permissions; any other hook quiets nothing.
+    static func onlyTheSameKindOfCodeHookKeepsTheWatchQuiet() {
+        // A Chat answer ends 4 s after another session's tool ran (PreToolUse): it alerts.
+        var chat = ClaudeAppWatchState()
+        _ = chat.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0))
+        _ = chat.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(2),
+                         lastCodeHookAt: CodeHookTimes())
+        precondition(chat.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4),
+                                  lastCodeHookAt: CodeHookTimes()) == [.answerFinished],
+                     "any other Code tab hook keeps nothing quiet")
+        // A Code tab permission 4 s ago does not quiet a Chat answer's end.
+        var finish = ClaudeAppWatchState()
+        _ = finish.observe(stopVisible: true, permissionVisible: false, appFrontmost: false, now: at(0))
+        _ = finish.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(2),
+                           lastCodeHookAt: CodeHookTimes(permission: at(0)))
+        precondition(finish.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(4),
+                                    lastCodeHookAt: CodeHookTimes(permission: at(0))) == [.answerFinished])
+        // A Code tab Stop 4 s ago does not quiet a Cowork permission.
+        var permission = ClaudeAppWatchState()
+        precondition(permission.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(4),
+                                        lastCodeHookAt: CodeHookTimes(stop: at(0))) == [.permissionRequested])
+        // The same kind does.
+        var quiet = ClaudeAppWatchState()
+        precondition(quiet.observe(stopVisible: false, permissionVisible: true, appFrontmost: false, now: at(4),
+                                   lastCodeHookAt: CodeHookTimes(stop: at(0), permission: at(0))).isEmpty)
+        precondition(ClaudeAppWatchRules.quiet(.answerFinished, times: CodeHookTimes(stop: at(0)), now: at(15)))
+        precondition(!ClaudeAppWatchRules.quiet(.answerFinished, times: CodeHookTimes(permission: at(0)), now: at(1)))
+        precondition(ClaudeAppWatchRules.quiet(.permissionRequested, times: CodeHookTimes(permission: at(0)), now: at(15)))
+        precondition(!ClaudeAppWatchRules.quiet(.permissionRequested, times: CodeHookTimes(stop: at(0)), now: at(1)))
+        precondition(!ClaudeAppWatchRules.quiet(.permissionRequested, times: CodeHookTimes(permission: at(0)), now: at(16)))
     }
 
     static func pollingOnlyInFrontOrDuringAnAnswer() {
@@ -383,7 +421,7 @@ enum ClaudeAppWatchTests {
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(10),
                                lastCodeHookAt: nil).isEmpty)
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(12),
-                               lastCodeHookAt: at(11)).isEmpty, "the Code tab reported it")
+                               lastCodeHookAt: CodeHookTimes(stop: at(11))).isEmpty, "the Code tab reported it")
         precondition(!s.needsPolling, "consumed: the answer is over")
         precondition(s.observe(stopVisible: false, permissionVisible: false, appFrontmost: false, now: at(40)).isEmpty)
     }

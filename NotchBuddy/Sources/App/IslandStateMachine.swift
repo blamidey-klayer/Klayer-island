@@ -39,6 +39,17 @@ final class IslandStateMachine {
     /// Fired when `foldDeadline` changes.
     var onFoldDeadline: ((Date?) -> Void)?
 
+    /// The auto-close preference (« Close after », seconds) is kept in this range (0.3.6, B2).
+    nonisolated static let autoCloseRange: ClosedRange<TimeInterval> = 1...3600
+
+    /// The auto-close preference as the island keeps it: between 1 s and 1 h, the default 15 s for a
+    /// value that is not a number. A free number field could store 19 digits, and the island's view
+    /// of Settings crashed on it (`Int64` of it) at every opening; a stored one is repaired at launch.
+    nonisolated static func clampedAutoClose(_ seconds: TimeInterval) -> TimeInterval {
+        guard !seconds.isNaN else { return 15 }
+        return min(max(seconds, autoCloseRange.lowerBound), autoCloseRange.upperBound)
+    }
+
     /// home → petit delay (seconds) once the user clicked inside the open island,
     /// kept in sync with the auto-close preference.
     var homeToPetitDelay: TimeInterval = 15 {

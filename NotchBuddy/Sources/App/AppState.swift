@@ -12,6 +12,11 @@ final class AppState: ObservableObject {
         didSet {
             noteHomeListShown()
             refreshStepAsideWatch()
+            // The island folded from the note or finished view of a held item, or from a view the user
+            // was busy in: the next held item shows (ClaudeAppAlertHold.foldShowsNext).
+            if oldValue == .expanded, mode != .expanded, ClaudeAppAlertHold.foldShowsNext(fromView: view.rawValue) {
+                scheduleNextHeldItem()
+            }
         }
     }
     @Published var view: IslandView = .overview {
@@ -54,6 +59,11 @@ final class AppState: ObservableObject {
     var mousePosition: CGPoint = .zero
     var lastMouseMove: Date = .now
     var isPresent: Bool = true
+    /// The pointer is on the island (the window controller's hit test). Once it has been on a note or
+    /// finished view the app opened, that view counts as seen (ClaudeAppAlertHold.finishSeen).
+    var pointerOnIsland = false {
+        didSet { if pointerOnIsland, screenItem != nil { screenItemTouched = true } }
+    }
 
     // Pinned (alerts that stay open, never auto-close)
     var isPinned: Bool = false
@@ -149,13 +159,30 @@ final class AppState: ObservableObject {
         didSet { refreshStepAsideWatch() }
     }
 
-    /// The Claude app alert held while the island was busy (the latest one), and the Claude app pill's
-    /// badge not seen yet: what the house tab's badge shows (ClaudeAppAlertHold, tested).
+    /// What the busy island could not show (Claude app alerts, the end of any session), one item per
+    /// session, and the Claude app pill's finish or error not seen yet: what the house tab's badge and
+    /// number show (ClaudeAppAlertHold, tested).
     @Published private(set) var claudeAppAlertHold = ClaudeAppAlertHold()
 
-    // Auto-close delay: persisted
+    /// The sessions whose last end of turn the island showed (ShownFinishes): their idle prompt asks
+    /// nothing new. A finished view replaced before it was seen does not count (0.3.6, I6).
+    var shownFinishes = ShownFinishes()
+
+    /// The note or finished view the app put on screen last (an alert, the end of a session), when,
+    /// and whether the pointer has been on the island since: what goes back into the hold if a newer
+    /// view replaces it (`displaceScreenItem`). Never drawn.
+    private var screenItem: HeldClaudeAppAlert? = nil
+    private var screenItemSince = Date.distantPast
+    private var screenItemTouched = false
+
+    // Auto-close delay: persisted, kept between 1 s and 1 h (0.3.6, B2: a huge value crashed the
+    // island's Settings view at every opening). A stored value out of range is repaired at launch.
     @Published var autoCloseInterval: TimeInterval = 15 {
-        didSet { UserDefaults.standard.set(autoCloseInterval, forKey: "autoCloseInterval") }
+        didSet {
+            let kept = IslandStateMachine.clampedAutoClose(autoCloseInterval)
+            if kept != autoCloseInterval { autoCloseInterval = kept }
+            UserDefaults.standard.set(kept, forKey: "autoCloseInterval")
+        }
     }
 
     // Greeting threshold: how long hidden before greeting on reappear (default 2 min)
@@ -253,14 +280,15 @@ final class AppState: ObservableObject {
     /// `folder`: the project folder, what the row goes by while the session has no name.
     /// `hostBundleId`, `entrypoint`: the app the session runs in and its `klayer_entrypoint`, nil
     /// keeps the ones the row has. `prompt`: a prompt of the session, the first names it while nobody
-    /// did (`SessionName.fromPrompt`).
+    /// did (`SessionName.fromPrompt`). `byNotification`: a notification of the Claude app puts the row
+    /// on approval or question (it then goes after 30 min without an event, M5).
     func updateSession(sessionId: String, pillId: String, folder: String, phase: SessionPhase,
                        lastAction: String?, hostBundleId: String? = nil, entrypoint: String? = nil,
-                       prompt: String? = nil) {
+                       prompt: String? = nil, byNotification: Bool = false) {
         let now = Date()
         sessionRoster.update(sessionId: sessionId, pillId: pillId, folder: folder, phase: phase,
                              lastAction: lastAction, hostBundleId: hostBundleId, entrypoint: entrypoint,
-                             prompt: prompt, at: now)
+                             prompt: prompt, byNotification: byNotification, at: now)
         sessionRoster.prune(now: now, calendar: .autoupdatingCurrent)
         sessions = sessionRoster.rows
     }
@@ -333,7 +361,7 @@ final class AppState: ObservableObject {
         if let v = ud.object(forKey: "soundVolume")  as? Double { soundVolume  = v }
         pillColors = PillColors.stored
         recentChoices = choiceHistory.latest(ChoiceHistoryView.limit)
-        // Migrate old 60s default → 15s
+        // Migrate old 60s default → 15s; a value out of 1 s…1 h is repaired (the didSet clamps it).
         if let v = ud.object(forKey: "autoCloseInterval") as? Double {
             autoCloseInterval = (v == 60) ? 15 : v
         }
@@ -488,7 +516,7 @@ final class AppState: ObservableObject {
         tasks[idx].pillBadge = badge
     }
 
-    // MARK: - The Claude app waits for the user (lot 6 spec §5 and §6)
+    // MARK: - The Claude app waits for the user (lot 6 spec §5 and §6), and what the busy island held
 
     /// The one entry that tells the user the Claude app waits for them (a permission or a question
     /// of the Code tab, and Chat and Cowork): the note view shows `title` and `message` with
@@ -497,56 +525,100 @@ final class AppState: ObservableObject {
     /// way a finished session's does (`.hookExpand`): the state machine holds it until the pointer
     /// has been on it and left, and `FinishPresentation` decides whether it may open at all: it
     /// never covers a draft of the chat or of a mail, a card that waits, or a pinned island. Then
-    /// the sound plays, the Claude app pill is badged and the alert is held, the latest one only:
-    /// it shows in place of the home once the island frees (`showHeldClaudeAppAlert`), and the house
-    /// tab carries its badge meanwhile (ClaudeAppAlertHold). Nothing here clicks in the Claude app,
-    /// answers, or approves. Returns true when the note is on its way to the screen.
+    /// the sound plays, the Claude app pill is badged and the alert is held, one per session: it shows
+    /// once the island frees (`showHeldItem`), and the house tab carries its badge meanwhile
+    /// (ClaudeAppAlertHold). A note that asked something and that this one replaces goes back into
+    /// the hold (`displaceScreenItem`). Nothing here clicks in the Claude app, answers, or approves.
+    /// Returns true when the note is on its way to the screen.
     /// `sound`: the sound that plays, `question` for Claude waiting (the default), `approval` for a
     /// permission, `finish` for a finished answer. `sessionId`: the Code tab session the alert is
-    /// about (nil for the Chat and Cowork watch): a held alert goes when that session moves on.
+    /// about (nil for the Chat and Cowork watch): a held alert goes when that session moves on, and two
+    /// sessions' alerts with the same text are two alerts (0.3.6, M4).
     @discardableResult
     func showClaudeAppAlert(title: String, message: String, sound: String = "question",
                             sessionId: String? = nil) -> Bool {
-        let alert = ClaudeAppAlert(title: title, message: message, source: .of(sessionId: sessionId), sound: sound)
+        let alert = ClaudeAppAlert(title: title, message: message, source: .of(sessionId: sessionId), sound: sound,
+                                   sessionId: sessionId)
         // The same alert is already on screen: no second sound, no new hold on the island.
         if mode == .expanded, view == .note, claudeAppAlert == alert { return true }
         SoundEngine.shared.play(sound)
         let presentation = FinishPresentation.decide(
             expanded: mode == .expanded, view: view.rawValue, pinned: isPinned,
             requestPending: pendingApproval != nil || pendingQuestion != nil)
-        // Blocked, it is held for when the island frees; shown, it replaces the one held.
-        claudeAppAlertHold.alertCame(HeldClaudeAppAlert(title: title, message: message, sound: sound,
-                                                        heldAt: Date(), sessionId: sessionId),
-                                     presentation: presentation)
+        let item = HeldClaudeAppAlert(title: title, message: message, sound: sound, heldAt: Date(), sessionId: sessionId)
         guard presentation == .open else {
+            // Blocked: held for when the island frees, in place of the older item of its session.
+            claudeAppAlertHold.alertCame(item, presentation: .badgeOnly)
             setPillBadge(.approval, for: HookRouting.desktopPillId)
             scheduleHeldAlertExpiry()
             return false
         }
+        // Shown: what it replaces may go back into the hold; its session's older item goes.
+        displaceScreenItem(by: sessionId)
+        claudeAppAlertHold.alertCame(item, presentation: .open)
         putClaudeAppAlertOnNote(alert)
+        noteScreenItem(item)
         NotificationCenter.default.post(name: .hookExpand, object: IslandView.note)
         return true
     }
 
+    /// Holds a Claude app alert without showing it nor playing its sound (0.3.6, C3): a request of
+    /// the Code tab that left the island unanswered (timed out, or replaced by a newer one) still waits
+    /// in the Claude app. It shows once the island frees, and goes when its session moves on.
+    func holdClaudeAppAlert(title: String, message: String, sound: String, sessionId: String) {
+        claudeAppAlertHold.hold(HeldClaudeAppAlert(title: title, message: message, sound: sound, heldAt: Date(),
+                                                   sessionId: sessionId))
+        scheduleHeldAlertExpiry()
+    }
+
+    /// Holds the end of a session the busy island could not show (0.3.6, I8 and C2): `row` as its
+    /// finished view (or error view, `failed`) tells it, any app (VS Code and the terminal too). Its
+    /// sound already played. It shows once the island frees, and goes when its session moves on.
+    func holdFinish(_ row: SessionRow, failed: Bool) {
+        shownFinishes.ended(row.id, shown: false)
+        claudeAppAlertHold.hold(.finish(row, failed: failed, at: Date()))
+        scheduleHeldAlertExpiry()
+    }
+
     /// The island is about to show its home (`home`): a request left with nothing else waiting
-    /// (HookServer.requestLeft), the island opens on its default view, or the house tab is clicked.
-    /// The Claude app alert held while it was busy takes the note view instead, under the same rule
-    /// as when it came (`FinishPresentation` for that home), with its sound. Returns true when it
-    /// did: the note is set. `announce` posts it the way an alert opens the island (the state machine
-    /// holds it until the pointer has been on it and left); otherwise the caller puts the island on
-    /// `.note` itself, and it folds the way it opened (a hover, the toggle hot key, a click).
+    /// (HookServer.requestLeft), a note ended (HookServer.showNote), the island opens on its default
+    /// view, the house tab is clicked, or the view of a held item folded (`scheduleNextHeldItem`). The
+    /// newest held item takes its place instead, under the same rule as when it came
+    /// (`FinishPresentation` for that home), with its sound: an alert on the note view, the end of a
+    /// session on its finished or error view. Returns the view it set up (`.note`, `.finished`,
+    /// `.error`), nil for the home. `announce` posts it the way an alert opens the island (the state
+    /// machine holds it until the pointer has been on it and left); otherwise the caller puts the
+    /// island on that view itself, and it folds the way it opened (a hover, the toggle hot key, a click).
     @discardableResult
-    func showHeldClaudeAppAlert(inPlaceOf home: IslandView, announce: Bool) -> Bool {
-        guard claudeAppAlertHold.held != nil else { return false }
+    func showHeldItem(inPlaceOf home: IslandView, announce: Bool) -> IslandView? {
+        guard claudeAppAlertHold.held != nil else { return nil }
         let presentation = FinishPresentation.decide(
             expanded: mode == .expanded, view: home.rawValue, pinned: isPinned,
             requestPending: pendingApproval != nil || pendingQuestion != nil)
-        guard let held = claudeAppAlertHold.takeForHome(presentation: presentation, now: Date()) else { return false }
-        SoundEngine.shared.play(held.sound)
-        putClaudeAppAlertOnNote(ClaudeAppAlert(title: held.title, message: held.message,
-                                               source: .of(sessionId: held.sessionId), sound: held.sound))
-        if announce { NotificationCenter.default.post(name: .hookExpand, object: IslandView.note) }
-        return true
+        guard let item = claudeAppAlertHold.takeForHome(presentation: presentation, now: Date()) else { return nil }
+        SoundEngine.shared.play(item.sound)
+        let shown: IslandView
+        if let row = item.finished {
+            if item.sound == "error" {
+                failedSession = row
+                shown = .error
+            } else {
+                finishedSession = row
+                shown = .finished
+            }
+            if focusId != row.pillId, tasks.contains(where: { $0.id == row.pillId }) {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { setFocus(row.pillId) }
+            }
+            shownFinishes.ended(row.id, shown: true)
+        } else {
+            putClaudeAppAlertOnNote(ClaudeAppAlert(title: item.title, message: item.message,
+                                                   source: .of(sessionId: item.sessionId), sound: item.sound,
+                                                   sessionId: item.sessionId))
+            shown = .note
+        }
+        noteScreenItem(item)
+        if announce { NotificationCenter.default.post(name: .hookExpand, object: shown) }
+        return shown
     }
 
     /// The note view's content for a Claude app alert. The Claude app pill, when it is loaded, takes
@@ -560,41 +632,103 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Token of the one wake-up at the held alert's 30 min: a later hold replaces it.
-    private var heldAlertExpiryToken = 0
+    // MARK: - A view the app replaces on screen (0.3.6, C5 and I6)
 
-    /// One wake-up, just past the held alert's 30 min, drops it and its mark on the house tab
-    /// (ClaudeAppAlertHold.dropExpired). No polling: one timer per held alert, the last one only.
-    private func scheduleHeldAlertExpiry() {
-        heldAlertExpiryToken += 1
-        let token = heldAlertExpiryToken
-        DispatchQueue.main.asyncAfter(deadline: .now() + ClaudeAppAlertHold.lifetime + 1) {
+    /// The app put `item` on screen (a note of the Claude app, or the finished or error view of a
+    /// session): kept with the time, for `displaceScreenItem`.
+    func noteScreenItem(_ item: HeldClaudeAppAlert) {
+        screenItem = item
+        screenItemSince = Date()
+        screenItemTouched = pointerOnIsland
+    }
+
+    /// The item the app put on screen, while it is still the view of the open island; nil otherwise.
+    private var screenItemOnScreen: HeldClaudeAppAlert? {
+        guard mode == .expanded, let item = screenItem else { return nil }
+        if let row = item.finished {
+            let onScreen = item.sound == "error" ? (view == .error ? failedSession : nil)
+                                                 : (view == .finished ? finishedSession : nil)
+            return onScreen?.id == row.id ? item : nil
+        }
+        guard view == .note, let alert = claudeAppAlert, alert.sessionId == item.sessionId,
+              alert.title == item.title, alert.message == item.message else { return nil }
+        return item
+    }
+
+    /// The app is about to put another view in place of the open island's (the end of a session, an
+    /// alert, a request card), for session `sessionId` (nil: the Chat and Cowork watch, or none). The
+    /// note on screen that asked something goes back into the hold; so does a finished view not seen
+    /// yet (less than 2 s on screen, the pointer never on the island), which keeps its idle prompt's
+    /// second chance (ClaudeAppAlertHold.backToHold).
+    func displaceScreenItem(by sessionId: String?) {
+        guard let item = screenItemOnScreen else { return }
+        screenItem = nil
+        guard let back = ClaudeAppAlertHold.backToHold(item, replacedBy: sessionId,
+                                                       shownFor: Date().timeIntervalSince(screenItemSince),
+                                                       pointerWasOn: screenItemTouched || pointerOnIsland)
+        else { return }
+        if back.finished != nil, let id = back.sessionId { shownFinishes.ended(id, shown: false) }
+        claudeAppAlertHold.hold(back)
+        scheduleHeldAlertExpiry()
+    }
+
+    /// Token of the one wake-up that shows the next held item after a fold: a newer fold replaces it.
+    private var nextHeldItemToken = 0
+
+    /// The island folded from the note or finished view of a held item, or from a view the user was
+    /// busy in: 1 s later, if it is still folded and nothing waits, the next held item opens it, the way
+    /// an alert does. One wake-up, no polling.
+    private func scheduleNextHeldItem() {
+        guard claudeAppAlertHold.held != nil else { return }
+        nextHeldItemToken += 1
+        let token = nextHeldItemToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             let state = AppState.shared
-            guard state.heldAlertExpiryToken == token, state.claudeAppAlertHold.held != nil else { return }
-            state.claudeAppAlertHold.dropExpired(now: Date())
+            guard state.nextHeldItemToken == token, state.mode != .expanded else { return }
+            state.showHeldItem(inPlaceOf: state.tasks.isEmpty ? .empty : .overview, announce: true)
         }
     }
 
-    /// A hook event of Code tab session `sessionId` other than a notification, or a new request of
-    /// it: its held alert was answered in the Claude app (or its own card asks it again). It goes,
-    /// with its mark on the house tab. Nothing is published when no alert of that session is held.
-    func claudeAppSessionMovedOn(_ sessionId: String) {
-        guard claudeAppAlertHold.held?.sessionId == sessionId else { return }
+    /// Token of the one wake-up at the oldest held item's 30 min: a later hold replaces it.
+    private var heldAlertExpiryToken = 0
+
+    /// One wake-up, just past the oldest held item's 30 min, drops it and its mark on the house tab
+    /// (ClaudeAppAlertHold.dropExpired), then waits for the next one. No polling.
+    private func scheduleHeldAlertExpiry() {
+        heldAlertExpiryToken += 1
+        let token = heldAlertExpiryToken
+        guard let expiry = claudeAppAlertHold.nextExpiry else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, expiry.timeIntervalSinceNow) + 1) {
+            let state = AppState.shared
+            guard state.heldAlertExpiryToken == token else { return }
+            if state.claudeAppAlertHold.nextExpiry.map({ $0 <= Date() }) == true {
+                state.claudeAppAlertHold.dropExpired(now: Date())
+            }
+            state.scheduleHeldAlertExpiry()
+        }
+    }
+
+    /// A hook event of session `sessionId` other than a notification, or a new request of it (any
+    /// app): what its held item said was answered or seen, or is asked again by its own card. It goes,
+    /// with its mark on the house tab. Nothing is published when no item of that session is held.
+    func sessionMovedOn(_ sessionId: String) {
+        guard claudeAppAlertHold.item(of: sessionId) != nil else { return }
         claudeAppAlertHold.sessionMovedOn(sessionId)
     }
 
-    /// The Claude app pill's own badge was cleared (its request shows, or left): the house tab,
-    /// which mirrors it, loses the unseen mark.
-    func claudeAppPillBadgeCleared() {
-        guard claudeAppAlertHold.unseenBadge != nil else { return }
-        claudeAppAlertHold.pillBadgeCleared()
+    /// Session `sessionId` closed (SessionEnd): its held request goes (moot), its held end stays.
+    func sessionEnded(_ sessionId: String) {
+        guard let item = claudeAppAlertHold.item(of: sessionId), item.finished == nil else { return }
+        claudeAppAlertHold.sessionEnded(sessionId)
     }
 
-    /// The Claude app came in front: the user is there. The held alert is dropped and the house tab
-    /// loses its badge.
+    /// The Claude app came in front: the user is there. Its own held items are dropped (Code tab
+    /// sessions, Chat and Cowork), and the house tab loses the Claude app pill's unseen mark; the end
+    /// of a VS Code or terminal session stays held.
     func claudeAppCameToFront() {
-        guard claudeAppAlertHold != ClaudeAppAlertHold() else { return }
-        claudeAppAlertHold.claudeAppCameToFront()
+        var hold = claudeAppAlertHold
+        hold.claudeAppCameToFront()
+        if hold != claudeAppAlertHold { claudeAppAlertHold = hold }
     }
 
     // MARK: - The card steps aside in the session's app (Task 27, CardStepAside)
@@ -646,9 +780,11 @@ final class AppState: ObservableObject {
     }
 
     /// The Claude app pill was badged by a hook while the island could not show why (a finish or an
-    /// error only badged, a request waiting behind a card): the house tab carries the badge until the
-    /// home's list is on screen. The pill itself is drawn nowhere, and may go before then.
+    /// error only badged): the house tab carries the badge until the home's list is on screen. The pill
+    /// itself is drawn nowhere, and may go before then. A request's badge is not kept: the house tab
+    /// reads the pending requests live, so a request that shows or leaves keeps the other marks (I7).
     func claudeAppPillBadged(_ badge: PillBadge) {
+        guard badge != .approval else { return }
         claudeAppAlertHold.pillBadged(badge)
         noteHomeListShown()
     }
@@ -657,6 +793,12 @@ final class AppState: ObservableObject {
     var houseTabBadge: PillBadge? {
         claudeAppAlertHold.houseBadge(now: Date(), requestWaitsOffScreen: ClaudeAppAlertHold.requestWaitsOffScreen(
             approval: pendingApproval != nil, question: pendingQuestion != nil, view: view.rawValue))
+    }
+
+    /// How many items the busy island holds (none past 30 min): the house tab's badge writes the
+    /// number from 2 on.
+    var houseTabCount: Int {
+        claudeAppAlertHold.count(now: Date())
     }
 
     /// The home's list is on screen (the island open on the home, no GitHub or Spotify card in its
@@ -796,16 +938,6 @@ enum PromptContext {
 struct DroppedFile {
     var url: URL
     var name: String
-}
-
-/// What the note view says when the Claude app waits for the user: a title and one line. `source`:
-/// a Code tab session or Chat and Cowork, for its icon and its button (« Ouvrir cette session »,
-/// « Ouvrir ce chat »). `sound`: `approval`, `question` or `finish`, the colour of its icon.
-struct ClaudeAppAlert: Equatable {
-    var title: String
-    var message: String
-    var source: ClaudeAppNoteSource = .chat
-    var sound: String = "question"
 }
 
 // MARK: - GitHub

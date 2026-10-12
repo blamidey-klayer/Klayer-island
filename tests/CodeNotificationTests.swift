@@ -60,8 +60,25 @@ enum CodeNotificationTests {
             ("a_held_alert_of_a_session_that_moved_on_is_dropped", aHeldAlertOfASessionThatMovedOnIsDropped),
             ("another_session_moving_on_keeps_the_held_alert", anotherSessionMovingOnKeepsTheHeldAlert),
             ("a_watch_alert_has_no_session_to_move_on", aWatchAlertHasNoSessionToMoveOn),
-            ("the_pill_badge_cleared_clears_the_unseen_mark", thePillBadgeClearedClearsTheUnseenMark),
             ("a_held_alert_past_30_min_is_dropped_at_its_expiry", aHeldAlertPast30MinIsDroppedAtItsExpiry),
+            // 0.3.6: one held item per session, finishes too, shown one after the other
+            ("one_item_per_session_five_at_most_newest_first", oneItemPerSessionFiveAtMostNewestFirst),
+            ("a_shown_alert_keeps_the_other_sessions_items", aShownAlertKeepsTheOtherSessionsItems),
+            ("held_items_show_one_after_the_other_newest_first", heldItemsShowOneAfterTheOtherNewestFirst),
+            ("a_finish_the_busy_island_could_not_show_is_held", aFinishTheBusyIslandCouldNotShowIsHeld),
+            ("the_claude_app_in_front_drops_only_its_own_items", theClaudeAppInFrontDropsOnlyItsOwnItems),
+            ("the_house_tab_counts_the_held_items", theHouseTabCountsTheHeldItems),
+            ("a_request_showing_or_leaving_keeps_the_other_marks", aRequestShowingOrLeavingKeepsTheOtherMarks),
+            ("an_asking_note_replaced_goes_back_to_the_hold", anAskingNoteReplacedGoesBackToTheHold),
+            ("a_finish_replaced_before_it_was_seen_goes_back", aFinishReplacedBeforeItWasSeenGoesBack),
+            ("a_fold_from_a_held_or_busy_view_shows_the_next", aFoldFromAHeldOrBusyViewShowsTheNext),
+            ("the_next_expiry_is_the_oldest_items", theNextExpiryIsTheOldestItems),
+            ("a_held_finish_makes_its_idle_prompt_redundant", aHeldFinishMakesItsIdlePromptRedundant),
+            ("a_session_that_closes_keeps_its_held_finish", aSessionThatClosesKeepsItsHeldFinish),
+            ("two_alerts_with_the_same_text_for_two_sessions_are_two", twoAlertsWithTheSameTextForTwoSessionsAreTwo),
+            // 0.3.6: a request that leaves without an answer still waits in its app (C3, I1)
+            ("a_request_handed_back_keeps_its_row_waiting", aRequestHandedBackKeepsItsRowWaiting),
+            ("only_a_timeout_or_a_newer_request_holds_a_claude_app_alert", onlyATimeoutOrANewerRequestHoldsAClaudeAppAlert),
         ]
         for (name, run) in cases {
             run()
@@ -529,7 +546,7 @@ enum CodeNotificationTests {
     // The Claude app pill badged and not seen (a finish, an error, a request behind a card, while the
     // island was busy): the badge stays on the house tab until the home's list is on screen.
     static func anUnseenClaudeAppBadgeStaysUntilTheListShows() {
-        for badge in [PillBadge.finished, .error, .approval] {
+        for badge in [PillBadge.finished, .error] {
             var hold = ClaudeAppAlertHold()
             hold.pillBadged(badge)
             precondition(hold.houseBadge(now: at(0)) == badge)
@@ -639,20 +656,6 @@ enum CodeNotificationTests {
         precondition(alert("Claude a fini de répondre").sessionId == nil, "no session unless given")
     }
 
-    // M-1: the house tab mirrors the Claude app pill's badge: when the pill's badge is cleared (its
-    // request shows, or leaves), the unseen mark goes too. A held alert keeps its own mark.
-    static func thePillBadgeClearedClearsTheUnseenMark() {
-        var hold = ClaudeAppAlertHold()
-        hold.pillBadged(.approval)
-        hold.pillBadgeCleared()
-        precondition(hold.houseBadge(now: at(0)) == nil)
-        hold.pillBadged(.finished)
-        hold.alertCame(codeTabAlert("A"), presentation: .badgeOnly)
-        hold.pillBadgeCleared()
-        precondition(hold.houseBadge(now: at(1)) == .approval, "the held alert's own mark stays")
-        precondition(hold.unseenBadge == nil)
-    }
-
     // M-1: at 30 min the island drops the held alert itself (one wake-up, no polling), so its mark
     // goes without waiting for something else to redraw the header.
     static func aHeldAlertPast30MinIsDroppedAtItsExpiry() {
@@ -667,6 +670,257 @@ enum CodeNotificationTests {
         hold.alertCame(codeTabAlert("A", at: 1_000), presentation: .badgeOnly)
         precondition(!hold.dropExpired(now: at(1_801)))
         precondition(hold.held == codeTabAlert("A", at: 1_000))
+    }
+
+    // MARK: - 0.3.6: one held item per session, finishes too (C5, I8, I6, I7, M4)
+
+    static func note(_ session: String?, _ sound: String = "approval", at seconds: TimeInterval = 0) -> HeldClaudeAppAlert {
+        HeldClaudeAppAlert(title: "Claude attend ta réponse",
+                           message: "Une autorisation t'attend dans l'app Claude : \(session ?? "chat")",
+                           sound: sound, heldAt: at(seconds), sessionId: session)
+    }
+
+    static func row(_ id: String, pill: String = "agent_claude-desktop", phase: SessionPhase = .finished) -> SessionRow {
+        SessionRow(id: id, pillId: pill, title: "Session \(id)", phase: phase, lastAction: "Les tests passent.",
+                   updatedAt: at(0), folder: "projet-\(id)")
+    }
+
+    // Baptiste runs several Code tab sessions: the busy island keeps what each of them said, one item
+    // per session (its newest), the Chat and Cowork watch one slot, 5 items at most, newest first.
+    static func oneItemPerSessionFiveAtMostNewestFirst() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(note("A", at: 0), presentation: .badgeOnly)
+        hold.alertCame(note("B", at: 1), presentation: .badgeOnly)
+        precondition(hold.items.map(\.sessionId) == ["B", "A"], "both kept, newest first: \(hold.items)")
+        hold.alertCame(note("A", "question", at: 2), presentation: .badgeOnly)
+        precondition(hold.items.map(\.sessionId) == ["A", "B"], "A's newer item replaces its older one")
+        precondition(hold.item(of: "A") == note("A", "question", at: 2))
+        hold.alertCame(note(nil, at: 3), presentation: .badgeOnly)
+        hold.alertCame(note(nil, "finish", at: 4), presentation: .badgeOnly)
+        precondition(hold.items.map(\.sessionId) == [nil, "A", "B"], "one slot for the Chat and Cowork watch")
+        for (i, id) in ["C", "D", "E"].enumerated() {
+            hold.alertCame(note(id, at: 5 + TimeInterval(i)), presentation: .badgeOnly)
+        }
+        precondition(ClaudeAppAlertHold.limit == 5)
+        precondition(hold.items.map(\.sessionId) == ["E", "D", "C", nil, "A"], "5 at most: the oldest (B) went")
+    }
+
+    // C5: an alert of B shown on screen no longer drops A's held request.
+    static func aShownAlertKeepsTheOtherSessionsItems() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(note("A"), presentation: .badgeOnly)
+        hold.alertCame(note("B", "question", at: 5), presentation: .open)
+        precondition(hold.items == [note("A")], "A still waits in the app: still held")
+        // B's own older item goes when B's newer one shows.
+        hold.alertCame(note("B", at: 6), presentation: .badgeOnly)
+        hold.alertCame(note("B", "question", at: 7), presentation: .open)
+        precondition(hold.items == [note("A")])
+    }
+
+    // When the island frees, the held items show one after the other, newest first.
+    static func heldItemsShowOneAfterTheOtherNewestFirst() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(note("A", at: 0), presentation: .badgeOnly)
+        hold.hold(.finish(row("B", pill: "integration_claude"), failed: false, at: at(1)))
+        hold.alertCame(note(nil, "finish", at: 2), presentation: .badgeOnly)
+        precondition(hold.takeForHome(presentation: home, now: at(10))?.sessionId == nil, "the newest first")
+        precondition(hold.takeForHome(presentation: home, now: at(11))?.finished == row("B", pill: "integration_claude"))
+        precondition(hold.takeForHome(presentation: home, now: at(12)) == note("A"))
+        precondition(hold.takeForHome(presentation: home, now: at(13)) == nil, "then the home")
+        // The island still busy: nothing is taken.
+        hold.alertCame(note("A"), presentation: .badgeOnly)
+        for (why, presentation) in busy {
+            precondition(hold.takeForHome(presentation: presentation, now: at(20)) == nil, "\(why): kept")
+        }
+        precondition(hold.items.count == 1)
+    }
+
+    // I8: the end of any session the busy island could not show (VS Code and the terminal too) is held
+    // with its row, and marks the house tab with its own badge.
+    static func aFinishTheBusyIslandCouldNotShowIsHeld() {
+        let vsCode = row("V", pill: "integration_claude")
+        let finish = HeldClaudeAppAlert.finish(vsCode, failed: false, at: at(0))
+        precondition(finish.finished == vsCode && finish.sessionId == "V" && finish.sound == "finish")
+        precondition(finish.badge == .finished && !finish.asksSomething && !finish.fromClaudeApp)
+        let failure = HeldClaudeAppAlert.finish(row("W", phase: .error), failed: true, at: at(0))
+        precondition(failure.sound == "error" && failure.badge == .error && failure.fromClaudeApp)
+        var hold = ClaudeAppAlertHold()
+        hold.hold(finish)
+        precondition(hold.houseBadge(now: at(5)) == .finished)
+        hold.hold(failure)
+        precondition(hold.houseBadge(now: at(5)) == .error, "an error over a finish")
+        hold.alertCame(note("A"), presentation: .badgeOnly)
+        precondition(hold.houseBadge(now: at(5)) == .approval, "a request over both")
+        // Its session moving on (a new prompt, SessionEnd) drops it, as for the alerts.
+        hold.sessionMovedOn("V")
+        precondition(hold.item(of: "V") == nil && hold.items.count == 2)
+    }
+
+    // Drop rules unchanged: the Claude app in front drops its own items (Code tab sessions, Chat and
+    // Cowork), never the end of a VS Code or terminal session.
+    static func theClaudeAppInFrontDropsOnlyItsOwnItems() {
+        var hold = ClaudeAppAlertHold()
+        hold.hold(.finish(row("V", pill: "integration_claude"), failed: false, at: at(0)))
+        hold.hold(.finish(row("D"), failed: false, at: at(1)))
+        hold.alertCame(note("A", at: 2), presentation: .badgeOnly)
+        hold.alertCame(note(nil, "finish", at: 3), presentation: .badgeOnly)
+        hold.pillBadged(.finished)
+        hold.claudeAppCameToFront()
+        precondition(hold.items.map(\.sessionId) == ["V"], "only the VS Code session's end stays: \(hold.items)")
+        precondition(hold.unseenBadge == nil)
+        precondition(hold.houseBadge(now: at(5)) == .finished)
+    }
+
+    // The house tab counts the held items (the view writes the number from 2 on); none past 30 min.
+    static func theHouseTabCountsTheHeldItems() {
+        var hold = ClaudeAppAlertHold()
+        precondition(hold.count(now: at(0)) == 0)
+        hold.alertCame(note("A", at: 0), presentation: .badgeOnly)
+        hold.alertCame(note("B", at: 600), presentation: .badgeOnly)
+        hold.hold(.finish(row("C", pill: "integration_claude"), failed: false, at: at(900)))
+        precondition(hold.count(now: at(1_000)) == 3)
+        precondition(hold.count(now: at(1_801)) == 2, "A is past 30 min")
+        _ = hold.takeForHome(presentation: home, now: at(1_802))
+        precondition(hold.count(now: at(1_802)) == 1, "A dropped, C shown")
+    }
+
+    // I7: a request of the Claude app pill that shows or leaves keeps the other sessions' marks; a
+    // request's own mark is never kept as unseen (the pending requests are read live).
+    static func aRequestShowingOrLeavingKeepsTheOtherMarks() {
+        var hold = ClaudeAppAlertHold()
+        hold.pillBadged(.approval)
+        precondition(hold.unseenBadge == nil && hold.houseBadge(now: at(0)) == nil, "a request's mark is not kept")
+        hold.pillBadged(.finished)
+        precondition(hold.houseBadge(now: at(0), requestWaitsOffScreen: true) == .approval, "A's request off screen")
+        precondition(hold.houseBadge(now: at(1), requestWaitsOffScreen: false) == .finished,
+                     "A's request shows or leaves: B's finish still marks the tab")
+        hold.homeListShown()
+        precondition(hold.houseBadge(now: at(2)) == nil, "the list shows B's row")
+    }
+
+    // C5: a note that asks something, replaced on screen by a newer view of another session, goes back
+    // into the hold, seen or not: the user still has to answer.
+    static func anAskingNoteReplacedGoesBackToTheHold() {
+        for sound in ["approval", "question"] {
+            let onScreen = note("A", sound)
+            precondition(ClaudeAppAlertHold.backToHold(onScreen, replacedBy: "B", shownFor: 0.5, pointerWasOn: false) == onScreen)
+            precondition(ClaudeAppAlertHold.backToHold(onScreen, replacedBy: "B", shownFor: 600, pointerWasOn: true) == onScreen,
+                         "seen, but not answered")
+            precondition(ClaudeAppAlertHold.backToHold(onScreen, replacedBy: nil, shownFor: 1, pointerWasOn: false) == onScreen,
+                         "replaced by a Chat alert")
+            precondition(ClaudeAppAlertHold.backToHold(onScreen, replacedBy: "A", shownFor: 1, pointerWasOn: false) == nil,
+                         "A's own newer view tells it")
+        }
+        precondition(ClaudeAppAlertHold.backToHold(nil, replacedBy: "B", shownFor: 0, pointerWasOn: false) == nil,
+                     "nothing of the hold on screen")
+        let watch = note(nil)
+        precondition(ClaudeAppAlertHold.backToHold(watch, replacedBy: nil, shownFor: 0, pointerWasOn: false) == nil,
+                     "the watch's newer alert replaces its older one")
+    }
+
+    // I6: a finished view counts as shown only after 2 s on screen, or once the pointer was on the
+    // island; replaced sooner by another session's view, it goes back into the hold.
+    static func aFinishReplacedBeforeItWasSeenGoesBack() {
+        precondition(ClaudeAppAlertHold.seenAfter == 2)
+        precondition(!ClaudeAppAlertHold.finishSeen(shownFor: 1.9, pointerWasOn: false))
+        precondition(ClaudeAppAlertHold.finishSeen(shownFor: 2, pointerWasOn: false))
+        precondition(ClaudeAppAlertHold.finishSeen(shownFor: 0.3, pointerWasOn: true))
+        let finish = HeldClaudeAppAlert.finish(row("A"), failed: false, at: at(0))
+        precondition(ClaudeAppAlertHold.backToHold(finish, replacedBy: "B", shownFor: 1, pointerWasOn: false) == finish)
+        precondition(ClaudeAppAlertHold.backToHold(finish, replacedBy: "B", shownFor: 2.5, pointerWasOn: false) == nil)
+        precondition(ClaudeAppAlertHold.backToHold(finish, replacedBy: "B", shownFor: 1, pointerWasOn: true) == nil)
+        precondition(ClaudeAppAlertHold.backToHold(finish, replacedBy: "A", shownFor: 1, pointerWasOn: false) == nil)
+        let chatFinished = note(nil, "finish")
+        precondition(ClaudeAppAlertHold.backToHold(chatFinished, replacedBy: "B", shownFor: 1, pointerWasOn: false) == chatFinished,
+                     "a Chat answer's note not seen yet goes back too")
+        precondition(ClaudeAppAlertHold.backToHold(chatFinished, replacedBy: "B", shownFor: 3, pointerWasOn: false) == nil)
+    }
+
+    // The next held item shows when the island folds from the note or finished view it showed, or from
+    // a view the user was busy in; not from the home, nor from a card that stepped aside.
+    static func aFoldFromAHeldOrBusyViewShowsTheNext() {
+        for view in [IslandView.note, .finished, .error, .prompt, .mail, .upload, .uploading, .choose, .settings] {
+            precondition(ClaudeAppAlertHold.foldShowsNext(fromView: view.rawValue), "\(view)")
+        }
+        for view in [IslandView.overview, .empty, .greeting, .approval, .question, .confused] {
+            precondition(!ClaudeAppAlertHold.foldShowsNext(fromView: view.rawValue), "\(view)")
+        }
+    }
+
+    // One wake-up at the oldest item's 30 min drops it; the next wake-up is the next oldest's.
+    static func theNextExpiryIsTheOldestItems() {
+        var hold = ClaudeAppAlertHold()
+        precondition(hold.nextExpiry == nil)
+        hold.alertCame(note("A", at: 100), presentation: .badgeOnly)
+        hold.alertCame(note("B", at: 40), presentation: .badgeOnly)
+        precondition(hold.nextExpiry == at(1_840))
+        precondition(hold.dropExpired(now: at(1_841)))
+        precondition(hold.items == [note("A", at: 100)] && hold.nextExpiry == at(1_900))
+    }
+
+    // A session that closes (SessionEnd) right after its end: nobody saw that end, it stays held. What
+    // it asked is moot, that goes.
+    static func aSessionThatClosesKeepsItsHeldFinish() {
+        var hold = ClaudeAppAlertHold()
+        hold.hold(.finish(row("A"), failed: false, at: at(0)))
+        hold.alertCame(note("B"), presentation: .badgeOnly)
+        hold.sessionEnded("A")
+        hold.sessionEnded("B")
+        precondition(hold.items.map(\.sessionId) == ["A"] && hold.holdsFinish(of: "A"),
+                     "A's end stays, B's request goes: \(hold.items)")
+        hold.sessionMovedOn("A")
+        precondition(hold.items.isEmpty, "a new prompt or tool of A: its end was seen")
+    }
+
+    // A session's end held: its idle prompt about 60 s later says nothing more.
+    static func aHeldFinishMakesItsIdlePromptRedundant() {
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(note("A"), presentation: .badgeOnly)
+        precondition(!hold.holdsFinish(of: "A"), "a held alert is no finish")
+        hold.hold(.finish(row("A"), failed: false, at: at(1)))
+        precondition(hold.holdsFinish(of: "A") && !hold.holdsFinish(of: "B"))
+    }
+
+    // M4: two sessions in the same folder, nobody named them: the same text, two alerts.
+    static func twoAlertsWithTheSameTextForTwoSessionsAreTwo() {
+        let a = ClaudeAppAlert(title: "Claude attend ta réponse", message: "Une autorisation t'attend dans l'app Claude : site",
+                               source: .codeSession, sound: "approval", sessionId: "A")
+        var b = a
+        b.sessionId = "B"
+        precondition(a != b, "the second is not swallowed as the same alert")
+        var hold = ClaudeAppAlertHold()
+        hold.alertCame(HeldClaudeAppAlert(title: a.title, message: a.message, sound: a.sound, heldAt: at(0), sessionId: "A"),
+                       presentation: .badgeOnly)
+        hold.alertCame(HeldClaudeAppAlert(title: b.title, message: b.message, sound: b.sound, heldAt: at(1), sessionId: "B"),
+                       presentation: .badgeOnly)
+        precondition(hold.count(now: at(2)) == 2)
+    }
+
+    // MARK: - 0.3.6: a request that leaves without an answer (C3, I1)
+
+    // Timed out, replaced by a newer request, handed back by « Répondre dans … », or stepped aside when
+    // its app came in front: the request still waits in its app, its row stays on approval or question
+    // until the session's next tool event. Answered, handled in the app, or moot: the row goes on.
+    static func aRequestHandedBackKeepsItsRowWaiting() {
+        for exit in [RequestExit.timedOut, .displaced, .handedBack, .steppedAside] {
+            precondition(exit.rowKeepsWaiting, "\(exit)")
+        }
+        for exit in [RequestExit.answered, .handledElsewhere] {
+            precondition(!exit.rowKeepsWaiting, "\(exit)")
+        }
+    }
+
+    // Only a request the user did not hand back himself, of a session of the Claude app, leaves a held
+    // alert (« Une autorisation t'attend dans l'app Claude »): the terminal and VS Code are unchanged.
+    static func onlyATimeoutOrANewerRequestHoldsAClaudeAppAlert() {
+        precondition(RequestExit.timedOut.holdsAlert(claudeAppSession: true))
+        precondition(RequestExit.displaced.holdsAlert(claudeAppSession: true))
+        for exit in [RequestExit.answered, .handledElsewhere, .handedBack, .steppedAside] {
+            precondition(!exit.holdsAlert(claudeAppSession: true), "\(exit)")
+        }
+        for exit in [RequestExit.timedOut, .displaced] {
+            precondition(!exit.holdsAlert(claudeAppSession: false), "\(exit): not for VS Code or the terminal")
+        }
     }
 }
 

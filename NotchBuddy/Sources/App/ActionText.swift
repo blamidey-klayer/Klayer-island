@@ -53,7 +53,7 @@ enum ActionText {
         case "AskUserQuestion":
             return "Te pose une question"
         default:
-            if let mcp = mcpAction(tool) { return mcp }
+            if let mcp = mcpAction(tool, input: input) { return mcp }
             let name = clean(tool)
             return name.isEmpty ? "Utilise un outil" : "Utilise " + name
         }
@@ -131,6 +131,19 @@ enum ActionText {
         return line
     }
 
+    /// What the row of a session that finished says (a Stop's last sentence, `end`): « A terminé »
+    /// when the sentence is empty or nothing but JSON, never the tool action before it (0.3.6, M3).
+    static func finished(_ lastSentence: String) -> String {
+        let line = end(lastSentence)
+        return line.isEmpty ? "A terminé" : line
+    }
+
+    /// What the row of a session that failed says (a StopFailure's error text, `end`): empty when the
+    /// hook gave none or nothing but JSON, so the row says « Erreur », never the tool action before it.
+    static func failed(_ errorText: String?) -> String {
+        errorText.map(end) ?? ""
+    }
+
     /// Raw JSON: an object or a list, whole.
     static func looksLikeJSON(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -185,10 +198,11 @@ enum ActionText {
         return room + "…"
     }
 
-    /// The command of a Bash call as the row shows it: its first line; the part after the `cd` that
-    /// open a chain (`&&`, `||`, `;`); without the variables set before it; a path by its last
-    /// component; no id; stopped at raw JSON; then its first word and as many arguments as fit in
-    /// `commandLimit`, cut on a word.
+    /// The command of a Bash call as the row shows it: its first line; the part after the segments
+    /// that only prepare it in a chain (`&&`, `||`, `;`): `cd` to the project, `export`, `source` or
+    /// `.` of an environment file; without `env` and the variables set before it (quoted or not); a
+    /// path by its last component; no id; stopped at raw JSON; then its first word and as many
+    /// arguments as fit in `commandLimit`, cut on a word.
     private static func shortCommand(_ command: String) -> String? {
         guard let firstLine = command.split(whereSeparator: \.isNewline)
                 .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
@@ -198,12 +212,27 @@ enum ActionText {
             .split(separator: ";")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        // The cd that only move to the project: the command after them is what runs.
-        while segments.count > 1, segments[0].split(separator: " ").first == "cd" { segments.removeFirst() }
+        // What only prepares the command (a move to the project, the environment): the command after
+        // it is what runs. Alone, it is the command.
+        while segments.count > 1, let first = segments[0].split(separator: " ").first,
+              ["cd", "export", "source", "."].contains(String(first)) {
+            segments.removeFirst()
+        }
         guard let segment = segments.first else { return nil }
-        var words = segment.split(whereSeparator: \.isWhitespace).map(String.init)
-        while let first = words.first, first.range(of: "^[A-Za-z_][A-Za-z0-9_]*=", options: .regularExpression) != nil {
-            words.removeFirst()
+        var words = shellWords(segment)
+        // `env` (its options too) and the variables set for the command.
+        while let first = words.first {
+            if first == "env" {
+                words.removeFirst()
+                while let option = words.first, option.hasPrefix("-") {
+                    words.removeFirst()
+                    if option == "-u", !words.isEmpty { words.removeFirst() }   // -u NAME
+                }
+            } else if first.range(of: "^[A-Za-z_][A-Za-z0-9_]*=", options: .regularExpression) != nil {
+                words.removeFirst()
+            } else {
+                break
+            }
         }
         var shown: [String] = []
         var stoppedEarly = false
@@ -227,6 +256,30 @@ enum ActionText {
         return line
     }
 
+    /// The words of a shell command, split on spaces outside quotes: `NAME="Baptiste L"` is one word,
+    /// its quotes kept. An unclosed quote runs to the end.
+    private static func shellWords(_ segment: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var quote: Character? = nil
+        for character in segment {
+            if let open = quote {
+                current.append(character)
+                if character == open { quote = nil }
+            } else if character == "\"" || character == "'" {
+                current.append(character)
+                quote = character
+            } else if character.isWhitespace {
+                if !current.isEmpty { words.append(current) }
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { words.append(current) }
+        return words
+    }
+
     /// The host of a URL without « www. », nil when there is none.
     private static func webHost(_ raw: Any?) -> String? {
         guard let text = raw as? String, let host = URL(string: text.trimmingCharacters(in: .whitespaces))?.host,
@@ -240,9 +293,10 @@ enum ActionText {
     /// GitHub's `<object>_<verb>`), its object in words (in French when known), and the server's
     /// name, « Liste les issues (Linear) », « Lit l'issue (GitHub) »; a bare verb « Lit dans Notion »;
     /// no known verb, « Utilise <words> (<server>) ». The server's own name in the tool goes
-    /// (`notion-search`, `query_granola_meetings`). A server known by an id is not named. Nil for a
-    /// name that is not an MCP tool's.
-    private static func mcpAction(_ tool: String) -> String? {
+    /// (`notion-search`, `query_granola_meetings`). A server known by an id is not named. A tool that
+    /// runs a command says it (« Exécute npm test (Shell) »), a terminal's tool says what it does in the
+    /// terminal (`terminalAction`). Nil for a name that is not an MCP tool's.
+    private static func mcpAction(_ tool: String, input: [String: Any]) -> String? {
         guard tool.hasPrefix("mcp__") else { return nil }
         let parts = tool.dropFirst(5).components(separatedBy: "__")
         guard parts.count >= 2 else {
@@ -251,8 +305,12 @@ enum ActionText {
         }
         let server = parts[0]
         let label = serverName(server)
+        let allToolWords = words(of: parts.dropFirst().joined(separator: "_"))
+        if words(of: server).contains("terminal") || allToolWords.contains("terminal") || allToolWords.contains("terminals") {
+            return terminalAction(allToolWords, input: input)
+        }
         let serverWords = Set(words(of: server).filter { $0 != "claude" && $0 != "ai" && $0 != "plugin" })
-        var toolWords = words(of: parts.dropFirst().joined(separator: "_"))
+        var toolWords = allToolWords
         toolWords.removeAll { serverWords.contains($0) || isId($0) }
         guard let first = toolWords.first, let last = toolWords.last else {
             return label.map { "Utilise " + $0 } ?? "Utilise un outil"
@@ -269,12 +327,41 @@ enum ActionText {
             let text = "Utilise " + toolWords.joined(separator: " ")
             return label.map { "\(text) (\($0))" } ?? text
         }
+        // A tool that runs a command: the command, as a Bash row says it.
+        if verb.runs, let command = commandArgument(input) {
+            let text = "Exécute " + command
+            return label.map { "\(text) (\($0))" } ?? text
+        }
         if object.isEmpty {
             guard let label else { return verb.text }
             return "\(verb.text) dans \(label)"
         }
         let text = verb.text + " " + phrase(object, indefinite: verb.creates)
         return label.map { "\(text) (\($0))" } ?? text
+    }
+
+    /// The command an MCP tool runs (its `command` or `cmd` argument), as a Bash row shows it; nil
+    /// when it has none.
+    private static func commandArgument(_ input: [String: Any]) -> String? {
+        ((input["command"] as? String) ?? (input["cmd"] as? String)).flatMap(shortCommand)
+    }
+
+    /// A terminal's MCP tool (`run_in_terminal`, `get_terminal_output`, `create_terminal`…) says what it
+    /// does in the terminal (0.3.6, M1): « Exécute dans le terminal : npm test », « Lit la sortie du
+    /// terminal », « Ouvre un terminal », « Ferme un terminal », « Écrit dans le terminal », « Liste les
+    /// terminaux », else « Utilise le terminal ».
+    private static func terminalAction(_ toolWords: [String], input: [String: Any]) -> String {
+        let words = Set(toolWords)
+        func has(_ any: Set<String>) -> Bool { !words.isDisjoint(with: any) }
+        if has(["run", "execute", "exec"]) {
+            return commandArgument(input).map { "Exécute dans le terminal : " + $0 } ?? "Exécute dans le terminal"
+        }
+        if has(["output", "read", "get"]) { return "Lit la sortie du terminal" }
+        if has(["create", "new", "open", "start", "spawn"]) { return "Ouvre un terminal" }
+        if has(["kill", "close", "dispose", "delete", "stop"]) { return "Ferme un terminal" }
+        if has(["send", "write", "type", "input"]) { return "Écrit dans le terminal" }
+        if has(["list"]) { return "Liste les terminaux" }
+        return "Utilise le terminal"
     }
 
     /// A server's name as the user knows it: without `claude_ai_` (a claude.ai connector), the last
@@ -325,12 +412,16 @@ enum ActionText {
     }
 
     /// What a tool's first (or last) word does. `creates`: the object is a new one (« un brouillon »).
+    /// `runs`: it runs a command, shown when the tool has one.
     private struct Verb {
         let text: String
         var creates = false
+        var runs = false
     }
 
     private static let verbs: [String: Verb] = [
+        "run": Verb(text: "Exécute", runs: true), "execute": Verb(text: "Exécute", runs: true),
+        "exec": Verb(text: "Exécute", runs: true),
         "list": Verb(text: "Liste"),
         "get": Verb(text: "Lit"), "read": Verb(text: "Lit"), "fetch": Verb(text: "Lit"),
         "create": Verb(text: "Crée", creates: true), "save": Verb(text: "Crée", creates: true),

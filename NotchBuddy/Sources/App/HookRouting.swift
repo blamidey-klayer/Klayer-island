@@ -72,4 +72,27 @@ enum HookRouting {
         guard let questionPill, let questionSession, pillId == questionPill else { return true }
         return sessionId == questionSession
     }
+
+    /// Whether an event of a session puts its pill back when it is gone (0.3.6, C1). Every Code tab
+    /// session shares the Claude app pill, which goes 5.2 s after a Stop (`stopCleanup`) or on a
+    /// SessionEnd of any of them: the end of turn of another session (Stop, StopFailure), or its
+    /// notification that asks something (`asks`), puts it back first, so its view opens and Klay takes
+    /// its pose like the first time. SessionStart, UserPromptSubmit, PreToolUse and a request already
+    /// put it back. The Claude Code pill is the main pill, never gone.
+    static func recreatesPill(event: String, agent: String, asks: Bool) -> Bool {
+        guard validateAgent(agent) != nil else { return false }
+        switch event {
+        case "Stop", "StopFailure": return true
+        case "Notification":        return asks
+        default:                    return false
+        }
+    }
+
+    /// How long the socket server waits before it accepts again after `accept()` failed with `errno`
+    /// (0.3.6, B1): it never stops. An interruption (EINTR) or a connection aborted before it was
+    /// accepted (ECONNABORTED) is retried at once; anything else (no descriptor left, no memory) after
+    /// 100 ms, so the loop never spins.
+    static func acceptRetryDelay(errno: Int32) -> TimeInterval {
+        errno == EINTR || errno == ECONNABORTED ? 0 : 0.1
+    }
 }

@@ -745,10 +745,10 @@ def close_island():
 
 
 def open_home():
-    """Opens the island with the toggle hot key, on the home. A Claude app alert held for the home
-    shows once in its place: then the island is closed and opened again."""
+    """Opens the island with the toggle hot key, on the home. What the busy island held shows in its
+    place first (drain_held), then the island is closed and opened again."""
     for _ in range(3):
-        close_island()
+        drain_held()
         toggle_island()
         state = wait_until("the island open", lambda s: s["mode"] == "expanded")
         if state["view"] != "overview":
@@ -757,6 +757,171 @@ def open_home():
         if state["mode"] == "expanded" and state["view"] == "overview":
             return state
     raise Failure("the toggle hot key did not open the island on the home; the state was:\n%s" % show(state))
+
+
+def held(state, session_id, kind):
+    """The item the busy island holds for this session, of this kind ("note" or "finish"), else None."""
+    return next((h for h in state["held"] if h["session"] == session_id and h["kind"] == kind), None)
+
+
+def drain_held():
+    """Shows and folds what the busy island holds (5 items at most), until nothing is held and the
+    island is closed: the toggle hot key opens a closed island on the newest held item, and folds an
+    open one, after which the next held item opens it again 1 s later."""
+    for _ in range(12):
+        if not read_state()["held"]:
+            close_island()
+            return
+        toggle_island()
+        time.sleep(1.5)
+    raise Failure("the hold did not empty; the state was:\n%s" % show(read_state()))
+
+
+def scenario_13_a_second_finish_after_the_pill_left(run):
+    """0.3.6, C1. Two sessions of the Claude app share its pill, which goes 5.2 s after a Stop once
+    its finished view folded. The second session finishes 6 s after the first: the island opens on
+    it like the first time (0.3.5 only badged the house tab: a sound, nothing on screen)."""
+    drain_held()
+    a, b = new_session(), new_session()
+    start_turn(a, "rapport-mensuel", "Prépare le rapport mensuel")
+    start_turn(b, "relances-clients", "Prépare les relances clients")
+    close_island()
+    stop(a, "rapport-mensuel", "Le rapport mensuel est prêt.")
+    first = time.monotonic()
+    wait_until("the finished view of the first session",
+               lambda s: s["mode"] == "expanded" and s["view"] == "finished" and s["finishedSession"]["id"] == a)
+    close_island()   # he glanced at it: it folds
+    wait_until("the Claude app pill gone 5.2 s after the Stop", lambda s: DESKTOP_PILL not in s["pills"], timeout=12)
+    time.sleep(max(0, first + 6 - time.monotonic()))
+    stop(b, "relances-clients", "Les relances sont prêtes.")
+    wait_until("the island open on the second session's finished view",
+               lambda s: s["mode"] == "expanded" and s["view"] == "finished" and s["finishedSession"]["id"] == b
+               and s["finishedSession"]["pill"] == DESKTOP_PILL and DESKTOP_PILL in s["pills"]
+               and phase(s, b) == "finished")
+    ok("13 two Claude app sessions: the second finishes 6 s after the first, once their shared pill left; "
+       "the island opens on it")
+
+
+def scenario_14_a_finish_under_a_permission_card(run):
+    """0.3.6, C2. Under the permission card of session A, session B of the same pill (the Claude app)
+    finishes: its row is finished, its end is held (house badge), and once A's card is answered, B's
+    finished view shows (0.3.5: silent, nothing held)."""
+    drain_held()
+    a, b = new_session(), new_session()
+    start_turn(a, "facturation-q3", "Prépare la facturation du trimestre")
+    start_turn(b, "veille-concurrence", "Fais la veille concurrentielle")
+    _, relay = permission_request(a, "facturation-q3", "npm run invoices", claude_app_env())
+    wait_until("A's permission card", lambda s: pending(relay, "A's permission") and s["view"] == "approval"
+               and s["pendingApproval"]["session"] == a)
+    stop(b, "veille-concurrence", "La veille est à jour.")
+    wait_until("B finished and held under A's card, the house tab marked",
+               lambda s: pending(relay, "A's permission") and phase(s, b) == "finished" and s["view"] == "approval"
+               and held(s, b, "finish") is not None and s["houseBadge"] == "finished" and s["houseCount"] == 1)
+    command({"klayer_kind": "e2e_decide", "decision": "allow"})
+    expect_output(relay, ALLOW_OUTPUT, "A's permission allowed")
+    wait_until("B's finished view once A's card left",
+               lambda s: s["pendingApproval"] is None and s["mode"] == "expanded" and s["view"] == "finished"
+               and s["finishedSession"]["id"] == b and held(s, b, "finish") is None)
+    ok("14 a session that finishes under another session's permission card is held, then its finished view "
+       "shows once the card is answered")
+
+
+def scenario_15_a_permission_that_times_out(run):
+    """0.3.6, C3 and C4. A permission of the Claude app nobody answers in the island: at its timeout
+    (20 s in the test build, 115 s shipped) the relay gets no decision and Claude Code asks in the app.
+    The row stays « Attend ton accord », and after « Still waiting in Claude. » the island shows « Une
+    autorisation t'attend dans l'app Claude » (0.3.5: the row said working, nothing was kept). Once the
+    session's tool runs (answered in the app), the row goes on."""
+    drain_held()
+    sid, project = new_session(), "migration-base"
+    name = "Migre la base clients"
+    start_turn(sid, project, name)
+    payload, relay = permission_request(sid, project, "npm run migrate", claude_app_env())
+    wait_until("the permission card", lambda s: pending(relay, "the permission") and s["view"] == "approval"
+               and s["pendingApproval"]["session"] == sid)
+    code, out = relay.finish(30, "the permission at its timeout")
+    if code != 0 or out != "":
+        raise Failure("at the timeout nb-hook exited %d and printed %r; expected exit 0 and no output" % (code, out))
+    wait_until("the held alert after « Still waiting in Claude. », the row still waiting",
+               lambda s: s["pendingApproval"] is None and s["mode"] == "expanded" and s["view"] == "note"
+               and s["claudeAppAlert"] is not None
+               and s["claudeAppAlert"]["message"] == "Une autorisation t'attend dans l'app Claude : %s" % name
+               and phase(s, sid) == "approval" and session(s, sid)["detail"] == "Attend ton accord : exécute npm run migrate",
+               timeout=10)
+    fire(hook_input(sid, "PostToolUse", project, tool_name="Bash", tool_input=payload["tool_input"],
+                    tool_response={"stdout": "ok"}), claude_app_env(), "PostToolUse")
+    wait_until("the row working once the tool ran", lambda s: phase(s, sid) == "working" and held(s, sid, "note") is None)
+    ok("15 a permission that times out keeps its row on « Attend ton accord » and shows « Une autorisation "
+       "t'attend dans l'app Claude » after its note; the row goes on when the tool runs")
+
+
+def scenario_16_a_question_steps_aside(run):
+    """0.3.6, I1. A question card of the Claude app steps aside when the Claude app comes to the front:
+    the question goes back to the app at once (« ask »: the relay prints nothing and exits), since its
+    hook holds the tool; the row stays on the question until the session's next tool event."""
+    drain_held()
+    sid, project = new_session(), "atelier-produit"
+    start_turn(sid, project, "Prépare l'atelier produit")
+    question = "Quel format pour l'atelier ?"
+    questions = [{"question": question, "header": "Format", "multiSelect": False, "options": [
+        {"label": "Demi-journée", "description": "4 heures"}, {"label": "Journée", "description": "8 heures"}]}]
+    payload = hook_input(sid, "PreToolUse", project, tool_name="AskUserQuestion", tool_input={"questions": questions},
+                         tool_use_id="toolu_e2e_%s" % sid[:8])
+    relay = Relay(payload, claude_app_env(), args=("--ask",))
+    wait_until("the question card", lambda s: pending(relay, "the question") and s["mode"] == "expanded"
+               and s["view"] == "question" and phase(s, sid) == "question")
+    choices_before = read_state()["choices"]
+    command({"klayer_kind": "e2e_activate", "bundle_id": CLAUDE_APP})
+    expect_fall_through(relay, "the question handed back to the Claude app")
+    wait_until("the island folded, the question back in the app, the row still on the question",
+               lambda s: s["mode"] != "expanded" and s["pendingQuestion"] is None and phase(s, sid) == "question"
+               and s["choices"] == choices_before)
+    fire(hook_input(sid, "PreToolUse", project, tool_name="Read", tool_input={"file_path": "/tmp/atelier.md"}),
+         claude_app_env(), "PreToolUse")
+    wait_until("the row working on its next tool", lambda s: phase(s, sid) == "working")
+    ok("16 a question card that steps aside goes back to the Claude app at once (nb-hook asks), its row "
+       "stays on the question until the next tool")
+
+
+def scenario_17_held_items_show_one_after_the_other(run):
+    """0.3.6, C5 and I8. The chat open, a VS Code session finishes and a Claude app session asks a
+    permission: both are held (the house tab counts 2). The chat closed, the newest shows; a finish of
+    another Claude app session replaces that note, which goes back into the hold; then each fold shows
+    the next one, until none is left (0.3.5 kept one alert, and nothing for a VS Code finish)."""
+    drain_held()
+    v, b, c = new_session(), new_session(), new_session()
+    fire(hook_input(v, "SessionStart", "site-vitrine", source="startup"), vscode_env(), "SessionStart")
+    wait_until("the VS Code session in the list", lambda s: phase(s, v) is not None)
+    fire(hook_input(v, "UserPromptSubmit", "site-vitrine", prompt="Corrige le pied de page"), vscode_env(), "UserPromptSubmit")
+    start_turn(b, "contrats-cadres", "Relis les contrats cadres")
+    start_turn(c, "tableau-de-bord", "Mets à jour le tableau de bord")
+    command({"klayer_kind": "e2e_shortcut", "action": "openChat"})
+    wait_until("the chat open", lambda s: s["mode"] == "expanded" and s["view"] == "prompt")
+    fire(hook_input(v, "Stop", "site-vitrine", stop_hook_active=False, last_assistant_message="Le pied de page est corrigé."),
+         vscode_env(), "Stop of the VS Code session")
+    wait_until("the VS Code finish held", lambda s: held(s, v, "finish") is not None)
+    fire(hook_input(b, "Notification", "contrats-cadres", message="Claude needs your permission to use Bash",
+                    notification_type="permission_prompt"), claude_app_env(), "Notification")
+    wait_until("both held, the chat still open, the house tab counting 2",
+               lambda s: s["view"] == "prompt" and [h["session"] for h in s["held"]] == [b, v]
+               and s["houseCount"] == 2 and s["houseBadge"] == "approval")
+    close_island()   # the chat folds: the island frees
+    wait_until("B's note first (the newest)", lambda s: s["mode"] == "expanded" and s["view"] == "note"
+               and s["claudeAppAlert"]["message"] == "Une autorisation t'attend dans l'app Claude : Relis les contrats cadres")
+    stop(c, "tableau-de-bord", "Le tableau de bord est à jour.")
+    wait_until("C's finished view in place of B's note, B's note back in the hold",
+               lambda s: s["view"] == "finished" and s["finishedSession"]["id"] == c
+               and [h["session"] for h in s["held"]] == [b, v])
+    close_island()
+    wait_until("B's note again", lambda s: s["mode"] == "expanded" and s["view"] == "note"
+               and s["claudeAppAlert"]["message"].endswith("Relis les contrats cadres"))
+    close_island()
+    wait_until("then the VS Code session's finished view", lambda s: s["mode"] == "expanded" and s["view"] == "finished"
+               and s["finishedSession"]["id"] == v and s["finishedSession"]["pill"] == CODE_PILL)
+    close_island()
+    wait_until("nothing held any more", lambda s: s["held"] == [] and s["houseCount"] == 0)
+    ok("17 what the busy island held shows one item after the other once it frees (a Claude app permission, a "
+       "VS Code finish); a note that asks, replaced by a finish, goes back into the hold")
 
 
 def scroll_home(fraction):
@@ -855,6 +1020,11 @@ SCENARIOS = [
     scenario_9_session_name,
     scenario_10_card_steps_aside,
     scenario_11_vscode_card_steps_aside,
+    scenario_13_a_second_finish_after_the_pill_left,
+    scenario_14_a_finish_under_a_permission_card,
+    scenario_15_a_permission_that_times_out,
+    scenario_16_a_question_steps_aside,
+    scenario_17_held_items_show_one_after_the_other,
     scenario_12_full_home_opens_and_closes,
 ]
 

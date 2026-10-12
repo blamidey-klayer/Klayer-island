@@ -23,6 +23,9 @@ enum HookRoutingTests {
             ("a_card_keeps_its_pill_after_a_stop", aCardKeepsItsPillAfterAStop),
             ("a_pill_that_moved_on_is_left_alone_after_a_stop", aPillThatMovedOnIsLeftAloneAfterAStop),
             ("the_desktop_pill_waits_for_its_finished_view", theDesktopPillWaitsForItsFinishedView),
+            ("a_stop_on_a_removed_desktop_pill_still_opens", aStopOnARemovedDesktopPillStillOpens),
+            ("only_the_claude_app_pill_is_put_back", onlyTheClaudeAppPillIsPutBack),
+            ("the_socket_server_retries_after_an_accept_error", theSocketServerRetriesAfterAnAcceptError),
         ]
         for (name, run) in cases {
             run()
@@ -163,5 +166,43 @@ enum HookRoutingTests {
         precondition(HookRouting.stopCleanup(removesPill: true, cardWaits: false, showingFinished: true,
                                              stillFinished: false) == .again,
                      "the view on screen still needs its pill")
+    }
+
+    // MARK: - 0.3.6
+
+    // C1: every Code tab session shares the Claude app pill, which goes 5.2 s after a Stop or on any
+    // SessionEnd. A later Stop of another session must still open the island like the first: its end
+    // of turn, or a notification that asks something, puts the pill back first.
+    static func aStopOnARemovedDesktopPillStillOpens() {
+        for event in ["Stop", "StopFailure"] {
+            precondition(HookRouting.recreatesPill(event: event, agent: "claude-desktop", asks: false),
+                         "\(event) of a Claude app session puts its pill back")
+        }
+        precondition(HookRouting.recreatesPill(event: "Notification", agent: "claude-desktop", asks: true),
+                     "a notification that asks something: Klay takes its pose")
+        precondition(!HookRouting.recreatesPill(event: "Notification", agent: "claude-desktop", asks: false),
+                     "a notification that asks nothing brings nothing out")
+        for event in ["PostToolUse", "SessionEnd", "SubagentStop"] {
+            precondition(!HookRouting.recreatesPill(event: event, agent: "claude-desktop", asks: false), event)
+        }
+    }
+
+    // The Claude Code pill is the main pill, always loaded: nothing to put back for VS Code or a terminal.
+    static func onlyTheClaudeAppPillIsPutBack() {
+        for agent in ["", "codex", "Claude-Desktop"] {
+            precondition(!HookRouting.recreatesPill(event: "Stop", agent: agent, asks: false), agent)
+            precondition(!HookRouting.recreatesPill(event: "Notification", agent: agent, asks: true), agent)
+        }
+    }
+
+    // B1: the hook server never stops on an accept() error: an interruption or a connection aborted
+    // before it was accepted is retried at once, anything else (no descriptor left, no memory) after
+    // 100 ms, so the loop never spins.
+    static func theSocketServerRetriesAfterAnAcceptError() {
+        precondition(HookRouting.acceptRetryDelay(errno: EINTR) == 0)
+        precondition(HookRouting.acceptRetryDelay(errno: ECONNABORTED) == 0)
+        for error in [EMFILE, ENFILE, ENOMEM, ENOBUFS, EBADF, EINVAL] {
+            precondition(HookRouting.acceptRetryDelay(errno: error) == 0.1, "errno \(error)")
+        }
     }
 }

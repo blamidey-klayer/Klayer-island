@@ -49,6 +49,10 @@ struct SessionRow: Equatable, Identifiable {
     var hostBundleId: String? = nil
     var folder: String = ""
     var entrypoint: String? = nil
+    /// A notification of the Claude app put the row on approval or question (no card of it showed):
+    /// the row goes like an idle one, 30 min without an event (0.3.6, M5). False for a row its own
+    /// request put there (a card, or a request handed back to its app), which never goes on its own.
+    var askedByNotification = false
 
     /// The second line of the row (Task 27): what the session did last, in plain French. A permission
     /// says it waits, then for what (« Attend ton accord : exécute npm test »); a limit says so; with
@@ -175,10 +179,12 @@ struct SessionRoster {
     /// prompt, else by it (`title(of:folder:)`). A nil `lastAction` keeps the previous one (empty for
     /// a new row); a given one is cut to 80 characters. A nil `hostBundleId` or `entrypoint` keeps the
     /// one the session had (none for a new row). `prompt`: the prompt of a `UserPromptSubmit`, which
-    /// names the session when it is its first with words.
+    /// names the session when it is its first with words. `byNotification`: a notification of the
+    /// Claude app puts the row on approval or question (`SessionRow.askedByNotification`); the latest
+    /// update decides.
     mutating func update(sessionId: String, pillId: String, folder: String, phase: SessionPhase,
                          lastAction: String?, hostBundleId: String? = nil, entrypoint: String? = nil,
-                         prompt: String? = nil, at date: Date) {
+                         prompt: String? = nil, byNotification: Bool = false, at date: Date) {
         let previous = rows.first { $0.id == sessionId }
         let action: String
         if let lastAction {
@@ -194,7 +200,8 @@ struct SessionRoster {
         let row = SessionRow(id: sessionId, pillId: pillId, title: self.title(of: sessionId, folder: folder),
                              phase: phase, lastAction: action, updatedAt: date,
                              hostBundleId: hostBundleId ?? previous?.hostBundleId, folder: folder,
-                             entrypoint: entrypoint ?? previous?.entrypoint)
+                             entrypoint: entrypoint ?? previous?.entrypoint,
+                             askedByNotification: byNotification && (phase == .approval || phase == .question))
         rows.insert(row, at: rows.firstIndex { $0.updatedAt <= date } ?? rows.count)
     }
 
@@ -262,16 +269,18 @@ struct SessionRoster {
     /// Removes the rows nobody needs any more. A `finished` or `error` row stays until midnight of
     /// the day it ended, in `calendar` (the user's), and only the 10 most recent ends are kept. An
     /// `idle` row goes after 30 minutes without activity, a working one (`thinking`, `working`,
-    /// `searching`, `ratelimit`) after 2 hours, never an `approval` or a `question` (the user is
-    /// still expected to answer). The age counts from the row's last update, a row is pruned once
-    /// it reaches the limit. A clock set back (now before the row's date) removes nothing. The names
-    /// of the rows removed go too, and a name without a row 30 min after it was last noted.
+    /// `searching`, `ratelimit`) after 2 hours, an `approval` or a `question` never when its own
+    /// request put it there (the user is still expected to answer), after 30 minutes like an idle
+    /// row when a notification did (`askedByNotification`, 0.3.6). The age counts from the row's last
+    /// update, a row is pruned once it reaches the limit. A clock set back (now before the row's date)
+    /// removes nothing. The names of the rows removed go too, and a name without a row 30 min after it
+    /// was last noted.
     mutating func prune(now: Date, calendar: Calendar) {
         rows.removeAll { row in
             let silence = now.timeIntervalSince(row.updatedAt)
             switch row.phase {
             case .approval, .question:
-                return false
+                return row.askedByNotification && silence >= Self.idleLifetime
             case .finished, .error:
                 // The end of its day: midnight, wherever the clocks change that day.
                 guard let midnight = calendar.dateInterval(of: .day, for: row.updatedAt)?.end else { return false }

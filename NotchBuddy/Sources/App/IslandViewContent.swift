@@ -2334,6 +2334,9 @@ private struct StatRow: View {
 struct PillBadgeView: View {
     let badge: PillBadge
     let taskColor: String
+    /// From 2 on, the number of items the badge stands for replaces its mark (the house tab's held
+    /// items, 0.3.6); the same disc and colour.
+    var count: Int = 0
 
     private var badgeColor: Color {
         switch badge {
@@ -2359,9 +2362,16 @@ struct PillBadgeView: View {
             Circle()
                 .fill(badgeColor)
                 .frame(width: 12, height: 12)
-            Image(systemName: icon)
-                .font(.system(size: 6, weight: .bold))
-                .foregroundColor(.black)
+            if count >= 2 {
+                // 5 at most (ClaudeAppAlertHold.limit): one digit.
+                Text(verbatim: "\(count)")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.black)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 6, weight: .bold))
+                    .foregroundColor(.black)
+            }
         }
         .shadow(color: badgeColor.opacity(0.6), radius: 4, x: 0, y: 0)
     }

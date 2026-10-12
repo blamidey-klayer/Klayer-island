@@ -45,6 +45,49 @@ def relay_source():
     return swift[start:end].replace("\\\\", "\\") + "\n"
 
 
+def wrapper_source():
+    """nbHookShellWrapper (the nb-hook shell script) as the app writes it, its escapes undone."""
+    swift = open(os.path.join(REPO, "NotchBuddy/Sources/App/HookServer.swift"), encoding="utf-8").read()
+    start_marker = 'private let nbHookShellWrapper = """\n'
+    start = swift.index(start_marker) + len(start_marker)
+    end = swift.index('\n"""', start)
+    return swift[start:end].replace("\\\\", "\\") + "\n"
+
+
+class HoldingIsland:
+    """A stub of the island holding a permission: it reads the request's line, answers nothing, and
+    notes when the relay's connection closes (EOF)."""
+
+    def __init__(self):
+        if os.path.exists(SOCK):
+            os.remove(SOCK)
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(SOCK)
+        self.server.listen(1)
+        self.got_request = threading.Event()
+        self.closed = threading.Event()
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        conn, _ = self.server.accept()
+        data = b""
+        while b"\n" not in data:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        self.got_request.set()
+        while conn.recv(65536):
+            pass
+        self.closed.set()
+        conn.close()
+
+    def close(self):
+        self.server.close()
+        if os.path.exists(SOCK):
+            os.remove(SOCK)
+
+
 class Island:
     """A stub of the island's socket: it keeps each JSON line it receives and answers {"ok":true}."""
 
@@ -270,7 +313,52 @@ def main():
     code, out, elapsed = run(json.dumps(event).encode(), [], {"CLAUDE_CODE_ENTRYPOINT": "claude-vscode"})
     check("island_away_an_event_exits_0_at_once", code == 0 and out == b"" and elapsed < 2.0,
           "exit %r, printed %r, %.2f s" % (code, out, elapsed))
+
+    # 0.3.6, I9: the nb-hook shell script execs python3. Claude Code ending the hook's process (the
+    # permission was answered in the Claude app) ends the relay itself, so the island sees its
+    # connection close at once and folds the card (« Handled in Claude. »). Before, python3 outlived
+    # the shell and the card stayed up to 115 s. xcode-select is stubbed: the script checks the
+    # Command Line Tools with it before running python3.
+    wrapper = os.path.abspath(os.path.join(SUPPORT, "nb-hook"))
+    open(wrapper, "w", encoding="utf-8").write(wrapper_source())
+    os.chmod(wrapper, 0o755)
+    stub_bin = os.path.abspath("stub-bin")
+    os.makedirs(stub_bin, exist_ok=True)
+    stub = os.path.join(stub_bin, "xcode-select")
+    open(stub, "w").write("#!/bin/sh\nexit 0\n")
+    os.chmod(stub, 0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("KLAYER_ISLAND_INTERNAL", "CLAUDE_CODE_ENTRYPOINT")}
+    env.update({"HOME": HOME, "PATH": stub_bin + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+                "CLAUDE_CODE_ENTRYPOINT": "claude-desktop"})
+    holding = HoldingIsland()
+    request = dict(event, hook_event_name="PermissionRequest", tool_name="Bash", tool_input={"command": "npm test"})
+    hook = subprocess.Popen([wrapper], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, cwd=WORK)
+    hook.stdin.write(json.dumps(request).encode())
+    hook.stdin.close()
+    reached = holding.got_request.wait(5)
+    waiting = hook.poll() is None
+    check("the_script_relays_a_permission_and_waits", reached and waiting,
+          "request reached the island: %r, nb-hook still waiting: %r" % (reached, waiting))
+    hook.terminate()   # SIGTERM to the hook's process only, not its group
+    closed = holding.closed.wait(2)
+    code = hook.wait(5)
+    printed = hook.stdout.read()
+    check("ending_the_hook_s_process_closes_the_island_s_connection", closed and printed == b"",
+          "connection closed within 2 s: %r, exit %r, printed %r" % (closed, code, printed))
+    holding.close()
+
+    # The island away: the script still exits 0 at once and prints nothing.
+    code, out, elapsed = run_wrapper(wrapper, json.dumps(event).encode(), env)
+    check("the_script_exits_0_at_once_without_the_island", code == 0 and out == b"" and elapsed < 2.0,
+          "exit %r, printed %r, %.2f s" % (code, out, elapsed))
     print("Hook relay: %d checks passed" % passed, flush=True)
+
+
+def run_wrapper(wrapper, stdin_bytes, env):
+    """One run of the nb-hook shell script: exit code, stdout, seconds it took."""
+    started = time.monotonic()
+    proc = subprocess.run([wrapper], input=stdin_bytes, capture_output=True, env=env, cwd=WORK, timeout=15)
+    return proc.returncode, proc.stdout, time.monotonic() - started
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ enum SessionRosterTests {
             ("last_action_kept_when_nil_and_capped_at_80", lastActionKeptWhenNilAndCappedAt80),
             ("end_removes_the_row", endRemovesTheRow),
             ("prune_keeps_waiting_rows", pruneKeepsWaitingRows),
+            ("a_row_a_notification_put_on_approval_goes_after_30_min", aRowANotificationPutOnApprovalGoesAfter30Min),
             ("visible_limit", visibleLimit),
             ("row_line_is_one_line_cut_with_an_ellipsis", rowLineIsOneLineCutWithAnEllipsis),
             ("finish_opens_a_hidden_or_compact_island", finishOpensAHiddenOrCompactIsland),
@@ -211,6 +212,35 @@ enum SessionRosterTests {
         precondition(ids(fresh).contains("w"), "a thinking row survives 119 minutes without activity")
         fresh.prune(now: at(minutes: 31 + 120), calendar: utc)
         precondition(!ids(fresh).contains("w"), "a thinking row goes after 2 hours without activity")
+    }
+
+    // 0.3.6, M5: a row a notification put on approval or question (the Claude app asks, no card) goes
+    // like an idle row, 30 min without an event: a session that vanished without SessionEnd leaves.
+    // A row its own request put there (a card, a request handed back to its app) still never goes.
+    static func aRowANotificationPutOnApprovalGoesAfter30Min() {
+        var roster = SessionRoster()
+        roster.update(sessionId: "n-approval", pillId: "agent_claude-desktop", folder: "N", phase: .approval,
+                      lastAction: nil, byNotification: true, at: at(minutes: 0))
+        roster.update(sessionId: "n-question", pillId: "agent_claude-desktop", folder: "Q", phase: .question,
+                      lastAction: "Attend ta réponse", byNotification: true, at: at(minutes: 0))
+        roster.update(sessionId: "card", pillId: "agent_claude-desktop", folder: "C", phase: .approval,
+                      lastAction: "Exécute npm test", at: at(minutes: 0))
+        precondition(roster.rows.first { $0.id == "n-approval" }?.askedByNotification == true)
+        precondition(roster.rows.first { $0.id == "card" }?.askedByNotification == false)
+        roster.prune(now: at(minutes: 29), calendar: utc)
+        precondition(Set(ids(roster)) == ["n-approval", "n-question", "card"], "29 min: all stay")
+        roster.prune(now: at(minutes: 30), calendar: utc)
+        precondition(ids(roster) == ["card"], "30 min: the notification rows go, got \(ids(roster))")
+        roster.prune(now: at(minutes: 24 * 60), calendar: utc)
+        precondition(ids(roster) == ["card"], "a request's own row still never goes")
+        // The latest update decides: a request of the session after the notification makes it its own.
+        var again = SessionRoster()
+        again.update(sessionId: "s", pillId: "agent_claude-desktop", folder: "S", phase: .approval,
+                     lastAction: nil, byNotification: true, at: at(minutes: 0))
+        again.update(sessionId: "s", pillId: "agent_claude-desktop", folder: "S", phase: .approval,
+                     lastAction: "Exécute make", at: at(minutes: 1))
+        again.prune(now: at(minutes: 60), calendar: utc)
+        precondition(ids(again) == ["s"], "its card's row: kept")
     }
 
     static func visibleLimit() {

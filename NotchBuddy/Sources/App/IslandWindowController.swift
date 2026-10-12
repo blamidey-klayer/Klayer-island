@@ -442,6 +442,7 @@ final class IslandWindowController: NSWindowController {
         // (a hover-opened island must not start its close timer while the pointer is on it).
         let previouslyInIsland = wasInIsland
         wasInIsland = inIsland
+        if state.pointerOnIsland != inIsland { state.pointerOnIsland = inIsland }
         if inIsland && !previouslyInIsland {
             guard !inAttachDrag else { return }
             // If in klayer: tell greeting to stay open (tc → infinity)
@@ -574,14 +575,14 @@ final class IslandWindowController: NSWindowController {
     /// Opens the island on `defaultView()` (hover, toggle hot key, go to alert). With a request
     /// pending, the card it opens on (the permission first) may not be the one on screen when the
     /// island folded: it is shown as a held request is, so its pill takes the focus, Klay the
-    /// request's pose, and the pill's badge goes (`HookServer.showHeldRequest`). With none, a Claude
-    /// app alert held while the island was busy opens in place of the home (ClaudeAppAlertHold); the
-    /// island then folds the way it opened.
+    /// request's pose, and the pill's badge goes (`HookServer.showHeldRequest`). With none, what the
+    /// busy island held (a Claude app alert, the end of a session) opens in place of the home on its
+    /// note or finished view (ClaudeAppAlertHold); the island then folds the way it opened.
     private func expandOnDefaultView() {
         if let request = Self.pendingRequest {
             HookServer.shared.showHeldRequest(request)
-        } else if state.showHeldClaudeAppAlert(inPlaceOf: defaultView(), announce: false) {
-            expand(to: .note)
+        } else if let held = state.showHeldItem(inPlaceOf: defaultView(), announce: false) {
+            expand(to: held)
             return
         }
         expand(to: defaultView())

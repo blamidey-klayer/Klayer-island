@@ -13,6 +13,7 @@ enum ApprovalSummaryTests {
             ("web_tools_show_the_url_or_the_query", webToolsShowTheURLOrTheQuery),
             ("grep_and_glob_show_the_pattern_and_the_path", grepAndGlobShowThePatternAndThePath),
             ("mcp_shows_server_tool_and_a_short_argument", mcpShowsServerToolAndAShortArgument),
+            ("an_mcp_command_is_shown_even_when_long", anMCPCommandIsShownEvenWhenLong),
             ("anything_else_shows_compact_json_cut_at_200", anythingElseShowsCompactJSONCutAt200),
             ("a_missing_field_falls_back_to_json", aMissingFieldFallsBackToJSON),
         ]
@@ -82,6 +83,35 @@ enum ApprovalSummaryTests {
               "claude_ai_Slack · slack_send_message", "no argument")
         check(ApprovalSummary.text(tool: "mcp__linear__save_issue", input: ["team": "  ", "title": "Ligne 1\nLigne 2"], cwd: cwd),
               "linear · save_issue · Ligne 1 Ligne 2", "blank strings skipped, on one line")
+    }
+
+    // 0.3.6, I3: his permissions for `mcp__terminal__run_in_terminal`. The card shows the command
+    // itself, however long (its first 120 characters with « … »), never another argument (the
+    // explanation, the folder); then a query, a URL, a path before any other argument.
+    static func anMCPCommandIsShownEvenWhenLong() {
+        let command = "npm run build -- --filter=contrats-fournisseurs-01 --report=ecarts-de-facturation && "
+            + String(repeating: "node scripts/verifie.js ", count: 5)
+        let long = String(command.prefix(200))
+        precondition(long.count == 200)
+        let text = ApprovalSummary.text(tool: "mcp__terminal__run_in_terminal",
+                                        input: ["command": long, "explanation": "Run the tests",
+                                                "cwd": "/Users/baptiste/Klayer-notif", "isBackground": false], cwd: cwd)
+        let shown = text.replacingOccurrences(of: "terminal · run_in_terminal · ", with: "")
+        precondition(text.hasPrefix("terminal · run_in_terminal · npm run build -- --filter"), "the command: « \(text) »")
+        precondition(shown.count == 120 && shown.hasSuffix("…") && long.hasPrefix(String(shown.dropLast())),
+                     "its first 119 characters and « … », got \(shown.count): « \(shown) »")
+        check(ApprovalSummary.text(tool: "mcp__terminal__run_in_terminal",
+                                   input: ["command": "npm test", "explanation": "Run the tests"], cwd: cwd),
+              "terminal · run_in_terminal · npm test", "a short command, not the explanation (key order)")
+        check(ApprovalSummary.text(tool: "mcp__terminal__run_in_terminal",
+                                   input: ["command": "swift build\nswift test", "cwd": "/tmp"], cwd: cwd),
+              "terminal · run_in_terminal · swift build swift test", "on one line, not the folder")
+        check(ApprovalSummary.text(tool: "mcp__db__run", input: ["cmd": "VACUUM", "args": "a"], cwd: cwd),
+              "db · run · VACUUM", "cmd")
+        check(ApprovalSummary.text(tool: "mcp__notion__search", input: ["filter": "pages", "query": "Roadmap"], cwd: cwd),
+              "notion · search · Roadmap", "a query before another argument")
+        check(ApprovalSummary.text(tool: "mcp__fetch__fetch", input: ["format": "md", "url": "https://klayer.ai"], cwd: cwd),
+              "fetch · fetch · https://klayer.ai", "a URL")
     }
 
     static func anythingElseShowsCompactJSONCutAt200() {

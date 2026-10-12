@@ -15,6 +15,14 @@ struct AXNodeSummary: Equatable, Sendable {
     let label: String
 }
 
+/// When the last hooks of Claude app sessions (Code tab, `klayer_agent: claude-desktop`) said the
+/// same as the watch would (HookServer keeps them): an end of turn (`stop`: Stop, StopFailure) and a
+/// permission (`permission`: a PermissionRequest, or a `permission_prompt` notification). Nil: none.
+struct CodeHookTimes: Equatable, Sendable {
+    var stop: Date? = nil
+    var permission: Date? = nil
+}
+
 /// What the watch tells the island.
 enum ClaudeAppEvent: Equatable, Sendable {
     /// A stop button seen at an earlier read is gone, the Claude app not in front.
@@ -201,13 +209,24 @@ enum ClaudeAppWatchRules {
     // MARK: The Code tab
 
     /// Seconds after a hook of a Claude app session (`klayer_agent: claude-desktop`) during which the
-    /// watch stays quiet: a Code tab session runs inside the Claude app, its stop and permission
-    /// buttons show there, and its hooks already tell the island.
+    /// watch stays quiet about the same kind of event (`quiet`): a Code tab session runs inside the
+    /// Claude app, its stop and permission buttons show there, and its hooks already tell the island.
     static let codeHookQuiet: TimeInterval = 15
 
     static func suppressedByCodeHook(lastHookAt: Date?, now: Date) -> Bool {
         guard let lastHookAt else { return false }
         return now.timeIntervalSince(lastHookAt) <= codeHookQuiet
+    }
+
+    /// Whether the watch keeps `event` quiet (0.3.6, I5): an answer's end only within 15 s of a Code
+    /// tab Stop or StopFailure, a permission only within 15 s of a Code tab permission (its request,
+    /// or its permission notification). Any other Code tab hook keeps nothing quiet: with sessions in
+    /// parallel one arrives every few seconds, and every Chat and Cowork alert was swallowed.
+    static func quiet(_ event: ClaudeAppEvent, times: CodeHookTimes?, now: Date) -> Bool {
+        switch event {
+        case .answerFinished:      return suppressedByCodeHook(lastHookAt: times?.stop, now: now)
+        case .permissionRequested: return suppressedByCodeHook(lastHookAt: times?.permission, now: now)
+        }
     }
 
     // MARK: The alert, the permission, the test launch
@@ -349,13 +368,14 @@ struct ClaudeAppWatchState: Equatable, Sendable {
         appFrontmost || (answerInProgress && unreadableStreak < ClaudeAppWatchRules.unreadableReadLimit)
     }
 
-    /// One read. `lastCodeHookAt`: the last hook of a Claude app session (Code tab); within 15 s
-    /// of it an event is consumed without an alert.
+    /// One read. `lastCodeHookAt`: the last hooks of Claude app sessions (Code tab) by kind; within
+    /// 15 s of a hook of the same kind an event is consumed without an alert (`ClaudeAppWatchRules.quiet`).
     mutating func observe(stopVisible: Bool, permissionVisible: Bool, appFrontmost: Bool, now: Date,
-                          lastCodeHookAt: Date? = nil) -> [ClaudeAppEvent] {
+                          lastCodeHookAt: CodeHookTimes? = nil) -> [ClaudeAppEvent] {
         self.appFrontmost = appFrontmost
         unreadableStreak = 0
-        let quiet = ClaudeAppWatchRules.suppressedByCodeHook(lastHookAt: lastCodeHookAt, now: now)
+        let quietPermission = ClaudeAppWatchRules.quiet(.permissionRequested, times: lastCodeHookAt, now: now)
+        let quietFinish = ClaudeAppWatchRules.quiet(.answerFinished, times: lastCodeHookAt, now: now)
         var events: [ClaudeAppEvent] = []
 
         // A permission prompt: once per appearance, and only when the user is elsewhere. One that
@@ -365,7 +385,7 @@ struct ClaudeAppWatchState: Equatable, Sendable {
             permissionAbsentReads = 0
             if !permissionSeen {
                 permissionSeen = true
-                if !appFrontmost && !quiet { events.append(.permissionRequested) }
+                if !appFrontmost && !quietPermission { events.append(.permissionRequested) }
             }
         } else if permissionSeen {
             permissionAbsentReads += 1
@@ -395,9 +415,9 @@ struct ClaudeAppWatchState: Equatable, Sendable {
             if let miss = pendingMiss {
                 // Gone at two reads in a row: the end. Nothing when either read was in front (the
                 // user saw it), when a permission prompt showed (Claude waits, it has not
-                // finished), or within 15 s of a Code tab hook at this confirming read.
+                // finished), or within 15 s of a Code tab Stop at this confirming read.
                 forgetAnswer()
-                if !miss.inFront && !appFrontmost && !miss.prompt && !permissionVisible && !quiet {
+                if !miss.inFront && !appFrontmost && !miss.prompt && !permissionVisible && !quietFinish {
                     events.append(.answerFinished)
                 }
             } else {

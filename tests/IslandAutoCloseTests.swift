@@ -4,6 +4,18 @@ import Foundation
 enum IslandAutoCloseTests {
     @MainActor
     static func main() async throws {
+        // 0.3.6, B2: « Close after » is a free number field. A value of 19 digits or more crashed the
+        // island at each opening (Int64 of it), and was kept: it is kept between 1 s and 1 h, a stored
+        // one repaired at launch. Not a number: the default 15 s.
+        precondition(IslandStateMachine.autoCloseRange == 1...3600)
+        precondition(IslandStateMachine.clampedAutoClose(99_999_999_999_999_999_999.0) == 3600)
+        precondition(IslandStateMachine.clampedAutoClose(.infinity) == 3600)
+        precondition(IslandStateMachine.clampedAutoClose(-5) == 1 && IslandStateMachine.clampedAutoClose(0) == 1)
+        precondition(IslandStateMachine.clampedAutoClose(.nan) == 15)
+        precondition(IslandStateMachine.clampedAutoClose(15) == 15 && IslandStateMachine.clampedAutoClose(2.5) == 2.5)
+        precondition(Int64(exactly: IslandStateMachine.clampedAutoClose(1e30).rounded()) == 3600, "Int64 never traps on it")
+        print("Auto-close setting kept between 1 s and 1 h")
+
         // A configured 2-second delay replaces the default 15 seconds.
         let configured = try await openedMachine(delay: 2)
         let start = DispatchTime.now().uptimeNanoseconds

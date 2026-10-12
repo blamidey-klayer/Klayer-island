@@ -145,6 +145,25 @@ extension HookServer {
         } else {
             reply["claudeAppAlert"] = NSNull()
         }
+        // 0.3.6: the pills loaded (the Claude app pill goes 5.2 s after a Stop), and what the busy
+        // island holds, newest first, with the house tab's badge and number.
+        reply["pills"] = state.tasks.map(\.id)
+        reply["held"] = state.claudeAppAlertHold.items.map { item -> [String: Any] in
+            let session: Any = item.sessionId ?? NSNull()
+            return ["kind": item.finished == nil ? "note" : "finish", "session": session,
+                    "message": item.message, "sound": item.sound]
+        }
+        if let failed = state.failedSession {
+            reply["failedSession"] = ["id": failed.id, "title": failed.title, "pill": failed.pillId]
+        } else {
+            reply["failedSession"] = NSNull()
+        }
+        if let badge = state.houseTabBadge {
+            reply["houseBadge"] = "\(badge)"
+        } else {
+            reply["houseBadge"] = NSNull()
+        }
+        reply["houseCount"] = state.houseTabCount
         return reply
     }
 

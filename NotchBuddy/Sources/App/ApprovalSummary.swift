@@ -15,7 +15,8 @@ enum ApprovalSummary {
     ///   it is inside the project.
     /// - WebFetch: the tool and the URL. WebSearch: the tool and the query.
     /// - Grep, Glob: the tool, the pattern and the path (relative when inside the project).
-    /// - MCP (`mcp__server__tool`): « server · tool », then its first short string argument.
+    /// - MCP (`mcp__server__tool`): « server · tool », then its command, query, URL or path (cut at
+    ///   120 characters), else its first short string argument.
     /// - Anything else, or an expected field missing: the tool and the compact JSON of its input,
     ///   cut at 200 characters. The tool alone when there is no input.
     static func text(tool: String, input: [String: Any], cwd: String) -> String {
@@ -58,13 +59,26 @@ enum ApprovalSummary {
         return rest.isEmpty ? path : rest
     }
 
-    /// « server · tool », then the first string argument (by key order) that fits on a short line.
+    /// The arguments an MCP card shows first, in this order: what runs or what is reached.
+    static let preferredKeys = ["command", "cmd", "script", "query", "url", "path", "file_path"]
+    /// Longest preferred argument shown, « … » included: the card wraps it.
+    static let longArgument = 120
+
+    /// « server · tool », then what the call runs or reaches: its command (`run_in_terminal`), script,
+    /// query, URL or path, cut at 120 characters with « … » however long (0.3.6, I3: a long command was
+    /// skipped and another argument shown in its place). Without one of them, the first string
+    /// argument (by key order) that fits on a short line.
     private static func mcp(tool: String, input: [String: Any]) -> String {
         let rest = String(tool.dropFirst("mcp__".count))
         let parts = rest.components(separatedBy: "__")
         let name = parts.count >= 2
             ? "\(parts[0]) · \(parts.dropFirst().joined(separator: "__"))"
             : rest
+        if let preferred = preferredKeys.lazy.compactMap({ (input[$0] as? String).map(oneLine) })
+            .first(where: { !$0.isEmpty }) {
+            let shown = preferred.count > longArgument ? String(preferred.prefix(longArgument - 1)) + "…" : preferred
+            return "\(name) · \(shown)"
+        }
         let argument = input.keys.sorted().lazy
             .compactMap { input[$0] as? String }
             .map { oneLine($0) }

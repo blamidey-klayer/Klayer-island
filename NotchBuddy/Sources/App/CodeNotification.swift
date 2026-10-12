@@ -99,6 +99,41 @@ enum CodeNotification {
 }
 
 
+/// How a permission or a question left the island (0.3.6, C3 and I1), and what that says about its
+/// session. Foundation only, tested by scripts/test-code-notification.sh.
+enum RequestExit: Equatable {
+    /// A button of its card answered it.
+    case answered
+    /// Answered in its app (its hook connection closed, its tool ran), or moot (the turn ended).
+    case handledElsewhere
+    /// « Répondre dans … » on its card: the user sent it back to its app himself.
+    case handedBack
+    /// Its card stepped aside when the session's app came to the front: a question goes back to that
+    /// app at once, since its `--ask` hook holds the tool until the island answers.
+    case steppedAside
+    /// Nobody answered in the island in time (115 s for a permission, 120 s for a question).
+    case timedOut
+    /// A newer request of the same kind took its card.
+    case displaced
+
+    /// The request still waits in its app: the session's row stays on approval or question (« Attend
+    /// ton accord : … ») until the session's next tool event, instead of going back to working.
+    var rowKeepsWaiting: Bool {
+        switch self {
+        case .handedBack, .steppedAside, .timedOut, .displaced: return true
+        case .answered, .handledElsewhere:                      return false
+        }
+    }
+
+    /// Whether the island keeps an alert for it (« Une autorisation t'attend dans l'app Claude : … »),
+    /// held until the session moves on: only for a session of the Claude app, and only when the user
+    /// did not send it there himself (a timeout, a newer request). VS Code and the terminal ask in
+    /// their own window, as before.
+    func holdsAlert(claudeAppSession: Bool) -> Bool {
+        claudeAppSession && (self == .timedOut || self == .displaced)
+    }
+}
+
 /// The sessions whose last end of turn the island showed: a Stop that opened the finished view, or a
 /// StopFailure that opened the error view. A finish that was only badged (a card waited, the chat or
 /// a mail draft was open, the island was pinned) was not shown, so the idle prompt that follows it
